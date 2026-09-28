@@ -1,14 +1,9 @@
 import type { NextConfig } from "next";
 
-const API_URL = process.env.API_URL ?? "http://localhost:4001";
-
+// Browser calls to /api/* are forwarded to the API server by
+// app/api/[...path]/route.ts, which reads API_URL at request time.
 const nextConfig: NextConfig = {
   transpilePackages: ["@accelerator/domain", "@accelerator/api-client"],
-  // Browser calls go to /api/* on the console and are proxied to the API
-  // server, so the browser never needs CORS or the API's address.
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API_URL}/api/:path*` }];
-  },
 };
 
 export default nextConfig;
