@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Strategic Machines tokens — the same family as strategicmachines.ai. Dark-first. */
+@theme {
+  --color-bg: #0a0a0c;
+  --color-panel: #121216;
+  --color-panel-2: #1b1b21;
+  --color-line: #26262e;
+  --color-line-2: #33333d;
+  --color-ink: #f3f3f6;
+  --color-fog: #a9a9b2;
+  --color-mist: #6f6f7b;
+  --color-violet: #7c5cfc;
+  --color-cyan: #22d3ee;
+  --color-gold: #c9a227;
+  --color-gold-2: #e4bf4a;
+  --color-on-gold: #17140a;
+  --color-good: #34d399;
+  --color-warn: #f5b843;
+  --color-bad: #f87171;
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-violet) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

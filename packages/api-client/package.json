@@ -1,0 +1,17 @@
+{
+  "name": "@accelerator/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@accelerator/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@accelerator/config": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

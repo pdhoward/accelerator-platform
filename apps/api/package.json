@@ -1,0 +1,28 @@
+{
+  "name": "@accelerator/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4001",
+    "build": "next build",
+    "start": "next start -p 4001",
+    "typecheck": "tsc -p . --noEmit",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "@accelerator/domain": "workspace:*",
+    "@supabase/supabase-js": "^2.117.2",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@accelerator/config": "workspace:*",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.2.18",
+    "dotenv-cli": "^11.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
