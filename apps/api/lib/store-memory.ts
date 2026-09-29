@@ -19,19 +19,21 @@ export function createMemoryStore(): AcceleratorStore {
     health: F.HEALTH,
   });
   const siteRequests = (siteId: string) => db.requests.filter((r) => r.siteId === siteId);
+  const demoCaller = (): Caller => {
+    const m = F.MEMBERS.find((x) => x.role === "operator")!;
+    return { memberId: m.id, orgId: F.ORG.id, role: m.role, name: m.name };
+  };
 
   return {
     kind: "memory",
 
-    async demoCaller(): Promise<Caller> {
-      const m = F.MEMBERS.find((x) => x.role === "operator")!;
-      return { memberId: m.id, orgId: F.ORG.id, role: m.role, name: m.name };
+    // Demo: everyone is the demo Operator of the one demo account.
+    async access(_identity, idOrSlug) {
+      const site = db.sites.find((s) => s.id === idOrSlug || s.slug === idOrSlug);
+      return site ? { site, caller: demoCaller(), status: "active" as const } : undefined;
     },
-    async sites(orgId) {
-      return db.sites.filter((s) => s.orgId === orgId);
-    },
-    async site(orgId, idOrSlug) {
-      return db.sites.find((s) => s.orgId === orgId && (s.id === idOrSlug || s.slug === idOrSlug));
+    async memberships() {
+      return [{ orgId: F.ORG.id, orgName: F.ORG.name, role: "operator" as const, status: "active" as const, sites: db.sites.map(({ id, slug, name, url }) => ({ id, slug, name, url })) }];
     },
 
     async bridge(site: Site) {

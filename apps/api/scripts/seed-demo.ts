@@ -44,12 +44,16 @@ async function main() {
   await run("delete org", sb.from("acc_orgs").delete().eq("name", F.ORG.name).select("id"));
 
   // 2. Org, members, site.
-  const org = await run<{ id: string }>("org", sb.from("acc_orgs").insert({ name: F.ORG.name, plan: F.ORG.plan }).select("id").single());
+  // Account #1 is boarded free (comped) with the platform owner as its Owner.
+  const org = await run<{ id: string }>(
+    "org",
+    sb.from("acc_orgs").insert({ name: F.ORG.name, plan: F.ORG.plan, status: "active", billing_mode: "comped" }).select("id").single(),
+  );
   const members = await run<{ id: string; name: string }[]>(
     "members",
     sb
       .from("acc_members")
-      .insert(F.MEMBERS.map((m) => ({ org_id: org.id, user_id: randomUUID(), name: m.name, role: m.role })))
+      .insert(F.MEMBERS.map((m) => ({ org_id: org.id, user_id: randomUUID(), name: m.name, email: m.email, role: m.role })))
       .select("id, name"),
   );
   const memberId = (name: string) => members.find((m) => m.name === name)?.id ?? null;
@@ -59,6 +63,12 @@ async function main() {
     sb.from("acc_sites").insert({ org_id: org.id, slug: s.slug, name: s.name, url: s.url, repo: s.repo, stack: s.stack, status: s.status }).select("id").single(),
   );
   const base = { org_id: org.id, site_id: site.id };
+
+  // Invite the platform owner(s) in as account Owner: the first sign-in accepts it.
+  const owners = (process.env.PLATFORM_ADMIN_EMAILS ?? "").split(/[,\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  if (owners.length) {
+    await run("owner invites", sb.from("acc_invites").insert(owners.map((email) => ({ org_id: org.id, email, role: "owner" }))).select("id"));
+  }
 
   // 3. Requests (permanent numbers kept).
   const reqs = await run<{ id: string; number: number }[]>(
@@ -236,7 +246,7 @@ async function main() {
       .select("model"),
   );
 
-  console.log(`Seeded "${F.ORG.name}" (${org.id}) with site ${s.slug} (${site.id}).`);
+  console.log(`Seeded "${F.ORG.name}" (${org.id}) with site ${s.slug} (${site.id}); owner invite: ${owners.join(", ") || "none (set PLATFORM_ADMIN_EMAILS)"}.`);
   console.log(
     `  ${members.length} members · ${reqs.length} requests · ${F.CHANGES.length} change · ${F.RELEASES.length} releases · ${docs.length} docs · ` +
       `${F.CONSULTATIONS.length} consultations · ${F.CONFIGURATION.env.length} env keys · ${F.SKILLS.length} skills`,

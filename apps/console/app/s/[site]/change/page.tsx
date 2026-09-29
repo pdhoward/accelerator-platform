@@ -10,7 +10,7 @@ export const metadata = { title: "Change Room" };
 /** Opens the change waiting on a person; otherwise lists every change. */
 export default async function ChangeIndexPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const changes = await serverApi().changes.list(site);
+  const changes = await (await serverApi()).changes.list(site);
   const waiting = changes.find((c) => c.stage === "try") ?? changes.find((c) => c.stage === "ship");
   if (waiting) redirect(`/s/${site}/change/${waiting.id}`);
 

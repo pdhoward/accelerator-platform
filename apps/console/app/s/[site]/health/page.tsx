@@ -1,5 +1,6 @@
 import type { Triage } from "@accelerator/domain";
 
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { LighthouseRunner } from "@/components/lighthouse-runner";
 import { EngineerOnly } from "@/components/ui-provider";
@@ -16,13 +17,13 @@ const TRIAGE: { id: Triage; label: string; body: string }[] = [
 
 export default async function HealthPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const h = await serverApi().health.get(site);
+  const [h, { can }] = await Promise.all([(await serverApi()).health.get(site), siteAccess(site)]);
   const at = TRIAGE.findIndex((t) => t.id === h.triage);
 
   return (
     <>
       <PageHeader title="Health" sub="How the site performs for visitors, and how healthy its code is to keep changing.">
-        <LighthouseRunner siteId={site} />
+        {can("request.create") && <LighthouseRunner siteId={site} />}
       </PageHeader>
       <Page>
         <Card>

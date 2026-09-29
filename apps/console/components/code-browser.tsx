@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { ChevronRight, FileCode2, Folder } from "lucide-react";
 import type { FileNode } from "@accelerator/domain";
 
-import { browserApi } from "@/lib/api";
+import { browserApi } from "@/lib/browser-api";
 import { cx } from "./ui";
 
 // Monaco (the VS Code editor) loads in the browser only.

@@ -4,12 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { UsageMeter } from "@accelerator/domain";
 
-import { browserApi } from "@/lib/api";
+import { browserApi } from "@/lib/browser-api";
 import { button } from "./ui";
 import { useUi } from "./ui-provider";
 
 /** Spend limits per model plus a daily cap. The runner refuses work past either. */
-export function LimitsForm({ meters, dailyCapUsd }: { meters: UsageMeter[]; dailyCapUsd: number }) {
+export function LimitsForm({ siteId, meters, dailyCapUsd }: { siteId: string; meters: UsageMeter[]; dailyCapUsd: number }) {
   const [cap, setCap] = useState(String(dailyCapUsd));
   const [limits, setLimits] = useState<Record<string, string>>(Object.fromEntries(meters.map((m) => [m.model, String(m.limitUsd)])));
   const [busy, setBusy] = useState(false);
@@ -20,7 +20,7 @@ export function LimitsForm({ meters, dailyCapUsd }: { meters: UsageMeter[]; dail
     e.preventDefault();
     setBusy(true);
     try {
-      await browserApi().account.setLimits({
+      await browserApi().account.setLimits(siteId, {
         dailyCapUsd: Number(cap),
         limits: Object.entries(limits).map(([model, v]) => ({ model, limitUsd: Number(v) })),
       });

@@ -1,3 +1,4 @@
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { SkillToggle } from "@/components/skill-toggle";
 import { ToastButton } from "@/components/ui-provider";
@@ -7,7 +8,7 @@ export const metadata = { title: "Skills" };
 
 export default async function SkillsPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const skills = await serverApi().skills.list(site);
+  const [skills, { can }] = await Promise.all([(await serverApi()).skills.list(site), siteAccess(site)]);
   const ours = skills.filter((s) => s.source === "strategic-machines");
   const custom = skills.filter((s) => s.source === "custom");
 
@@ -20,7 +21,7 @@ export default async function SkillsPage({ params }: { params: Promise<{ site: s
               <h3 className="text-[13.5px] font-semibold">{s.name}</h3>
               <span className="font-mono text-[11px] text-mist">v{s.version}</span>
             </div>
-            <SkillToggle siteId={site} skillId={s.id} name={s.name} enabled={s.enabled} />
+            <SkillToggle siteId={site} skillId={s.id} name={s.name} enabled={s.enabled} disabled={!can("skills.manage")} />
           </div>
           <p className="text-[12.5px] leading-snug text-fog">{s.description}</p>
           <div className="mt-auto flex flex-wrap gap-1.5">

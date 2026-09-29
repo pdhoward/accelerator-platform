@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { STAGE_LABEL } from "@accelerator/domain";
 
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { RequestCapture } from "@/components/request-capture";
 import { Card, CardBody, CardHead, Chip, cx, Page, PageHeader, STAGE_DOT } from "@/components/ui";
@@ -13,7 +14,7 @@ const PRIORITIES = ["now", "next", "later"] as const;
 export default async function RequestsPage({ params, searchParams }: { params: Promise<{ site: string }>; searchParams: Promise<{ p?: string }> }) {
   const { site } = await params;
   const { p } = await searchParams;
-  const all = await serverApi().requests.list(site);
+  const [all, { can }] = await Promise.all([(await serverApi()).requests.list(site), siteAccess(site)]);
   const filter = PRIORITIES.find((x) => x === p);
   const rows = filter ? all.filter((r) => r.priority === filter) : all;
 
@@ -21,7 +22,7 @@ export default async function RequestsPage({ params, searchParams }: { params: P
     <>
       <PageHeader title="Requests" sub="Everything anyone wants changed, triaged by the engine. Numbers are permanent." />
       <Page>
-        <RequestCapture siteId={site} />
+        {can("request.create") && <RequestCapture siteId={site} />}
         <Card>
           <CardHead title="Backlog">
             <nav className="inline-flex rounded-lg border border-line p-0.5" aria-label="Filter by priority">

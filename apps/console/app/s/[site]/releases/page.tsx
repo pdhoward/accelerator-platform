@@ -6,7 +6,7 @@ export const metadata = { title: "Releases" };
 
 export default async function ReleasesPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const releases = await serverApi().releases(site);
+  const releases = await (await serverApi()).releases(site);
 
   return (
     <>

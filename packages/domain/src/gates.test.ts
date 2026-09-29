@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canApprove, canShip, requiredGates } from "./gates";
 import { canMove } from "./loop";
+import { canPlatform, canSite } from "./permissions";
 import { backlogHalfLifeDays, budgetUsed, firstPassRate, median } from "./metrics";
 
 const green = [{ label: "tests", status: "pass" as const }];
@@ -60,4 +61,23 @@ describe("metrics", () => {
   it("computes first-pass rate", () => expect(firstPassRate([{ sendBacks: 0 }, { sendBacks: 1 }])).toBe(50));
   it("computes backlog half-life", () => expect(backlogHalfLifeDays(12, 0.7)).toBe(9));
   it("caps budget use at 100", () => expect(budgetUsed(900, 500)).toBe(100));
+});
+
+
+describe("permissions", () => {
+  it("lets platform staff view but not suspend", () => {
+    expect(canPlatform("staff", "platform.view")).toBe(true);
+    expect(canPlatform("staff", "accounts.suspend")).toBe(false);
+  });
+  it("reserves team management for the platform owner", () => {
+    expect(canPlatform("admin", "team.manage")).toBe(false);
+    expect(canPlatform("owner", "team.manage")).toBe(true);
+  });
+  it("denies everything without a platform role", () => expect(canPlatform(null, "platform.view")).toBe(false));
+  it("lets operators release to production but not testers", () => {
+    expect(canSite("operator", "release.ship")).toBe(true);
+    expect(canSite("tester", "release.ship")).toBe(false);
+  });
+  it("keeps billing with the account owner", () => expect(canSite("operator", "billing.manage")).toBe(false));
+  it("lets viewers only view", () => expect(canSite("viewer", "request.create")).toBe(false));
 });

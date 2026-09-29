@@ -6,6 +6,5 @@ const LANG: Record<string, string> = { ts: "typescript", tsx: "typescript", js: 
 export const GET = siteRoute(async ({ request, site }) => {
   const path = new URL(request.url).searchParams.get("path");
   if (!path || path.includes("..")) return fail("Pass a repository path.", 400);
-  const ext = path.split(".").pop() ?? "";
-  return json({ path, language: LANG[ext] ?? "plaintext", content: await store.codeFile(site.id, path) });
+  return json({ path, language: LANG[path.split(".").pop() ?? ""] ?? "plaintext", content: await store.codeFile(site.id, path) });
 });

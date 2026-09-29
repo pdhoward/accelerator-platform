@@ -1,3 +1,4 @@
+import { canSite } from "./permissions";
 import type { AutonomyLevel, EvidenceItem, Gate, RiskClass, Role } from "./types";
 
 /**
@@ -49,9 +50,8 @@ export function canShip(input: {
   return { canShip: blockers.length === 0, blockers };
 }
 
-/** Who may approve a change at all. Viewers never; Testers only the "try" gate. */
+/** Who may approve a change: the role must hold change.approve, and owner-gated risk needs the Owner. */
 export function canApprove(role: Role, risk: RiskClass[]): boolean {
-  if (role === "viewer") return false;
-  if (risk.some((r) => OWNER_GATED.includes(r))) return role === "owner";
-  return role === "owner" || role === "operator" || role === "tester";
+  if (!canSite(role, "change.approve")) return false;
+  return risk.some((r) => OWNER_GATED.includes(r)) ? role === "owner" : true;
 }

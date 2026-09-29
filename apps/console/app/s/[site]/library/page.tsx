@@ -19,7 +19,7 @@ const KIND_LABEL: Record<DocKind, string> = {
 export default async function LibraryPage({ params, searchParams }: { params: Promise<{ site: string }>; searchParams: Promise<{ doc?: string }> }) {
   const { site } = await params;
   const { doc: docId } = await searchParams;
-  const { docs, facts, drift } = await serverApi().library.list(site);
+  const { docs, facts, drift } = await (await serverApi()).library.list(site);
   const doc = docs.find((d) => d.id === docId) ?? docs[0];
 
   return (

@@ -1,4 +1,5 @@
 import type {
+  AccountStatus,
   Account,
   Bridge,
   Caller,
@@ -12,7 +13,9 @@ import type {
   Fact,
   FileNode,
   Health,
+  Identity,
   LighthouseScores,
+  Membership,
   Proof,
   Release,
   Site,
@@ -32,10 +35,12 @@ export type ApproveResult =
 export interface AcceleratorStore {
   readonly kind: "memory" | "supabase";
 
-  demoCaller(): Promise<Caller>;
-  sites(orgId: string): Promise<Site[]>;
-  /** Only returns a site that belongs to orgId. Accepts the site's id or slug. */
-  site(orgId: string, idOrSlug: string): Promise<Site | undefined>;
+  /**
+   * The site (by id or slug) if the identity is a member of its account: the
+   * site, the caller's role there, and the account's status. Otherwise undefined.
+   */
+  access(identity: Identity, idOrSlug: string): Promise<{ site: Site; caller: Caller; status: AccountStatus } | undefined>;
+  memberships(identity: Identity): Promise<Membership[]>;
 
   bridge(site: Site): Promise<Bridge>;
   requests(siteId: string): Promise<SiteRequest[]>;

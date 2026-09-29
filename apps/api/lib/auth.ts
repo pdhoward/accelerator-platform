@@ -1,15 +1,20 @@
-import type { Caller } from "@accelerator/domain";
+import type { Identity } from "@accelerator/domain";
 
-import { store } from "./store";
+import { identityFromToken } from "./identity";
+import { supabaseConfig } from "./supabase";
+
+/** The local, no-keys demo: everyone is the demo Operator (store-memory.ts). */
+export const DEMO_IDENTITY: Identity = { userId: "demo", email: "demo@local", platformRole: null };
+
+export const demoMode = () => !supabaseConfig();
 
 /**
- * Resolves who is calling. The tenant (orgId) ALWAYS comes from the
- * credential, never from anything the client sends.
- *
- * v0: no auth provider is wired yet, so every request is the demo Operator of
- * the demo org. When Supabase Auth lands, verify the Bearer JWT here and read
- * org_id + role from its claims (the ts-platform pattern).
+ * Who is calling. Only a verified Supabase access token (Authorization: Bearer)
+ * counts; accounts and roles are then read from the database, never from
+ * anything the client sends.
  */
-export async function resolveCaller(_request: Request): Promise<Caller> {
-  return store.demoCaller();
+export async function resolveIdentity(request: Request): Promise<Identity | null> {
+  if (demoMode()) return DEMO_IDENTITY;
+  const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  return token ? identityFromToken(token) : null;
 }

@@ -6,7 +6,7 @@ export const metadata = { title: "Data Desk" };
 
 export default async function DataDeskPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const { investigations, checks } = await serverApi().dataDesk(site);
+  const { investigations, checks } = await (await serverApi()).dataDesk(site);
 
   return (
     <>

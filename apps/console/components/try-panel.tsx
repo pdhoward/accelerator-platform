@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Change } from "@accelerator/domain";
 
-import { browserApi } from "@/lib/api";
+import { browserApi } from "@/lib/browser-api";
 import { button, Card, CardBody, CardHead } from "./ui";
 import { useUi } from "./ui-provider";
 
@@ -13,7 +13,7 @@ import { useUi } from "./ui-provider";
  * Approve unlocks only when every step is ticked; the API then applies the
  * gate policy and reports anything still blocking.
  */
-export function TryPanel({ siteId, change }: { siteId: string; change: Change }) {
+export function TryPanel({ siteId, change, canApprove }: { siteId: string; change: Change; canApprove: boolean }) {
   const [checked, setChecked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const { toast } = useUi();
@@ -62,14 +62,16 @@ export function TryPanel({ siteId, change }: { siteId: string; change: Change })
           <button type="button" className={button("plain", "flex-1")} onClick={() => toast("Sent back. Add a note or screenshot so the engine knows what to fix.")}>
             Send back
           </button>
-          <button type="button" className={button("gold", "flex-1")} disabled={!done || busy || approved} onClick={approve}>
+          <button type="button" className={button("gold", "flex-1")} disabled={!canApprove || !done || busy || approved} onClick={approve}>
             {approved ? "Approved" : busy ? "Approving…" : "Approve"}
           </button>
         </div>
         <span className="text-xs text-mist">
           {approved
             ? "Waiting for Go live on the Bridge."
-            : done
+            : !canApprove
+              ? "Your role can try this change but not approve it. The site owner approves money, data, auth and security changes."
+              : done
               ? "All checked. Approving moves it to Ship; going live still has undo."
               : `Tick the checklist to approve (${checked.length} of ${change.checklist.length}).`}
         </span>

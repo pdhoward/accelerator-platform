@@ -1,5 +1,6 @@
 import {
   canApprove,
+  type AccountStatus,
   canShip,
   type Change,
   type Consultation,
@@ -15,6 +16,7 @@ import {
 
 import * as F from "./fixtures";
 import type { AcceleratorStore } from "./store-types";
+import { memberships } from "./identity";
 import { db } from "./supabase";
 import { requestTitle, triage } from "./triage";
 
@@ -219,20 +221,25 @@ export function createSupabaseStore(): AcceleratorStore {
   return {
     kind: "supabase",
 
-    async demoCaller() {
-      // v0: no sign-in yet — act as the first Operator. Supabase Auth replaces this.
-      const m = await must<Row>(db().from("acc_members").select("*").eq("role", "operator").order("created_at").limit(1).single());
-      return { memberId: m.id, orgId: m.org_id as string, role: m.role as Role, name: m.name as string };
+    async access(identity, idOrSlug) {
+      const isUuid = /^[0-9a-f-]{36}$/i.test(idOrSlug);
+      const rows = await must<Row[]>(db().from("acc_sites").select("*").eq(isUuid ? "id" : "slug", idOrSlug).limit(1));
+      const site = rows[0];
+      if (!site) return undefined;
+      const [member, org] = await Promise.all([
+        must<Row[]>(db().from("acc_members").select("*").eq("org_id", site.org_id as string).eq("user_id", identity.userId).limit(1)),
+        must<Row>(db().from("acc_orgs").select("status").eq("id", site.org_id as string).single()),
+      ]);
+      const m = member[0];
+      if (!m) return undefined;
+      return {
+        site: toSite(site),
+        caller: { memberId: m.id, orgId: m.org_id as string, role: m.role as Role, name: m.name as string },
+        status: org.status as AccountStatus,
+      };
     },
 
-    async sites(orgId) {
-      return (await must<Row[]>(db().from("acc_sites").select("*").eq("org_id", orgId).order("created_at"))).map(toSite);
-    },
-    async site(orgId, idOrSlug) {
-      const isUuid = /^[0-9a-f-]{36}$/i.test(idOrSlug);
-      const rows = await must<Row[]>(db().from("acc_sites").select("*").eq("org_id", orgId).eq(isUuid ? "id" : "slug", idOrSlug).limit(1));
-      return rows[0] ? toSite(rows[0]) : undefined;
-    },
+    memberships: (identity) => memberships(identity.userId),
 
     async bridge(site) {
       const [requests, releases] = await Promise.all([requestsFor(site.id), releasesFor(site.id)]);

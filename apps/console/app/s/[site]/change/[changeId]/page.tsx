@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
-import { requiredGates } from "@accelerator/domain";
+import { canApprove, requiredGates } from "@accelerator/domain";
 import { ApiError } from "@accelerator/api-client";
 
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { Compare } from "@/components/compare";
 import { TryPanel } from "@/components/try-panel";
@@ -14,13 +15,14 @@ const GATE_LABEL = { try: "Someone tries it", "owner-approval": "Owner approves"
 
 export default async function ChangeRoomPage({ params }: { params: Promise<{ site: string; changeId: string }> }) {
   const { site, changeId } = await params;
-  const change = await serverApi()
+  const change = await (await serverApi())
     .changes.get(site, changeId)
     .catch((e) => {
       if (e instanceof ApiError && e.status === 404) notFound();
       throw e;
     });
   const gates = requiredGates(change);
+  const { role } = await siteAccess(site);
 
   return (
     <>
@@ -106,7 +108,7 @@ export default async function ChangeRoomPage({ params }: { params: Promise<{ sit
                 </EngineerOnly>
               </CardBody>
             </Card>
-            <TryPanel siteId={site} change={change} />
+            <TryPanel siteId={site} change={change} canApprove={canApprove(role, change.risk)} />
           </div>
         </div>
       </Page>

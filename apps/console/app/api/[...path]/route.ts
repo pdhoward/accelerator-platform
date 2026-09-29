@@ -7,6 +7,8 @@
  * forever (Vercel: DNS_HOSTNAME_RESOLVED_PRIVATE). Reading API_URL per request
  * matches how server components reach the API.
  */
+import { accessToken } from "@/lib/supabase";
+
 const API_URL = () => process.env.API_URL ?? "http://localhost:4001";
 
 async function forward(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
@@ -14,9 +16,12 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   const incoming = new URL(request.url);
   const target = `${API_URL()}/api/${path.map(encodeURIComponent).join("/")}${incoming.search}`;
 
+  // The user's session token rides along from the cookie; the browser never handles it.
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
+  const token = await accessToken();
+  if (token) headers.set("authorization", `Bearer ${token}`);
 
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
   try {

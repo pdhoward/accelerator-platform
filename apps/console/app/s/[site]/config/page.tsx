@@ -17,7 +17,7 @@ const CONN_TONE = { connected: "good", warning: "warn", missing: "bad" } as cons
 
 export default async function ConfigurationPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const cfg = await serverApi().configuration(site);
+  const cfg = await (await serverApi()).configuration(site);
   const problems = cfg.env.filter((e) => ENVS.some((env) => e.environments[env] === "missing" || e.environments[env] === "stale"));
 
   return (

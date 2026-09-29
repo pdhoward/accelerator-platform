@@ -1,17 +1,19 @@
 import { budgetUsed } from "@accelerator/domain";
 
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
+import { usd } from "@/lib/format";
 import { LimitsForm } from "@/components/limits-form";
 import { ToastButton } from "@/components/ui-provider";
 import { Bar, button, Card, CardBody, CardHead, Chip, Eyebrow, Page, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Account & usage" };
 
-const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n < 100 ? 2 : 0 });
 const millions = (n: number) => `${(n / 1_000_000).toFixed(1)}M`;
 
-export default async function AccountPage() {
-  const a = await serverApi().account.get();
+export default async function AccountPage({ params }: { params: Promise<{ site: string }> }) {
+  const { site } = await params;
+  const [a, { can }] = await Promise.all([(await serverApi()).account.get(site), siteAccess(site)]);
   const totalLimit = a.meters.reduce((s, m) => s + m.limitUsd, 0);
 
   return (
@@ -98,7 +100,11 @@ export default async function AccountPage() {
           <Card>
             <CardHead title="Limits" hint="Owner or Operator" />
             <CardBody>
-              <LimitsForm meters={a.meters} dailyCapUsd={a.dailyCapUsd} />
+              {can("limits.manage") ? (
+                <LimitsForm siteId={site} meters={a.meters} dailyCapUsd={a.dailyCapUsd} />
+              ) : (
+                <p className="text-[13px] text-fog">Only the Owner or an Operator can change spend limits.</p>
+              )}
             </CardBody>
           </Card>
         </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { HUMAN_STAGES, LOOP, STAGE_LABEL } from "@accelerator/domain";
 
+import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { ToastButton } from "@/components/ui-provider";
 import { Bar, button, Card, CardBody, CardHead, Chip, cx, Eyebrow, Page, PageHeader, Sparkline } from "@/components/ui";
@@ -18,17 +19,19 @@ const SEV = { good: "bg-good", warn: "bg-warn", bad: "bg-bad", info: "bg-cyan" }
 
 export default async function BridgePage({ params }: { params: Promise<{ site: string }> }) {
   const { site: slug } = await params;
-  const b = await serverApi().bridge(slug);
+  const [b, { me, can }] = await Promise.all([(await serverApi()).bridge(slug), siteAccess(slug)]);
   const g = b.gauges;
   const base = `/s/${slug}`;
 
   return (
     <>
       <PageHeader title="Bridge" sub="Is the site OK, what's moving, and what needs you.">
-        <Chip tone="warn" className="font-mono uppercase tracking-wider">Demo tenant</Chip>
-        <Link href={`${base}/requests`} className={button("gold")}>
-          + New request
-        </Link>
+        {me.mode === "demo" && <Chip tone="warn" className="font-mono uppercase tracking-wider">Demo tenant</Chip>}
+        {can("request.create") && (
+          <Link href={`${base}/requests`} className={button("gold")}>
+            + New request
+          </Link>
+        )}
       </PageHeader>
       <Page>
         <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-5">
@@ -97,7 +100,7 @@ export default async function BridgePage({ params }: { params: Promise<{ site: s
                         {o}
                       </ToastButton>
                     ))}
-                    {n.kind === "ship" && (
+                    {n.kind === "ship" && can("release.ship") && (
                       <ToastButton className={button("plain", "text-xs")} message="Going live. You'll get a note when it's verified on the live site.">
                         Go live
                       </ToastButton>

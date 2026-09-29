@@ -1,10 +1,14 @@
 import { redirect } from "next/navigation";
+import { ApiError } from "@accelerator/api-client";
 
-import { serverApi } from "@/lib/api";
+import { homeFor } from "@/lib/access";
+import { getMe } from "@/lib/api";
 
-/** Home: open the caller's first site's Control Room. */
+/** Home routes each person to the right place (see homeFor). */
 export default async function Home() {
-  const { sites } = await serverApi().me();
-  const first = sites[0];
-  redirect(first ? `/s/${first.slug}` : "/onboarding");
+  const me = await getMe().catch((err) => {
+    if (err instanceof ApiError && err.status === 401) redirect("/login?error=Your+session+has+ended.+Sign+in+again.");
+    throw err;
+  });
+  redirect(homeFor(me));
 }

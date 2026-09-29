@@ -6,7 +6,7 @@ export const metadata = { title: "Proof" };
 
 export default async function ProofPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const proof = await serverApi().proof(site);
+  const proof = await (await serverApi()).proof(site);
   const total = proof.suites.reduce((s, x) => s + x.tests, 0);
   const passed = proof.suites.reduce((s, x) => s + x.passed, 0);
   const ready = proof.verdict === "ready";

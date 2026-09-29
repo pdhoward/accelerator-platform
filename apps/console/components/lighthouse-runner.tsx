@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { browserApi } from "@/lib/api";
+import { browserApi } from "@/lib/browser-api";
 import { button } from "./ui";
 import { useUi } from "./ui-provider";
 

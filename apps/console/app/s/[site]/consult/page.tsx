@@ -19,7 +19,7 @@ const PIPELINE: { stage: ConsultationStage; label: string }[] = [
 
 export default async function ConsultPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const consultations = await serverApi().consultations(site);
+  const consultations = await (await serverApi()).consultations(site);
 
   return (
     <>

@@ -7,7 +7,7 @@ export const metadata = { title: "Code" };
 /** Engineer view: the repository with an embedded editor. Hidden from the nav unless Engineer view is on. */
 export default async function CodePage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const tree = await serverApi().code.tree(site);
+  const tree = await (await serverApi()).code.tree(site);
 
   return (
     <>

@@ -1,0 +1,54 @@
+import type { ReactNode } from "react";
+
+import { signOut } from "@/app/login/actions";
+
+/**
+ * The split-screen frame for every signed-out / setup screen: product
+ * statement on the left, the task on the right. One look, reused.
+ */
+export function AuthShell({ title, sub, children }: { title: string; sub?: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-screen lg:grid-cols-[1.1fr_1fr]">
+      <aside className="relative hidden flex-col justify-between overflow-hidden border-r border-line bg-panel p-12 lg:flex">
+        <div className="pointer-events-none absolute -left-32 -top-32 size-[520px] rounded-full bg-violet/20 blur-[120px]" aria-hidden />
+        <div className="pointer-events-none absolute -bottom-40 right-0 size-[420px] rounded-full bg-cyan/15 blur-[120px]" aria-hidden />
+        <div className="relative flex items-center gap-2.5">
+          <div className="grid size-8 place-items-center rounded-lg bg-[conic-gradient(from_210deg,var(--color-violet),var(--color-cyan),var(--color-violet))] text-sm font-bold text-white" aria-hidden>
+            A
+          </div>
+          <span className="font-semibold tracking-tight">The Accelerator</span>
+        </div>
+        <div className="relative max-w-md">
+          <h1 className="text-4xl font-semibold leading-tight tracking-tight">
+            Hands off the code.
+            <br />
+            <span className="bg-gradient-to-r from-violet to-cyan bg-clip-text text-transparent">Hands on the controls.</span>
+          </h1>
+          <p className="mt-4 text-fog">Your site, run from one Control Room: requests, proof, data and releases, with evidence for every change.</p>
+        </div>
+        <p className="relative text-xs text-mist">Strategic Machines · invite-only</p>
+      </aside>
+      <main className="flex items-center justify-center px-6 py-12">
+        <div className="w-full max-w-sm">
+          <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
+          {sub && <p className="mt-1.5 text-[13.5px] text-fog">{sub}</p>}
+          <div className="mt-7">{children}</div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export const fieldClass =
+  "w-full rounded-xl border border-line-2 bg-panel-2 px-3.5 py-2.5 text-ink placeholder:text-mist focus:border-violet focus:outline-none";
+
+/** "Sign out" as a quiet text button, for the setup and dead-end screens. */
+export function SignOutLink({ label = "Sign out" }: { label?: string }) {
+  return (
+    <form action={signOut}>
+      <button type="submit" className="text-[12.5px] text-mist hover:text-ink">
+        {label}
+      </button>
+    </form>
+  );
+}

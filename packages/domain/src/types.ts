@@ -6,6 +6,13 @@
 // ── Tenancy ───────────────────────────────────────────────────────────────
 export type Role = "owner" | "operator" | "tester" | "viewer";
 
+/** Platform staff roles (Platform Admin area). */
+export type PlatformRole = "owner" | "admin" | "staff";
+
+export type AccountStatus = "invited" | "onboarding" | "active" | "past_due" | "suspended" | "cancelled";
+
+export type BillingMode = "stripe" | "invoiced" | "comped";
+
 export type Member = { id: string; name: string; email: string; role: Role };
 
 export type Org = { id: string; name: string; plan: PlanId };
@@ -23,6 +30,27 @@ export type Site = {
 };
 
 export type Caller = { memberId: string; orgId: string; role: Role; name: string };
+
+/** A signed-in person, before any account is chosen. */
+export type Identity = { userId: string; email: string; platformRole: PlatformRole | null };
+
+export type Membership = {
+  orgId: string;
+  orgName: string;
+  role: Role;
+  status: AccountStatus;
+  sites: { id: string; slug: string; name: string; url: string }[];
+};
+
+/** GET /api/me — everything the console needs to route and render. */
+export type Me = {
+  identity: Identity | null;
+  profile: { mobileMasked: string | null; mobileVerified: boolean } | null;
+  memberships: Membership[];
+  /** "demo" when the API runs without a database (local, no keys). */
+  mode: "demo" | "live";
+  stage: "development" | "preview" | "production";
+};
 
 // ── The Loop ──────────────────────────────────────────────────────────────
 /** Capture → Clarify → Commit → Build → Prove → Try → Ship → Watch. */
@@ -321,3 +349,53 @@ export type Account = {
 
 // ── Code (Engineer view) ──────────────────────────────────────────────────
 export type FileNode = { name: string; path: string; type: "dir" | "file"; children?: FileNode[] };
+
+// ── Platform Admin ────────────────────────────────────────────────────────
+export type AdminAccountRow = {
+  id: string;
+  name: string;
+  status: AccountStatus;
+  plan: PlanId;
+  billingMode: BillingMode;
+  installFeeQuoteUsd: number | null;
+  mrrUsd: number;
+  members: number;
+  sites: number;
+  aiSpendMonthUsd: number;
+  openRequests: number;
+  createdAt: string;
+  lastActivityAt: string | null;
+};
+
+export type AdminOverview = {
+  accounts: Record<AccountStatus, number> & { total: number };
+  people: { members: number; platformStaff: number; openInvites: number };
+  work: { openRequests: number; changesInFlight: number };
+  aiSpendMonthUsd: number;
+  textsLast24h: { sent: number; suppressed: number; failed: number };
+  /** Present only for roles holding revenue.view. */
+  revenue?: { mrrUsd: number; arrUsd: number; installFeesQuotedUsd: number; grossMarginMonthUsd: number };
+};
+
+export type AuditEntry = { id: number; at: string; actorEmail: string | null; action: string; orgId: string | null; orgName: string | null; detail: Record<string, unknown> };
+
+export type AdminAccountDetail = AdminAccountRow & {
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  people: { id: string; name: string; email: string | null; role: Role }[];
+  invites: { id: string; email: string; role: Role; createdAt: string }[];
+  siteList: { id: string; slug: string; name: string; url: string }[];
+  audit: AuditEntry[];
+};
+
+export type PlatformStaff = { userId: string; email: string; role: PlatformRole; addedAt: string };
+
+export type NewAccountInput = {
+  name: string;
+  siteName: string;
+  siteUrl: string;
+  plan: PlanId;
+  billingMode: BillingMode;
+  installFeeQuoteUsd?: number;
+  ownerEmail: string;
+};
