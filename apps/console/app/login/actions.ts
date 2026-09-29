@@ -10,7 +10,7 @@ import { serverSupabase } from "@/lib/supabase";
  * Sign-in and first-sign-in actions. The API decides who may enter and
  * checks codes; Supabase Auth holds the session (cookies).
  */
-export type ActionResult = { ok: boolean; message?: string; masked?: string };
+export type ActionResult = { ok: boolean; message?: string; masked?: string; inviteOnly?: boolean };
 
 async function origin() {
   const h = await headers();
@@ -20,7 +20,7 @@ async function origin() {
 export async function sendMagicLink(email: string, next?: string): Promise<ActionResult> {
   try {
     if (!(await publicApi().auth.precheck(email)).allowed) {
-      return { ok: false, message: "This Control Room is invite-only. Ask your administrator for an invite." };
+      return { ok: false, inviteOnly: true };
     }
     const redirectTo = `${await origin()}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`;
     const { error } = await (await serverSupabase()).auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });

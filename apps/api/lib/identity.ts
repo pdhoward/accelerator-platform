@@ -124,7 +124,7 @@ export async function startSmsSignIn(email: string) {
   const e = email.trim().toLowerCase();
   if (!(await mayStartSignIn(e))) throw new CodeError("This account is invite-only. Ask your administrator for an invite.");
   const { data } = await db().from("acc_profiles").select("mobile_e164, mobile_verified_at").eq("email", e).maybeSingle();
-  if (!data?.mobile_e164 || !data.mobile_verified_at) throw new CodeError("No verified mobile yet. Sign in with the email link first.");
+  if (!data?.mobile_e164 || !data.mobile_verified_at) throw new CodeError("Text sign-in starts once your mobile is verified. Use the email link this first time.");
   return issueCode({ email: e, mobile: data.mobile_e164, purpose: "sign_in" });
 }
 
