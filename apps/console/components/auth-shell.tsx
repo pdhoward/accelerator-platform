@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 
 import { CyclingWord } from "./cycling-word";
+import { Logo } from "./logo";
 
 const VERBS = ["manage", "design", "change", "validate", "inspect", "approve", "release", "govern", "improve"] as const;
 
@@ -17,9 +18,7 @@ export function AuthShell({ title, sub, children }: { title: string; sub?: strin
         <div className="pointer-events-none absolute -left-32 -top-32 size-[520px] rounded-full bg-violet/20 blur-[120px]" aria-hidden />
         <div className="pointer-events-none absolute -bottom-40 right-0 size-[420px] rounded-full bg-cyan/15 blur-[120px]" aria-hidden />
         <div className="relative flex items-center gap-2.5">
-          <div className="grid size-8 place-items-center rounded-lg bg-[conic-gradient(from_210deg,var(--color-violet),var(--color-cyan),var(--color-violet))] text-sm font-bold text-white" aria-hidden>
-            A
-          </div>
+          <Logo size={32} />
           <span className="font-semibold tracking-tight">The Accelerator</span>
         </div>
         <div className="relative max-w-lg">
@@ -36,6 +35,9 @@ export function AuthShell({ title, sub, children }: { title: string; sub?: strin
       </aside>
       <main className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
+          <div className="mb-8 lg:hidden">
+            <Logo size={36} />
+          </div>
           <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
           {sub && <p className="mt-1.5 text-[13.5px] text-fog">{sub}</p>}
           <div className="mt-7">{children}</div>

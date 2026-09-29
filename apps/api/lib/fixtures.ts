@@ -457,7 +457,7 @@ export const SKILLS: Skill[] = [
 
 export const ACCOUNT: Account = {
   org: ORG,
-  plan: { id: "operate", name: "Operate", monthlyUsd: 9000, installFeeUsd: 45000, installPaid: true, renewsOn: "Oct 1, 2026" },
+  plan: { id: "operate", name: "Operate", monthlyUsd: 9000, installFeeUsd: 20000, installPaid: true, renewsOn: "Oct 1, 2026" },
   card: { brand: "Visa", last4: "4242", expires: "08/28" },
   invoices: [
     { id: "inv_003", date: "Sep 1, 2026", description: "Operate · September", amountUsd: 9000, status: "paid" },

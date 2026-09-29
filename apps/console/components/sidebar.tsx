@@ -27,6 +27,7 @@ import {
 
 import { signOut } from "@/app/login/actions";
 
+import { Logo } from "./logo";
 import { cx } from "./ui";
 import { useUi } from "./ui-provider";
 
@@ -83,9 +84,7 @@ export function AppSidebar({
   return (
     <aside className="flex flex-col gap-4 border-b border-line bg-panel px-3.5 py-4 lg:sticky lg:top-0 lg:h-screen lg:w-[236px] lg:shrink-0 lg:border-b-0 lg:border-r">
       <Link href="/" className="flex items-center gap-2.5 px-1.5">
-        <div className="grid size-7 place-items-center rounded-lg bg-[conic-gradient(from_210deg,var(--color-violet),var(--color-cyan),var(--color-violet))] text-xs font-bold text-white" aria-hidden>
-          A
-        </div>
+        <Logo size={28} />
         <div className="leading-tight">
           <div className="font-semibold tracking-tight">{title}</div>
           <div className="text-[11px] text-mist">The Accelerator</div>
