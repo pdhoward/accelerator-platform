@@ -4,7 +4,7 @@ import { isProduction } from "./env";
  * The one SMS seam. A single Twilio client, pointed at a base URL:
  *   production           → https://api.twilio.com (needs TWILIO_* keys; fails loudly without them)
  *   outside production   → TWILIO_API_BASE = the Twilio emulator
- *                          (`npx emulate --service twilio`, inspector at http://localhost:4013)
+ *                          (`npx emulate start --service twilio --port 4013`)
  *                          — or, with no emulator (e.g. on Vercel), the text is suppressed
  *                          and the team signs in with reserve codes.
  * Same request either way, so what passes against the emulator is what runs live.
