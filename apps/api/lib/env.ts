@@ -13,6 +13,22 @@ export function stage(): Stage {
 
 export const isProduction = () => stage() === "production";
 
+/**
+ * Local vs deployed URLs. Vercel sets VERCEL=1 on every deployment, so one
+ * env file can hold both: NAME_LOCAL on the laptop, NAME_DEPLOYED on Vercel.
+ */
+export const onVercel = () => !!process.env.VERCEL;
+
+export function localOrDeployed(name: string, localDefault: string): string {
+  if (!onVercel()) return process.env[`${name}_LOCAL`] ?? localDefault;
+  const url = process.env[`${name}_DEPLOYED`];
+  if (!url) throw new Error(`${name}_DEPLOYED is not set on this Vercel project.`);
+  return url;
+}
+
+/** Where sign-in links send people: the Control Room. */
+export const consoleUrl = () => localOrDeployed("CONSOLE_URL", "http://localhost:4000").replace(/\/$/, "");
+
 const emails = (value?: string) =>
   (value ?? "")
     .split(/[,\s]+/)

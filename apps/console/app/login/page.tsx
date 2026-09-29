@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { AuthShell } from "@/components/auth-shell";
-import { appStage, authEnabled } from "@/lib/supabase";
+import { appStage } from "@/lib/env";
+import { authEnabled } from "@/lib/supabase";
 
 import { LoginForm } from "./login-form";
 

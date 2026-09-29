@@ -16,7 +16,7 @@ const CONSENT =
 export function MobileForm({ current }: { current: string | null }) {
   const [mobile, setMobile] = useState("");
   const [consent, setConsent] = useState(false);
-  const [masked, setMasked] = useState<string | null>(null);
+  const [sent, setSent] = useState<{ masked?: string; suppressed?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -28,7 +28,7 @@ export function MobileForm({ current }: { current: string | null }) {
     const res = await startMobile(mobile, CONSENT);
     setBusy(false);
     if (!res.ok) return setError(res.message ?? "Couldn't send a code.");
-    setMasked(res.masked ?? null);
+    setSent({ masked: res.masked, suppressed: res.suppressed });
   }
 
   async function verify(code: string) {
@@ -39,7 +39,16 @@ export function MobileForm({ current }: { current: string | null }) {
     return null;
   }
 
-  if (masked) return <CodeStep masked={masked} onVerify={verify} onResend={() => send()} onBack={() => setMasked(null)} />;
+  if (sent)
+    return (
+      <CodeStep
+        masked={sent.masked}
+        suppressed={sent.suppressed}
+        onVerify={verify}
+        onResend={sent.suppressed ? undefined : () => send()}
+        onBack={() => setSent(null)}
+      />
+    );
 
   return (
     <form onSubmit={send} className="flex flex-col gap-3">

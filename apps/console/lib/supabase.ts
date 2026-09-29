@@ -32,5 +32,3 @@ export async function accessToken(): Promise<string | null> {
   const { data } = await (await serverSupabase()).auth.getSession();
   return data.session?.access_token ?? null;
 }
-
-export const appStage = () => (process.env.APP_STAGE === "production" ? "production" : process.env.APP_STAGE === "preview" ? "preview" : "development");

@@ -66,12 +66,13 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
 
     auth: {
       precheck: (email: string) => post<{ allowed: boolean }>("/auth/precheck", { email }),
-      smsStart: (email: string) => post<{ masked: string }>("/auth/sms/start", { email }),
+      emailStart: (email: string, next?: string) => post<{ sent: true }>("/auth/email/start", { email, next }),
+      smsStart: (email: string) => post<{ masked: string; suppressed: boolean }>("/auth/sms/start", { email }),
       smsVerify: (email: string, code: string) => post<{ tokenHash: string }>("/auth/sms/verify", { email, code }),
     },
 
     profile: {
-      startMobile: (mobile: string, consentText: string) => post<{ masked: string }>("/profile/mobile", { mobile, consentText }),
+      startMobile: (mobile: string, consentText: string) => post<{ masked: string; suppressed: boolean }>("/profile/mobile", { mobile, consentText }),
       verifyMobile: (code: string) => post<{ ok: true }>("/profile/mobile/verify", { code }),
     },
 

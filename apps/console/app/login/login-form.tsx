@@ -11,7 +11,7 @@ import { WAITLIST_URL } from "@/lib/links";
 
 import { sendMagicLink, sendSignInCode, verifySignInCode } from "./actions";
 
-type Step = { kind: "email" } | { kind: "link-sent" } | { kind: "code"; masked?: string; reserve?: boolean };
+type Step = { kind: "email" } | { kind: "link-sent" } | { kind: "code"; masked?: string; reserve?: boolean; suppressed?: boolean };
 
 /** Email → "Email me a link" or "Text me a code" → (code) → in. */
 export function LoginForm({ next, allowReserve }: { next?: string; allowReserve: boolean }) {
@@ -31,7 +31,7 @@ export function LoginForm({ next, allowReserve }: { next?: string; allowReserve:
     setBusy(null);
     if (res.inviteOnly) return setInviteOnly(true);
     if (!res.ok) return setError(res.message ?? "Couldn't continue.");
-    setStep(kind === "link" ? { kind: "link-sent" } : { kind: "code", masked: res.masked });
+    setStep(kind === "link" ? { kind: "link-sent" } : { kind: "code", masked: res.masked, suppressed: res.suppressed });
   }
 
   async function verify(code: string) {
@@ -59,8 +59,9 @@ export function LoginForm({ next, allowReserve }: { next?: string; allowReserve:
       <CodeStep
         masked={step.masked}
         reserve={step.reserve}
+        suppressed={step.suppressed}
         onVerify={verify}
-        onResend={step.reserve ? undefined : () => run("code")}
+        onResend={step.reserve || step.suppressed ? undefined : () => run("code")}
         onBack={() => setStep({ kind: "email" })}
       />
     );

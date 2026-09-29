@@ -1,7 +1,8 @@
 import type { Identity, Membership, PlatformRole, Role } from "@accelerator/domain";
 
 import { checkCode, CodeError, issueCode } from "./codes";
-import { devAllowlist, isProduction, platformAdminEmails } from "./env";
+import { consoleUrl, devAllowlist, isProduction, platformAdminEmails } from "./env";
+import { sendMail } from "./mail";
 import { maskPhone, toE164 } from "./phone";
 import { db } from "./supabase";
 
@@ -137,13 +138,58 @@ export async function finishSmsSignIn(email: string, code: string): Promise<{ to
   if (!(await mayStartSignIn(e)) || !(await checkCode({ email: e, purpose: "sign_in", code }))) {
     throw new CodeError("That code isn't right, or it has expired.");
   }
-  let link = await db().auth.admin.generateLink({ type: "magiclink", email: e });
+  return { tokenHash: await signInToken(e) };
+}
+
+/**
+ * A one-time Supabase sign-in token for an allowed email (the console
+ * exchanges it with verifyOtp({ type: "magiclink", token_hash })). Creates
+ * the auth user on a first sign-in.
+ */
+async function signInToken(email: string): Promise<string> {
+  let link = await db().auth.admin.generateLink({ type: "magiclink", email });
   if (link.error) {
-    // First sign-in by reserve code: the auth user may not exist yet.
-    await db().auth.admin.createUser({ email: e, email_confirm: true });
-    link = await db().auth.admin.generateLink({ type: "magiclink", email: e });
+    await db().auth.admin.createUser({ email, email_confirm: true });
+    link = await db().auth.admin.generateLink({ type: "magiclink", email });
   }
   const tokenHash = link.data?.properties?.hashed_token;
   if (!tokenHash) throw new Error(link.error?.message ?? "Couldn't create the sign-in session.");
-  return { tokenHash };
+  return tokenHash;
+}
+
+// ── Sign in with an emailed link ─────────────────────────────────────────────
+/**
+ * We send the link ourselves (lib/mail.ts), so it always points at our own
+ * Control Room URL, never at an address the request supplied.
+ */
+export async function sendEmailSignIn(email: string, next?: string) {
+  const e = email.trim().toLowerCase();
+  if (!(await mayStartSignIn(e))) throw new CodeError("This account is invite-only. Ask your administrator for an invite.");
+  const link = new URL(`${consoleUrl()}/auth/confirm`);
+  link.searchParams.set("token_hash", await signInToken(e));
+  if (next?.startsWith("/") && !next.startsWith("//")) link.searchParams.set("next", next);
+  await sendMail({
+    to: e,
+    subject: "Your sign-in link for the Control Room",
+    text: `Sign in to the Control Room:
+${link}
+
+The link works once and expires in 1 hour. If you didn't ask for it, ignore this email.`,
+    html: signInEmail(link.toString()),
+  });
+  return { sent: true };
+}
+
+const LOGO = "https://res.cloudinary.com/stratmachine/image/upload/w_96,h_96,c_fit,f_png/v1592332363/machine/icon-512x512_zaffp5.png";
+
+function signInEmail(link: string) {
+  return `<!doctype html><html><body style="margin:0;background:#f4f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#17171c">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px">
+<table role="presentation" width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;padding:36px">
+<tr><td><img src="${LOGO}" width="40" height="40" alt="Strategic Machines" style="border-radius:10px"></td></tr>
+<tr><td style="padding-top:24px;font-size:22px;font-weight:600">Sign in to the Control Room</td></tr>
+<tr><td style="padding-top:8px;font-size:15px;line-height:1.5;color:#55555f">Click the button to sign in. The link works once and expires in 1 hour.</td></tr>
+<tr><td style="padding-top:28px"><a href="${link}" style="display:inline-block;background:#c9a227;color:#17140a;font-weight:600;font-size:15px;text-decoration:none;padding:12px 22px;border-radius:10px">Sign in</a></td></tr>
+<tr><td style="padding-top:28px;font-size:13px;line-height:1.5;color:#8a8a94">If you didn't ask for this, ignore this email; nobody can sign in without the link.<br>Strategic Machines · The AI Control Room for your website</td></tr>
+</table></td></tr></table></body></html>`;
 }

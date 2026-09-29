@@ -3,18 +3,17 @@
  * forwards to the API server at request time.
  *
  * Why a route and not a next.config rewrite: rewrites are baked in at build
- * time, so a deployment built before API_URL was set proxied to localhost
- * forever (Vercel: DNS_HOSTNAME_RESOLVED_PRIVATE). Reading API_URL per request
+ * time, so a deployment built before the API URL was set proxied to localhost
+ * forever (Vercel: DNS_HOSTNAME_RESOLVED_PRIVATE). Reading apiUrl() per request
  * matches how server components reach the API.
  */
+import { apiUrl } from "@/lib/env";
 import { accessToken } from "@/lib/supabase";
-
-const API_URL = () => process.env.API_URL ?? "http://localhost:4001";
 
 async function forward(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
   const incoming = new URL(request.url);
-  const target = `${API_URL()}/api/${path.map(encodeURIComponent).join("/")}${incoming.search}`;
+  const target = `${apiUrl()}/api/${path.map(encodeURIComponent).join("/")}${incoming.search}`;
 
   // The user's session token rides along from the cookie; the browser never handles it.
   const headers = new Headers();

@@ -20,7 +20,7 @@ export class CodeError extends Error {}
 
 const hashCode = (id: string, code: string) => sha256(`${id}:${code}`);
 
-export async function issueCode(input: { email: string; mobile: string; purpose: CodePurpose }): Promise<{ masked: string }> {
+export async function issueCode(input: { email: string; mobile: string; purpose: CodePurpose }): Promise<{ masked: string; suppressed: boolean }> {
   const email = input.email.toLowerCase();
   const masked = maskPhone(input.mobile);
   const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
@@ -54,14 +54,16 @@ export async function issueCode(input: { email: string; mobile: string; purpose:
   if (error) throw new Error(error.message);
 
   const log = { email, to_masked: masked, purpose: input.purpose };
+  let result;
   try {
-    const result = await sendSms(input.mobile, `Your Accelerator code is ${code}. It expires in 10 minutes.`);
+    result = await sendSms(input.mobile, `Your Accelerator code is ${code}. It expires in 10 minutes.`);
     await db().from("acc_sms_log").insert({ ...log, provider: result.provider, status: result.status, detail: result.detail ?? null });
   } catch (err) {
     await db().from("acc_sms_log").insert({ ...log, provider: "twilio", status: "failed", detail: (err as Error).message });
     throw new CodeError("We couldn't send the text. Try again, or use the email link.");
   }
-  return { masked };
+  // suppressed: no SMS in this environment (e.g. Vercel preview); the person uses a reserve code.
+  return { masked, suppressed: result.status === "suppressed" };
 }
 
 /** True when the code (or, outside production, the person's reserve code) is right. */

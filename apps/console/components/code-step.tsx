@@ -12,12 +12,15 @@ import { button } from "./ui";
 export function CodeStep({
   masked,
   reserve,
+  suppressed,
   onVerify,
   onResend,
   onBack,
 }: {
   masked?: string;
   reserve?: boolean;
+  /** No texts in this environment (Vercel preview): ask for the reserve code instead. */
+  suppressed?: boolean;
   onVerify: (code: string) => Promise<string | null>;
   onResend?: () => Promise<void>;
   onBack?: () => void;
@@ -36,7 +39,11 @@ export function CodeStep({
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">
       <p className="text-[13.5px] text-fog">
-        {reserve ? "Enter your personal reserve code." : `We texted a 6-digit code to ${masked}. It expires in 10 minutes.`}
+        {reserve
+          ? "Enter your personal reserve code."
+          : suppressed
+            ? "Texts are off in this test environment. Enter your personal reserve code."
+            : `We texted a 6-digit code to ${masked}. It expires in 10 minutes.`}
       </p>
       <label htmlFor="code" className="sr-only">
         Code
@@ -49,7 +56,7 @@ export function CodeStep({
         autoComplete="one-time-code"
         autoFocus
         maxLength={12}
-        placeholder={reserve ? "Reserve code" : "123456"}
+        placeholder={reserve || suppressed ? "Reserve code" : "123456"}
         className={`${fieldClass} text-center font-mono text-lg tracking-[0.4em]`}
       />
       {error && <p className="text-[13px] text-bad" role="alert">{error}</p>}
