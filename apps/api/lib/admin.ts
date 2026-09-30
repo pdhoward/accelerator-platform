@@ -11,6 +11,7 @@ import {
   type Role,
 } from "@accelerator/domain";
 
+import { CodeError } from "./codes";
 import { db } from "./supabase";
 
 /**
@@ -188,6 +189,49 @@ export async function invite(identity: Identity, orgId: string, email: string, r
   const { error } = await db().from("acc_invites").insert({ org_id: orgId, email: email.toLowerCase(), role, invited_by: identity.userId });
   if (error) throw new Error(error.message);
   await audit(identity, "account.invite", orgId, { email: email.toLowerCase(), role });
+}
+
+// ── Members ──────────────────────────────────────────────────────────────────
+export type MemberEdit = { name?: string; email?: string; role?: Role };
+
+async function memberRow(orgId: string, memberId: string) {
+  const [m] = await rows(db().from("acc_members").select("id, email, role").eq("org_id", orgId).eq("id", memberId));
+  if (!m) throw new CodeError("That member isn't on this account.");
+  return m as { id: string; email: string | null; role: Role };
+}
+
+/** Every account keeps at least one Owner. */
+async function keepAnOwner(orgId: string, leavingId: string) {
+  const owners = await rows(db().from("acc_members").select("id").eq("org_id", orgId).eq("role", "owner").neq("id", leavingId));
+  if (!owners.length) throw new CodeError("An account needs at least one Owner. Make someone else Owner first.");
+}
+
+/**
+ * Edit a member. A new email moves the seat: whoever next signs in with that
+ * email takes it over (identity.ts settle), like an invite that keeps the name and role.
+ */
+export async function updateMember(identity: Identity, orgId: string, memberId: string, input: MemberEdit) {
+  const m = await memberRow(orgId, memberId);
+  if (m.role === "owner" && input.role && input.role !== "owner") await keepAnOwner(orgId, memberId);
+  const email = input.email?.trim().toLowerCase();
+  if (email && email !== m.email) {
+    const clash = await rows(db().from("acc_members").select("id").eq("org_id", orgId).eq("email", email).neq("id", memberId));
+    if (clash.length) throw new CodeError(`${email} is already on this account.`);
+  }
+  const { error } = await db()
+    .from("acc_members")
+    .update({ ...(input.name && { name: input.name.trim() }), ...(email && { email }), ...(input.role && { role: input.role }) })
+    .eq("id", memberId);
+  if (error) throw new Error(error.message);
+  await audit(identity, "member.update", orgId, { member: m.email, ...input, ...(email && { email }) });
+}
+
+export async function removeMember(identity: Identity, orgId: string, memberId: string) {
+  const m = await memberRow(orgId, memberId);
+  if (m.role === "owner") await keepAnOwner(orgId, memberId);
+  const { error } = await db().from("acc_members").delete().eq("id", memberId);
+  if (error) throw new Error(error.message);
+  await audit(identity, "member.remove", orgId, { member: m.email, role: m.role });
 }
 
 export async function team(): Promise<PlatformStaff[]> {

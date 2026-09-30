@@ -57,6 +57,8 @@ export async function mayStartSignIn(email: string): Promise<boolean> {
 // ── First sign-in: profile row, and pending invites become memberships ─────
 export async function settle(identity: Identity) {
   await db().from("acc_profiles").upsert({ user_id: identity.userId, email: identity.email }, { onConflict: "user_id", ignoreDuplicates: true });
+  // Seats an admin moved to this email (admin.ts updateMember) are claimed on sign-in.
+  await db().from("acc_members").update({ user_id: identity.userId }).eq("email", identity.email).neq("user_id", identity.userId);
   const { data: invites } = await db()
     .from("acc_invites")
     .select("id, org_id, role")

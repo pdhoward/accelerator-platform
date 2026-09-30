@@ -34,5 +34,10 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`SMS send failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  // The emulator keeps messages but doesn't print them; show them here, like lib/mail.ts does locally.
+  if (emulator) console.log(`
+[sms → emulator] To: ${to}
+  ${body}
+`);
   return { provider: emulator ? "emulator" : "twilio", status: "sent" };
 }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { AsYouType } from "libphonenumber-js";
 
 import { fieldClass } from "@/components/auth-shell";
 import { CodeStep } from "@/components/code-step";
@@ -11,6 +12,15 @@ import { startMobile, verifyMobile } from "../../login/actions";
 
 const CONSENT =
   "I agree to receive sign-in codes and account alerts by text from Strategic Machines. Message and data rates may apply. Reply STOP to opt out.";
+
+/**
+ * Formats as you type, any country: "+44 7700 900123", "(914) 500-5391".
+ * No leading + means a US number. Deleting is left alone so backspace
+ * never fights the formatter; the API normalizes to E.164 either way.
+ */
+function formatPhone(next: string, prev: string) {
+  return next.length < prev.length ? next : new AsYouType("US").input(next);
+}
 
 /** Number (+ consent) → texted code → verified. */
 export function MobileForm({ current }: { current: string | null }) {
@@ -62,7 +72,7 @@ export function MobileForm({ current }: { current: string | null }) {
         autoComplete="tel"
         autoFocus
         value={mobile}
-        onChange={(e) => setMobile(e.target.value)}
+        onChange={(e) => setMobile((prev) => formatPhone(e.target.value, prev))}
         placeholder="+1 914 555 0100"
         className={fieldClass}
       />

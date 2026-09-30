@@ -1,11 +1,19 @@
 import { cache } from "react";
+import { connection } from "next/server";
 import { ApiError, createApiClient } from "@accelerator/api-client";
 
 import { apiUrl } from "./env";
 import { accessToken } from "./supabase";
 
-/** Server components and actions: the API directly, as the signed-in user. */
-export const serverApi = async () => createApiClient({ baseUrl: apiUrl(), token: await accessToken() });
+/**
+ * Server components and actions: the API directly, as the signed-in user.
+ * connection() makes every page that reads the API render per request,
+ * never at build time (the data is per user, and the API isn't there at build).
+ */
+export const serverApi = async () => {
+  await connection();
+  return createApiClient({ baseUrl: apiUrl(), token: await accessToken() });
+};
 
 /** Sign-in endpoints, before there is a session. */
 export const publicApi = () => createApiClient({ baseUrl: apiUrl() });

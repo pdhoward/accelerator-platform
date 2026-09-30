@@ -54,6 +54,18 @@ export async function setAccountStatus(_: FormState, f: FormData): Promise<FormS
   );
 }
 
+export async function updateMember(_: FormState, f: FormData): Promise<FormState> {
+  const id = text(f, "id");
+  return run(`/admin/accounts/${id}`, "Saved. A new email takes over this seat when it signs in.", (api) =>
+    api.admin.updateMember(id, text(f, "memberId"), { name: text(f, "name"), email: text(f, "email"), role: text(f, "role") as Role }),
+  );
+}
+
+export async function removeMember(_: FormState, f: FormData): Promise<FormState> {
+  const id = text(f, "id");
+  return run(`/admin/accounts/${id}`, "Removed.", (api) => api.admin.removeMember(id, text(f, "memberId")));
+}
+
 export async function inviteMember(_: FormState, f: FormData): Promise<FormState> {
   const id = text(f, "id");
   const email = text(f, "email");

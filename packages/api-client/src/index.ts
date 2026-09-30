@@ -131,6 +131,9 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
       account: (id: string) => call<AdminAccountDetail>(`/admin/accounts/${id}`),
       createAccount: (input: NewAccountInput) => post<{ id: string }>("/admin/accounts", input),
       setStatus: (id: string, action: "suspend" | "resume", reason: string) => post<{ ok: true }>(`/admin/accounts/${id}/status`, { action, reason }),
+      updateMember: (id: string, memberId: string, input: { name?: string; email?: string; role?: Role }) =>
+        post<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, input, "PATCH"),
+      removeMember: (id: string, memberId: string) => call<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, { method: "DELETE" }),
       invite: (id: string, email: string, role: Role) => post<{ ok: true }>(`/admin/accounts/${id}/invites`, { email, role }),
       audit: () => call<AuditEntry[]>("/admin/audit"),
       team: () => call<PlatformStaff[]>("/admin/team"),

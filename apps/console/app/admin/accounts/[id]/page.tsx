@@ -8,7 +8,7 @@ import { platformAccess, titleCase } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { day, usd } from "@/lib/format";
 
-import { inviteMember, setAccountStatus } from "../../actions";
+import { inviteMember, removeMember, setAccountStatus, updateMember } from "../../actions";
 
 export const metadata = { title: "Account" };
 
@@ -20,6 +20,7 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
     throw err;
   });
   const suspended = a.status === "suspended";
+  const manage = can("accounts.manage");
 
   return (
     <>
@@ -38,23 +39,58 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
           <Card>
             <CardHead title="People" hint={`${a.people.length} members · ${a.invites.length} open invites`} />
             <CardBody>
-              <Table head={["Name", "Email", "Role"]} min={420}>
+              <div className="flex flex-col divide-y divide-line">
                 {a.people.map((p) => (
-                  <tr key={p.id} className={tr}>
-                    <td className={td}>{p.name}</td>
-                    <td className={`${td} text-fog`}>{p.email ?? "—"}</td>
-                    <td className={td}>{titleCase(p.role)}</td>
-                  </tr>
+                  <details key={p.id} className="group py-2">
+                    <summary className={`flex list-none items-center gap-3 text-[13px] ${manage ? "cursor-pointer" : "pointer-events-none"}`}>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">{p.name}</span>
+                        <span className="block truncate text-fog">{p.email ?? "—"}</span>
+                      </span>
+                      <span>{titleCase(p.role)}</span>
+                      {manage && <span className="text-[12px] text-mist group-open:hidden">Edit</span>}
+                    </summary>
+                    {manage && (
+                      <div className="mt-3 flex flex-col gap-3 rounded-xl border border-line bg-panel-2 p-3">
+                        <ActionForm action={updateMember} submit="Save" variant="plain">
+                          <input type="hidden" name="id" value={a.id} />
+                          <input type="hidden" name="memberId" value={p.id} />
+                          <div className="grid gap-3 sm:grid-cols-[1fr_1.4fr_130px]">
+                            <Field label="Name">
+                              <input name="name" required defaultValue={p.name} className={inputClass} />
+                            </Field>
+                            <Field label="Email">
+                              <input name="email" type="email" required defaultValue={p.email ?? ""} className={inputClass} />
+                            </Field>
+                            <Field label="Role">
+                              <RoleSelect defaultValue={p.role} />
+                            </Field>
+                          </div>
+                        </ActionForm>
+                        <ActionForm action={removeMember} submit="Remove from account" pending="Removing…" variant="plain" className="flex flex-col gap-2 border-t border-line pt-3">
+                          <input type="hidden" name="id" value={a.id} />
+                          <input type="hidden" name="memberId" value={p.id} />
+                          <label className="flex items-center gap-2 text-[12.5px] text-fog">
+                            <input type="checkbox" required className="accent-violet" /> Yes, remove {p.name} from {a.name}
+                          </label>
+                        </ActionForm>
+                      </div>
+                    )}
+                  </details>
                 ))}
-                {a.invites.map((i) => (
-                  <tr key={i.id} className={tr}>
-                    <td className={`${td} text-mist`}>Invited {day(i.createdAt)}</td>
-                    <td className={`${td} text-fog`}>{i.email}</td>
-                    <td className={td}>{titleCase(i.role)}</td>
-                  </tr>
-                ))}
-              </Table>
-              {can("accounts.manage") && (
+              </div>
+              {a.invites.length > 0 && (
+                <Table head={["Invited", "Email", "Role"]} min={420}>
+                  {a.invites.map((i) => (
+                    <tr key={i.id} className={tr}>
+                      <td className={`${td} text-mist`}>{day(i.createdAt)}</td>
+                      <td className={`${td} text-fog`}>{i.email}</td>
+                      <td className={td}>{titleCase(i.role)}</td>
+                    </tr>
+                  ))}
+                </Table>
+              )}
+              {manage && (
                 <ActionForm action={inviteMember} submit="Send invite" variant="plain" className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
                   <input type="hidden" name="id" value={a.id} />
                   <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
@@ -62,12 +98,7 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
                       <input name="email" type="email" required className={inputClass} placeholder="teammate@company.com" />
                     </Field>
                     <Field label="Role">
-                      <select name="role" defaultValue="operator" className={inputClass}>
-                        <option value="owner">Owner</option>
-                        <option value="operator">Operator</option>
-                        <option value="tester">Tester</option>
-                        <option value="viewer">Viewer</option>
-                      </select>
+                      <RoleSelect defaultValue="operator" />
                     </Field>
                   </div>
                 </ActionForm>
@@ -116,5 +147,16 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
         )}
       </Page>
     </>
+  );
+}
+
+function RoleSelect({ defaultValue }: { defaultValue: string }) {
+  return (
+    <select name="role" defaultValue={defaultValue} className={inputClass}>
+      <option value="owner">Owner</option>
+      <option value="operator">Operator</option>
+      <option value="tester">Tester</option>
+      <option value="viewer">Viewer</option>
+    </select>
   );
 }
