@@ -2,7 +2,7 @@ import Link from "next/link";
 import { HUMAN_STAGES, LOOP, STAGE_LABEL } from "@accelerator/domain";
 
 import { siteAccess } from "@/lib/access";
-import { serverApi } from "@/lib/api";
+import { getBridge } from "@/lib/api";
 import { ToastButton } from "@/components/ui-provider";
 import { Bar, button, Card, CardBody, CardHead, Chip, cx, Eyebrow, Page, PageHeader, Sparkline } from "@/components/ui";
 
@@ -19,7 +19,7 @@ const SEV = { good: "bg-good", warn: "bg-warn", bad: "bg-bad", info: "bg-cyan" }
 
 export default async function BridgePage({ params }: { params: Promise<{ site: string }> }) {
   const { site: slug } = await params;
-  const [b, { me, can }] = await Promise.all([(await serverApi()).bridge(slug), siteAccess(slug)]);
+  const [b, { me, can }] = await Promise.all([getBridge(slug), siteAccess(slug)]);
   const g = b.gauges;
   const base = `/s/${slug}`;
 

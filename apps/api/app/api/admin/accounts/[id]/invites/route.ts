@@ -8,6 +8,5 @@ const schema = z.object({ email: z.email(), role: z.enum(["owner", "operator", "
 export const POST = platformRoute<{ id: string }>("accounts.manage", async ({ request, identity, params }) => {
   const input = await body(request, schema);
   if (!input) return fail("Enter an email and a role.", 400);
-  await invite(identity, params.id, input.email, input.role);
-  return json({ ok: true }, 201);
+  return json(await invite(identity, params.id, input.email, input.role), 201);
 });

@@ -2,7 +2,7 @@ import type { Identity, Membership, PlatformRole, Role } from "@accelerator/doma
 
 import { checkCode, CodeError, issueCode } from "./codes";
 import { consoleUrl, devAllowlist, isProduction, platformAdminEmails } from "./env";
-import { sendMail } from "./mail";
+import { emailLayout, sendMail } from "./mail";
 import { maskPhone, toE164 } from "./phone";
 import { db } from "./supabase";
 
@@ -173,25 +173,12 @@ export async function sendEmailSignIn(email: string, next?: string) {
   await sendMail({
     to: e,
     subject: "Your sign-in link for the Control Room",
-    text: `Sign in to the Control Room:
-${link}
-
-The link works once and expires in 1 hour. If you didn't ask for it, ignore this email.`,
-    html: signInEmail(link.toString()),
+    ...emailLayout({
+      heading: "Sign in to the Control Room",
+      lines: ["Click the button to sign in. The link works once and expires in 1 hour."],
+      button: { label: "Sign in", href: link.toString() },
+      footer: "If you didn't ask for this, ignore this email; nobody can sign in without the link.",
+    }),
   });
   return { sent: true };
-}
-
-const LOGO = "https://res.cloudinary.com/stratmachine/image/upload/w_96,h_96,c_fit,f_png/v1592332363/machine/icon-512x512_zaffp5.png";
-
-function signInEmail(link: string) {
-  return `<!doctype html><html><body style="margin:0;background:#f4f4f6;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#17171c">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px">
-<table role="presentation" width="100%" style="max-width:480px;background:#ffffff;border-radius:16px;padding:36px">
-<tr><td><img src="${LOGO}" width="40" height="40" alt="Strategic Machines" style="border-radius:10px"></td></tr>
-<tr><td style="padding-top:24px;font-size:22px;font-weight:600">Sign in to the Control Room</td></tr>
-<tr><td style="padding-top:8px;font-size:15px;line-height:1.5;color:#55555f">Click the button to sign in. The link works once and expires in 1 hour.</td></tr>
-<tr><td style="padding-top:28px"><a href="${link}" style="display:inline-block;background:#c9a227;color:#17140a;font-weight:600;font-size:15px;text-decoration:none;padding:12px 22px;border-radius:10px">Sign in</a></td></tr>
-<tr><td style="padding-top:28px;font-size:13px;line-height:1.5;color:#8a8a94">If you didn't ask for this, ignore this email; nobody can sign in without the link.<br>Strategic Machines · The AI Control Room for your website</td></tr>
-</table></td></tr></table></body></html>`;
 }

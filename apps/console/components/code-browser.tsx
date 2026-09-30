@@ -14,37 +14,48 @@ const Editor = dynamic(() => import("@monaco-editor/react"), {
   loading: () => <div className="grid h-full place-items-center text-mist">Loading editor…</div>,
 });
 
+/** Folders open on click; the path to the selected file starts open. */
 function Tree({ nodes, selected, onSelect, depth = 0 }: { nodes: FileNode[]; selected: string; onSelect: (p: string) => void; depth?: number }) {
   return (
     <ul className="flex flex-col">
       {nodes.map((n) => (
-        <li key={n.path}>
-          {n.type === "dir" ? (
-            <>
-              <div className="flex items-center gap-1.5 px-2 py-1 text-[12.5px] text-fog" style={{ paddingLeft: 8 + depth * 12 }}>
-                <ChevronRight className="size-3.5 rotate-90" />
-                <Folder className="size-3.5 text-violet" />
-                {n.name}
-              </div>
-              {n.children && <Tree nodes={n.children} selected={selected} onSelect={onSelect} depth={depth + 1} />}
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onSelect(n.path)}
-              className={cx(
-                "flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-[12px]",
-                selected === n.path ? "bg-violet/15 text-ink" : "text-fog hover:bg-panel-2",
-              )}
-              style={{ paddingLeft: 22 + depth * 12 }}
-            >
-              <FileCode2 className="size-3.5 shrink-0 text-cyan" />
-              <span className="truncate">{n.name}</span>
-            </button>
-          )}
-        </li>
+        <li key={n.path}>{n.type === "dir" ? <Dir node={n} selected={selected} onSelect={onSelect} depth={depth} /> : <FileRow node={n} selected={selected} onSelect={onSelect} depth={depth} />}</li>
       ))}
     </ul>
+  );
+}
+
+function Dir({ node, selected, onSelect, depth }: { node: FileNode; selected: string; onSelect: (p: string) => void; depth: number }) {
+  const [open, setOpen] = useState(selected.startsWith(`${node.path}/`));
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12.5px] text-fog hover:bg-panel-2"
+        style={{ paddingLeft: 8 + depth * 12 }}
+      >
+        <ChevronRight className={cx("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+        <Folder className="size-3.5 shrink-0 text-violet" />
+        <span className="truncate">{node.name}</span>
+      </button>
+      {open && node.children && <Tree nodes={node.children} selected={selected} onSelect={onSelect} depth={depth + 1} />}
+    </>
+  );
+}
+
+function FileRow({ node, selected, onSelect, depth }: { node: FileNode; selected: string; onSelect: (p: string) => void; depth: number }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(node.path)}
+      className={cx("flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left font-mono text-[12px]", selected === node.path ? "bg-violet/15 text-ink" : "text-fog hover:bg-panel-2")}
+      style={{ paddingLeft: 22 + depth * 12 }}
+    >
+      <FileCode2 className="size-3.5 shrink-0 text-cyan" />
+      <span className="truncate">{node.name}</span>
+    </button>
   );
 }
 
@@ -54,11 +65,13 @@ export function CodeBrowser({ siteId, tree, initialPath }: { siteId: string; tre
   const [file, setFile] = useState<{ language: string; content: string } | null>(null);
 
   useEffect(() => {
+    if (!path) return;
     let cancelled = false;
     browserApi()
       .code.file(siteId, path)
       .then((f) => !cancelled && setFile(f))
-      .catch(() => !cancelled && setFile({ language: "plaintext", content: "// Couldn't load this file." }));
+      .catch((err: unknown) => !cancelled && setFile({ language: "plaintext", content: `// Couldn't load this file.
+// ${err instanceof Error ? err.message : ""}` }));
     return () => {
       cancelled = true;
     };
@@ -66,7 +79,7 @@ export function CodeBrowser({ siteId, tree, initialPath }: { siteId: string; tre
 
   return (
     <div className="grid min-h-[560px] overflow-hidden rounded-2xl border border-line bg-panel md:grid-cols-[260px_1fr]">
-      <div className="border-b border-line p-2 md:border-b-0 md:border-r">
+      <div className="max-h-[75vh] overflow-y-auto border-b border-line p-2 md:border-b-0 md:border-r">
         <Tree nodes={tree} selected={path} onSelect={setPath} />
       </div>
       <div className="flex min-h-[520px] flex-col">

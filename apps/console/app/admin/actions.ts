@@ -69,5 +69,9 @@ export async function removeMember(_: FormState, f: FormData): Promise<FormState
 export async function inviteMember(_: FormState, f: FormData): Promise<FormState> {
   const id = text(f, "id");
   const email = text(f, "email");
-  return run(`/admin/accounts/${id}`, `Invited ${email}.`, (api) => api.admin.invite(id, email, text(f, "role") as Role));
+  let sent: Awaited<ReturnType<Api["admin"]["invite"]>> | undefined;
+  const state = await run(`/admin/accounts/${id}`, "", async (api) => (sent = await api.admin.invite(id, email, text(f, "role") as Role)));
+  if (!state?.ok || !sent) return state;
+  if (!sent.emailed) return { ok: false, message: `Invite saved, but the email couldn't be sent (${sent.note ?? "mail error"}). They can still sign in with ${email}.` };
+  return { ok: true, message: sent.resent ? `Invite re-sent to ${email}.` : `Invited ${email}; the email is on its way.` };
 }

@@ -22,6 +22,9 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 export const claim = (runnerId: string, version: string) => post<{ context: JobContext | null }>("/claim", { runnerId, version });
 
+/** The site's development keys from the vault, for this running job. */
+export const secrets = (jobId: string) => post<{ env: Record<string, string> }>(`/jobs/${jobId}/secrets`, {});
+
 export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string }) => post(`/jobs/${jobId}/finish`, outcome);
 
 type Event = { kind: JobEvent["kind"]; text: string; data?: unknown };

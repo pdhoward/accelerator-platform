@@ -26,10 +26,13 @@ export type Site = {
   repo: string;
   stack: string;
   status: "live" | "onboarding";
+  /** A seeded demo tenant: the only kind of site that shows sample data. */
+  demo?: boolean;
   lastReleaseAt: string;
 };
 
-export type Caller = { memberId: string; orgId: string; role: Role; name: string };
+/** Who is acting on a site. `staff`: Strategic Machines working on the account without being a member. */
+export type Caller = { memberId: string; orgId: string; role: Role; name: string; staff?: boolean };
 
 /** A signed-in person, before any account is chosen. */
 export type Identity = { userId: string; email: string; platformRole: PlatformRole | null };

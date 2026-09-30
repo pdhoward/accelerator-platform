@@ -1,12 +1,12 @@
 import { AppSidebar, SidebarContext, type NavGroup } from "@/components/sidebar";
 import { siteAccess, titleCase } from "@/lib/access";
-import { serverApi } from "@/lib/api";
+import { getBridge } from "@/lib/api";
 import { authEnabled } from "@/lib/supabase";
 
 export default async function SiteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ site: string }> }) {
   const { site: slug } = await params;
-  const { me, membership, role } = await siteAccess(slug);
-  const bridge = await (await serverApi()).bridge(slug);
+  const { me, membership, role, staff } = await siteAccess(slug);
+  const bridge = await getBridge(slug);
   const site = bridge.site;
   const base = `/s/${slug}`;
 
@@ -52,13 +52,13 @@ export default async function SiteLayout({ children, params }: { children: React
         groups={groups}
         context={
           <SidebarContext
-            eyebrow={membership.orgName}
+            eyebrow={staff ? `${membership.orgName} · staff` : membership.orgName}
             title={site.url.replace(/^https?:\/\//, "")}
             sub={`${site.status === "live" ? "Live" : "Onboarding"} · ${site.stack}`}
             dot={site.status === "live" ? "good" : "warn"}
           />
         }
-        userLabel={`${me.identity?.email ?? "Demo"} · ${titleCase(role)}`}
+        userLabel={`${me.identity?.email ?? "Demo"} · ${staff ? "Strategic Machines" : titleCase(role)}`}
         links={links}
         engineerToggle
         signOutEnabled={authEnabled}

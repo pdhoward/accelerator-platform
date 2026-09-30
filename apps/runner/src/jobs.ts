@@ -2,11 +2,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JobContext } from "@accelerator/domain";
 
-import type { Log } from "./api";
+import { secrets, type Log } from "./api";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
 import { changedFiles, checks, commitAll, ensureWorktree, git, headSha, isTestFile } from "./repo";
-import { parseTests, scripts, sh, siteEnv, tail } from "./sh";
+import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
+
+/** Development keys: the vault first, envmachine as the fallback during the switchover. */
+const devEnv = async (ctx: JobContext) => ({ ...siteEnv(ctx.site.slug), ...(await secrets(ctx.job.id).then((r) => r.env).catch(() => ({}))) });
 
 /**
  * One function per job kind. Each returns the result the API applies to
@@ -22,6 +25,7 @@ const needWork = (ctx: JobContext): Work => {
 /** Where thinking jobs read code: the work item's own worktree, when the site has a repository. */
 async function workDir(ctx: JobContext, w: Work, log: Log): Promise<string | null> {
   if (!ctx.site.repoPath) return null;
+  if (w.kind === "install") return ctx.site.repoPath; // read-only look at the site as it is
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
   log.status(`Working copy: ${w.branch}`);
   return dir;
@@ -83,7 +87,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   if (ctx.job.provider !== "anthropic") throw new Error("Building needs a model with an agent harness (Claude at launch).");
 
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
-  const env = siteEnv(ctx.site.slug);
+  const env = await devEnv(ctx);
   log.status(`Step ${step.position}: ${step.title}`);
 
   // Before: the suite as it stands, so the step can't shrink it.
@@ -125,6 +129,7 @@ export async function checkout(ctx: JobContext, log: Log) {
   const items: Item[] = [];
   const repo = ctx.site.repoPath;
   let baselineTests: number | undefined;
+  let manifest: ReturnType<typeof parseManifest> = [];
 
   if (!repo || !existsSync(join(repo, ".git"))) {
     items.push({ code: "C1", status: "failed", note: repo ? `${repo} isn't a git repository.` : "No repository connected yet (Setup → repository path)." });
@@ -138,7 +143,7 @@ export async function checkout(ctx: JobContext, log: Log) {
     }
     const dir = await ensureWorktree(repo, ctx.site.slug, "checkout", `accelerator/checkout`, ctx.site.baseBranch);
     await git(`reset -q --hard ${ctx.site.baseBranch}`, dir);
-    const env = siteEnv(ctx.site.slug);
+    const env = await devEnv(ctx);
     log.status("C1: install, build, typecheck, tests");
     const c = await checks(dir, env);
     const s = scripts(dir);
@@ -156,13 +161,13 @@ export async function checkout(ctx: JobContext, log: Log) {
 
     // C4: the manifest.
     const example = join(dir, ".env.example");
-    const keys = existsSync(example) ? readFileSync(example, "utf8").split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=/)?.[1]).filter(Boolean) : [];
-    const have = Object.keys(env);
-    const missing = keys.filter((k) => !have.includes(k!));
+    manifest = existsSync(example) ? parseManifest(readFileSync(example, "utf8")) : [];
+    const keys = manifest.map((m) => m.key);
+    const missing = keys.filter((k) => !env[k]);
     items.push({
       code: "C4",
       status: !keys.length ? "failed" : missing.length ? "waiting" : "done",
-      note: !keys.length ? "No .env.example: the engine can't list the keys this site needs." : missing.length ? `Missing for Development: ${missing.join(", ")}` : `All ${keys.length} keys present for Development.`,
+      note: !keys.length ? "No .env.example: the engine can't list the keys this site needs." : missing.length ? `Not set for Development: ${missing.join(", ")} (Configuration → keys)` : `All ${keys.length} keys set for Development.`,
       evidence: { keys },
     });
 
@@ -178,5 +183,5 @@ export async function checkout(ctx: JobContext, log: Log) {
   items.push({ code: "C2", status: "waiting", note: "Needs the GitHub App and Vercel (I1, I3). Until then, work stays on local branches." });
   items.push({ code: "C3", status: "waiting", note: "Needs the test database (I5)." });
   items.push({ code: "C5", status: "waiting", note: "Proven once the GitHub App and branch protection are in (I1, I2)." });
-  return { kind: "checkout", items, baselineTests };
+  return { kind: "checkout", items, baselineTests, manifest };
 }

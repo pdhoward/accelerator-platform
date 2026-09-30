@@ -29,6 +29,7 @@ import {
 
 import { CodeError } from "./codes";
 import { db, rows, type Row } from "./supabase";
+import { secretStatus } from "./vault";
 
 /**
  * The Flywheel on the server (work/flywheel.md). The API owns the rail:
@@ -43,6 +44,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 const toWork = (r: Row): WorkItem => ({
   id: r.id as string,
   number: r.number as number,
+  kind: ((r.kind as string) ?? "change") as WorkItem["kind"],
   title: r.title as string,
   stage: r.stage as WorkItem["stage"],
   cadence: r.cadence as WorkItem["cadence"],
@@ -208,6 +210,30 @@ export async function createWork(site: Site, identity: Identity, name: string, i
   throw new Error("Couldn't number the work item.");
 }
 
+/** The site's installation conversation (one per site): the engine sees Setup, the checkout log and which keys are set. */
+export async function installConversation(site: Site, identity: Identity, name: string) {
+  const [existing] = await rows(db().from("acc_work").select("number").eq("site_id", site.id).eq("kind", "install").neq("stage", "cancelled").limit(1));
+  if (existing) return { number: existing.number as number };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const [top] = await rows(db().from("acc_work").select("number").eq("site_id", site.id).order("number", { ascending: false }).limit(1));
+    const number = ((top?.number as number) ?? 0) + 1;
+    const { data, error } = await db()
+      .from("acc_work")
+      .insert({ org_id: site.orgId, site_id: site.id, number, kind: "install", title: "Installation", navigator_id: identity.userId, created_by: identity.userId })
+      .select("*")
+      .single();
+    if (error?.code === "23505") continue;
+    if (error) throw new Error(error.message);
+    await say(data, {
+      kind: "system",
+      label: "Control Room",
+      body: `${personLabel(identity, name)} opened the installation conversation. Ask about anything on the Setup page: a failed check, a missing key, access the engine doesn't have.`,
+    });
+    return { number };
+  }
+  throw new Error("Couldn't open the installation conversation.");
+}
+
 export async function postMessage(site: Site, identity: Identity, name: string, number: number, body: string) {
   const w = await workRow(site.id, number);
   await say(w, { kind: "person", label: personLabel(identity, name), userId: identity.userId, body: body.trim() });
@@ -281,7 +307,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   const [items, [agreement], [s], online] = await Promise.all([
     rows(db().from("acc_setup_items").select("*").eq("site_id", site.id)),
     rows(db().from("acc_agreements").select("*").eq("site_id", site.id).order("version", { ascending: false }).limit(1)),
-    rows(db().from("acc_sites").select("repo_path, base_branch, stage_url, baseline_tests").eq("id", site.id)),
+    rows(db().from("acc_sites").select("repo, repo_path, base_branch, stage_url, baseline_tests").eq("id", site.id)),
     runnerOnline(),
   ]);
   const order = (code: string) => SETUP_TEMPLATE.findIndex((t) => t.code === code);
@@ -295,7 +321,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   return {
     items: list,
     agreement: agreement ? { version: agreement.version as number, body: agreement.body as string, signedAt: (agreement.signed_at as string) ?? null } : { version: 0, body: agreementText(site.name), signedAt: null },
-    settings: { repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null },
+    settings: { repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null },
     runnerOnline: online,
     ready: setupDone(list) && signed,
   };
@@ -311,10 +337,11 @@ export async function setSetupItem(site: Site, identity: Identity, code: string,
   if (!count) throw new CodeError("Unknown checklist item.");
 }
 
-export async function saveSiteSettings(site: Site, input: { repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) {
+export async function saveSiteSettings(site: Site, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) {
   const { error } = await db()
     .from("acc_sites")
     .update({
+      ...(input.repo !== undefined && { repo: input.repo?.trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "") ?? "" }),
       ...(input.repoPath !== undefined && { repo_path: input.repoPath?.trim() || null }),
       ...(input.baseBranch && { base_branch: input.baseBranch.trim() }),
       ...(input.stageUrl !== undefined && { stage_url: input.stageUrl?.trim() || null }),
@@ -377,13 +404,28 @@ async function context(job: Row): Promise<JobContext> {
     const p = await parts(job.work_id as string);
     work = { ...toWork(w!), messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps };
   }
+  let setup: JobContext["setup"];
+  if (work?.kind === "install") {
+    const siteShape = { id: s!.id as string, orgId: s!.org_id as string, name: s!.name as string } as Site;
+    const [st, checkout, keys] = await Promise.all([siteSetup(siteShape), latestCheckout(siteShape.id), secretStatus(siteShape.id)]);
+    setup = {
+      items: st.items.map(({ code, title, owner, status, note }) => ({ code, title, owner, status, note })),
+      agreementSigned: !!st.agreement?.signedAt,
+      settings: st.settings,
+      checkoutLog: checkout ? checkout.events.slice(-80).map((e) => `[${e.kind}] ${e.text}`) : [],
+      keysSet: keys.map((k) => `${k.environment}:${k.name}`),
+      manifest: (await rows(db().from("acc_env_specs").select("key").eq("site_id", siteShape.id))).map((r) => r.key as string),
+    };
+  }
   return {
     job: { ...toJob(job), role: job.role as ModelRole, input: (job.input as Record<string, unknown>) ?? {} },
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
+      repo: (s!.repo as string) || null,
     },
     work,
+    setup,
   };
 }
 
@@ -398,7 +440,12 @@ export type JobResult =
   | { kind: "design"; body: string }
   | { kind: "plan"; steps: { title: string; detail: string }[]; summary?: string }
   | { kind: "build_step"; stepId: string; summary: string; checks: Omit<StepChecks, "baseline">; commit?: string; files?: string[] }
-  | { kind: "checkout"; items: { code: string; status: "done" | "failed" | "waiting"; note?: string; evidence?: Record<string, unknown> }[]; baselineTests?: number };
+  | {
+      kind: "checkout";
+      items: { code: string; status: "done" | "failed" | "waiting"; note?: string; evidence?: Record<string, unknown> }[];
+      baselineTests?: number;
+      manifest?: { key: string; purpose: string; howToGet: string }[];
+    };
 
 /** The runner reports; the API decides what it means for the rail. */
 export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string }) {
@@ -455,6 +502,19 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       await db().from("acc_setup_items").update({ status: it.status, note: it.note ?? null, evidence: it.evidence ?? {}, updated_at: now() }).eq("site_id", job.site_id as string).eq("code", it.code);
     }
     if (r.baselineTests != null) await db().from("acc_sites").update({ baseline_tests: r.baselineTests }).eq("id", job.site_id as string);
+    if (r.manifest?.length) {
+      // The site's key list, from .env.example: what Configuration shows and the vault fills.
+      const service = (key: string) => {
+        const word = key.split("_")[0]!; // MONGODB_URI → Mongodb
+        return word[0] + word.slice(1).toLowerCase();
+      };
+      await db()
+        .from("acc_env_specs")
+        .upsert(
+          r.manifest.map((m) => ({ org_id: job.org_id, site_id: job.site_id, key: m.key, service: service(m.key), purpose: m.purpose || m.key, how_to_get: m.howToGet || null, secret: /KEY|SECRET|TOKEN|PASS|URI|PASSWORD/.test(m.key) })),
+          { onConflict: "site_id,key" },
+        );
+    }
   }
 
   await db().from("acc_jobs").update({ status: "done", result: r, finished_at: now() }).eq("id", jobId);

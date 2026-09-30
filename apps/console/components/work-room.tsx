@@ -65,6 +65,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
   const a = d.actions;
   const latest = d.designs.at(-1);
   const next = a.nextStep != null ? (d.steps[a.nextStep] ?? null) : null;
+  const install = d.work.kind === "install";
 
   return (
     <>
@@ -87,7 +88,11 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
       </PageHeader>
 
       <div className="flex flex-col gap-4 px-6 pb-16 pt-5 lg:px-8">
-        <Rail stage={d.work.stage} />
+        {install ? (
+          <p className="text-[13px] text-fog">The installation conversation: ask the engine about anything on the Setup page. It sees the checklist, the checkout log and which keys are set (never their values), and can read the code.</p>
+        ) : (
+          <Rail stage={d.work.stage} />
+        )}
 
         <NeedsYou d={d} working={working} canApprove={canApprove} busy={busy} onTab={setTab} act={act} siteId={siteId} />
 
@@ -102,7 +107,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
                   ["plan", `Plan${d.steps.length ? ` · ${d.steps.filter((s) => s.status === "done").length}/${d.steps.length}` : ""}`, ListChecks],
                   ["log", "Live log", ScrollText],
                 ] as const
-              ).map(([id, label, Icon]) => (
+              ).filter(([id]) => !install || id === "log").map(([id, label, Icon]) => (
                 <button
                   key={id}
                   type="button"
@@ -129,6 +134,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
 }
 
 function defaultTab(d: WorkDetail): Tab {
+  if (d.work.kind === "install") return "log";
   const j = d.jobs[0];
   if (j && j.kind === "build_step" && (j.status === "queued" || j.status === "running")) return "log";
   if (d.work.stage === "plan" || d.work.stage === "build" || d.work.stage === "prove") return "plan";
@@ -166,6 +172,8 @@ function NeedsYou({ d, working, canApprove, busy, onTab, act, siteId }: { d: Wor
     action = <Loader2 className="size-4 animate-spin text-gold-2" />;
   } else if (!d.runnerOnline) {
     text = "The engine is offline. Start the runner and it will pick up where things are.";
+  } else if (d.work.kind === "install") {
+    return null;
   } else if (a.approveDesign && latest) {
     text = `Design v${latest.version} is ready. Read it, edit it, or ask for changes in the conversation.`;
     action = canApprove ? (

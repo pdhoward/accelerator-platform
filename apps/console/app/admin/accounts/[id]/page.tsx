@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApiError } from "@accelerator/api-client";
 
@@ -80,12 +81,21 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
                 ))}
               </div>
               {a.invites.length > 0 && (
-                <Table head={["Invited", "Email", "Role"]} min={420}>
+                <Table head={["Invited", "Email", "Role", ""]} min={420}>
                   {a.invites.map((i) => (
                     <tr key={i.id} className={tr}>
                       <td className={`${td} text-mist`}>{day(i.createdAt)}</td>
                       <td className={`${td} text-fog`}>{i.email}</td>
                       <td className={td}>{titleCase(i.role)}</td>
+                      <td className={td}>
+                        {manage && (
+                          <ActionForm action={inviteMember} submit="Resend" pending="Sending…" variant="plain" className="flex flex-col items-end gap-1">
+                            <input type="hidden" name="id" value={a.id} />
+                            <input type="hidden" name="email" value={i.email} />
+                            <input type="hidden" name="role" value={i.role} />
+                          </ActionForm>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </Table>
@@ -111,10 +121,17 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
               <CardHead title="Sites" />
               <CardBody className="flex flex-col gap-1.5">
                 {a.siteList.map((s) => (
-                  <a key={s.id} href={s.url} target="_blank" rel="noreferrer" className="flex justify-between gap-3 rounded-lg px-1 py-1 text-[13px] hover:text-cyan">
+                  <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1 py-1.5 text-[13px]">
                     <span className="font-medium">{s.name}</span>
-                    <span className="truncate text-mist">{s.url.replace(/^https?:\/\//, "")}</span>
-                  </a>
+                    <a href={s.url} target="_blank" rel="noreferrer" className="truncate text-mist hover:text-cyan">
+                      {s.url.replace(/^https?:\/\//, "")}
+                    </a>
+                    <span className="ml-auto flex gap-3">
+                      <Link href={`/s/${s.slug}/setup`} className="text-cyan hover:underline">Setup</Link>
+                      <Link href={`/s/${s.slug}/config`} className="text-cyan hover:underline">Keys</Link>
+                      <Link href={`/s/${s.slug}`} className="text-cyan hover:underline">Control Room</Link>
+                    </span>
+                  </div>
                 ))}
               </CardBody>
             </Card>

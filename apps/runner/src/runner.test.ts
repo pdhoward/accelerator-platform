@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { FORBIDDEN, SECRET_FILE } from "./models";
 import { isTestFile } from "./repo";
-import { parseTests } from "./sh";
+import { parseManifest, parseTests } from "./sh";
 
 // These decide the Protocol verdict, so they're tested like money rules.
 describe("parseTests", () => {
@@ -41,4 +41,20 @@ describe("builder guard", () => {
 it("guards key files but not the .env.example manifest", () => {
   for (const f of [".env", ".env.local", "C:/site/.env.development.local", "apps/web/.env"]) expect(SECRET_FILE.test(f), f).toBe(true);
   for (const f of [".env.example", "lib/environment.ts", "README.md"]) expect(SECRET_FILE.test(f), f).toBe(false);
+});
+
+it("reads .env.example into the site's key list, with purpose and where-to-find", () => {
+  const m = parseManifest(`# Machine Shop: every key the site needs.
+
+# Product catalog (MongoDB, read-only). Where: MongoDB Atlas → Database → Connect → Drivers.
+MONGODB_URI=
+MONGODB_DB=openai
+
+# Shop assistant (optional). Where: console.anthropic.com → API keys.
+ANTHROPIC_API_KEY=
+`);
+  expect(m.map((x) => x.key)).toEqual(["MONGODB_URI", "MONGODB_DB", "ANTHROPIC_API_KEY"]);
+  expect(m[0]).toEqual({ key: "MONGODB_URI", purpose: "Product catalog (MongoDB, read-only).", howToGet: "MongoDB Atlas → Database → Connect → Drivers." });
+  expect(m[1]!.purpose).toBe("");
+  expect(m[2]!.howToGet).toBe("console.anthropic.com → API keys.");
 });

@@ -18,6 +18,9 @@ export const serverApi = async () => {
 /** Sign-in endpoints, before there is a session. */
 export const publicApi = () => createApiClient({ baseUrl: apiUrl() });
 
+/** The site's Bridge once per request (layout + pages); carries the site record, including `demo`. */
+export const getBridge = cache(async (slug: string) => (await serverApi()).bridge(slug));
+
 /** GET /api/me once per request, shared by layouts and pages. */
 export const getMe = cache(async () => (await serverApi()).me());
 

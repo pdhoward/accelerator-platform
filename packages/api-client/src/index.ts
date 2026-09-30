@@ -34,6 +34,9 @@ import type {
   WorkItem,
   ModelRole,
   Job,
+  AccountStatus,
+  SecretStatus,
+  VaultEnv,
 } from "@accelerator/domain";
 
 /**
@@ -153,22 +156,30 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
     },
     setup: {
       get: (siteId: string) => call<SiteSetup & { checkout: { job: Job; events: JobEvent[] } | null }>(`${site(siteId)}/setup`),
-      settings: (siteId: string, input: { repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) =>
+      settings: (siteId: string, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) =>
         post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
       item: (siteId: string, code: string, status: SetupStatus, note?: string) => post<{ ok: true }>(`${site(siteId)}/setup/items/${code}`, { status, note }),
       checkout: (siteId: string) => post<{ ok: true }>(`${site(siteId)}/setup/checkout`, {}),
       sign: (siteId: string, body: string) => post<{ ok: true }>(`${site(siteId)}/setup/agreement`, { body }),
+      conversation: (siteId: string) => post<{ number: number }>(`${site(siteId)}/setup/conversation`, {}),
     },
+    vault: {
+      status: (siteId: string) => call<SecretStatus[]>(`${site(siteId)}/vault`),
+      set: (siteId: string, environment: VaultEnv, name: string, value: string | null) =>
+        post<SecretStatus[]>(`${site(siteId)}/vault`, { environment, name, value }, "PUT"),
+    },
+    access: (siteId: string) =>
+      call<{ orgId: string; orgName: string; status: AccountStatus; role: Role; staff: boolean; site: { id: string; slug: string; name: string; url: string } }>(`${site(siteId)}/access`),
     admin: {
       overview: () => call<AdminOverview>("/admin/overview"),
       accounts: () => call<AdminAccountRow[]>("/admin/accounts"),
       account: (id: string) => call<AdminAccountDetail>(`/admin/accounts/${id}`),
-      createAccount: (input: NewAccountInput) => post<{ id: string }>("/admin/accounts", input),
+      createAccount: (input: NewAccountInput) => post<{ id: string; emailed: boolean }>("/admin/accounts", input),
       setStatus: (id: string, action: "suspend" | "resume", reason: string) => post<{ ok: true }>(`/admin/accounts/${id}/status`, { action, reason }),
       updateMember: (id: string, memberId: string, input: { name?: string; email?: string; role?: Role }) =>
         post<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, input, "PATCH"),
       removeMember: (id: string, memberId: string) => call<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, { method: "DELETE" }),
-      invite: (id: string, email: string, role: Role) => post<{ ok: true }>(`/admin/accounts/${id}/invites`, { email, role }),
+      invite: (id: string, email: string, role: Role) => post<{ emailed: boolean; resent: boolean; note?: string }>(`/admin/accounts/${id}/invites`, { email, role }),
       audit: () => call<AuditEntry[]>("/admin/audit"),
       team: () => call<PlatformStaff[]>("/admin/team"),
     },

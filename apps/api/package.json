@@ -8,7 +8,8 @@
     "start": "next start -p 4001",
     "typecheck": "tsc -p . --noEmit",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "reserve-code": "tsx scripts/reserve-code.ts"
+    "reserve-code": "tsx scripts/reserve-code.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@accelerator/domain": "workspace:*",
@@ -27,6 +28,7 @@
     "@types/react": "^19.2.18",
     "dotenv-cli": "^11.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   }
 }

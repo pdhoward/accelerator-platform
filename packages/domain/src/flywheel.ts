@@ -232,6 +232,8 @@ ${unseen.map((u) => `- ${u}`).join("\n")}
 export type WorkItem = {
   id: string;
   number: number;
+  /** "install": the site's installation conversation (no design/plan). */
+  kind: "change" | "install";
   title: string;
   stage: WorkStage;
   cadence: Cadence;
@@ -294,7 +296,7 @@ export type SetupItem = { code: string; phase: "install" | "checkout"; title: st
 export type SiteSetup = {
   items: SetupItem[];
   agreement: { version: number; body: string; signedAt: string | null } | null;
-  settings: { repoPath: string | null; baseBranch: string; stageUrl: string | null; baselineTests: number | null };
+  settings: { repo: string | null; repoPath: string | null; baseBranch: string; stageUrl: string | null; baselineTests: number | null };
   runnerOnline: boolean;
   ready: boolean;
 };
@@ -302,6 +304,27 @@ export type SiteSetup = {
 /** What the runner receives with a job. */
 export type JobContext = {
   job: Job & { role: ModelRole; input: Record<string, unknown> };
-  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null };
+  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null };
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[] }) | null;
+  /** Installation conversations only: what the engine needs to diagnose setup (never key values). */
+  setup?: {
+    items: Pick<SetupItem, "code" | "title" | "owner" | "status" | "note">[];
+    agreementSigned: boolean;
+    settings: SiteSetup["settings"];
+    checkoutLog: string[];
+    keysSet: string[];
+    manifest: string[];
+  };
 };
+
+// ── The keys vault (values never leave the API) ─────────────────────────────
+/** development + preview: the site's test keys. engine: keys the Accelerator uses for this site (e.g. GITHUB_TOKEN). */
+export const VAULT_ENVS = ["development", "preview", "engine"] as const;
+export type VaultEnv = (typeof VAULT_ENVS)[number];
+export type SecretStatus = { environment: VaultEnv; name: string; last4: string; updatedAt: string };
+
+/** Keys the engine itself can use for a site, listed on Configuration even when the repo doesn't mention them. */
+export const ENGINE_KEYS = [
+  { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → only this repository, Contents: read" },
+  { name: "VERCEL_TOKEN", purpose: "Read deployments and preview URLs", howToGet: "Vercel → Account Settings → Tokens (scope: this project)" },
+];

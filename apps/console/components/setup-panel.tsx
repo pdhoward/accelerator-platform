@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CircleCheck, CircleDashed, Clock, Loader2, OctagonAlert, Play, Wifi, WifiOff } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CircleCheck, CircleDashed, Clock, Loader2, MessagesSquare, OctagonAlert, Play, Wifi, WifiOff } from "lucide-react";
 import { SETUP_OWNER_LABEL, type Job, type JobEvent, type SetupItem, type SetupStatus, type SiteSetup } from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
@@ -28,6 +29,7 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
   const [s, setS] = useState(initial);
   const [busy, setBusy] = useState(false);
   const { toast } = useUi();
+  const router = useRouter();
   const api = browserApi();
   const checking = !!s.checkout && (s.checkout.job.status === "queued" || s.checkout.job.status === "running");
 
@@ -70,6 +72,21 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
             </>
           )}
         </p>
+        {canManage && (
+          <button
+            type="button"
+            className={button("plain", "text-xs")}
+            disabled={busy}
+            onClick={() =>
+              act(async () => {
+                const { number } = await api.setup.conversation(siteId);
+                router.push(`/s/${siteId}/work/${number}`);
+              })
+            }
+          >
+            <MessagesSquare className="size-3.5" /> Talk to the engine about this installation
+          </button>
+        )}
         {s.runnerOnline ? (
           <Chip tone="good">
             <Wifi className="size-3" /> Engine online
@@ -89,13 +106,16 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               void act(
-                () => api.setup.settings(siteId, { repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? "") }),
+                () => api.setup.settings(siteId, { repo: String(f.get("repo") ?? ""), repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? "") }),
                 "Saved.",
               );
             }}
-            className="grid gap-3 md:grid-cols-[2fr_1fr_2fr_auto] md:items-end"
+            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1.6fr_0.7fr_1.4fr_auto] xl:items-end"
           >
-            <Field label="Repository (local path until the GitHub App)">
+            <Field label="GitHub repository (owner/name)">
+              <input name="repo" defaultValue={s.settings.repo ?? ""} disabled={!canManage} placeholder="pdhoward/machineshop" className={inputClass} />
+            </Field>
+            <Field label="Local working copy (for the runner)">
               <input name="repoPath" defaultValue={s.settings.repoPath ?? ""} disabled={!canManage} placeholder="C:\Users\you\Desktop\machine\machineshop" className={inputClass} />
             </Field>
             <Field label="Base branch">

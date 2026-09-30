@@ -48,7 +48,25 @@ export const scripts = (dir: string): Record<string, string> => {
   return existsSync(p) ? ((JSON.parse(readFileSync(p, "utf8")) as { scripts?: Record<string, string> }).scripts ?? {}) : {};
 };
 
-/** The site's development keys from envmachine (tests may need them). Never production. */
+/** .env.example → the site's key list; the comment lines above a key become its purpose and where-to-find. */
+export function parseManifest(text: string): { key: string; purpose: string; howToGet: string }[] {
+  const out: { key: string; purpose: string; howToGet: string }[] = [];
+  let notes: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    const m = line.match(/^([A-Z][A-Z0-9_]*)\s*=/);
+    if (m) {
+      const where = notes.map((n) => n.match(/Where:\s*(.+)$/i)?.[1]).find(Boolean) ?? "";
+      const purpose = notes.map((n) => n.replace(/\s*Where:.*$/i, "").trim()).filter(Boolean).join(" ");
+      out.push({ key: m[1]!, purpose, howToGet: where });
+      notes = [];
+    } else if (line.startsWith("#")) notes.push(line.replace(/^#+\s?/, ""));
+    else if (!line) notes = [];
+  }
+  return out;
+}
+
+/** Fallback during the move to the vault: the site's development keys from envmachine. Never production. */
 export function siteEnv(slug: string): Record<string, string> {
   const root = process.env.RUNNER_ENV_ROOT;
   const file = root && join(root, slug, "development", ".env.development.local");

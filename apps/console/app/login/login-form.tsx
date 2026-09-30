@@ -14,8 +14,8 @@ import { sendMagicLink, sendSignInCode, verifySignInCode } from "./actions";
 type Step = { kind: "email" } | { kind: "link-sent" } | { kind: "code"; masked?: string; reserve?: boolean; suppressed?: boolean };
 
 /** Email → "Email me a link" or "Text me a code" → (code) → in. */
-export function LoginForm({ next, allowReserve }: { next?: string; allowReserve: boolean }) {
-  const [email, setEmail] = useState("");
+export function LoginForm({ next, initialEmail, allowReserve }: { next?: string; initialEmail?: string; allowReserve: boolean }) {
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [step, setStep] = useState<Step>({ kind: "email" });
   const [busy, setBusy] = useState<"link" | "code" | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -40,8 +40,14 @@ export default async function WorkPage({ params }: { params: Promise<{ site: str
                       <span className="block truncate font-medium group-hover:text-cyan">{w.title}</span>
                       <span className="text-[12px] text-mist">Updated {day(w.updatedAt)}</span>
                     </span>
-                    <Rail stage={w.stage} compact />
-                    <Chip tone={w.stage === "done" ? "good" : "gold"}>{w.stage in RAIL_LABEL ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL] : w.stage}</Chip>
+                    {w.kind === "install" ? (
+                      <Chip tone="violet">Installation</Chip>
+                    ) : (
+                      <>
+                        <Rail stage={w.stage} compact />
+                        <Chip tone={w.stage === "done" ? "good" : "gold"}>{w.stage in RAIL_LABEL ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL] : w.stage}</Chip>
+                      </>
+                    )}
                   </Link>
                 ))}
               </CardBody>

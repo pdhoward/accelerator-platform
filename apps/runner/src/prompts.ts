@@ -32,6 +32,24 @@ export const transcript = (w: Work) =>
 export const planText = (steps: WorkStep[]) =>
   steps.map((s) => `${s.position}. [${s.status}] ${s.title}${s.detail ? `\n   ${s.detail.replace(/\n/g, "\n   ")}` : ""}`).join("\n");
 
+/** Installation conversations: what the engine knows about Setup (never key values). */
+function setupBrief(ctx: JobContext): string {
+  const s = ctx.setup;
+  if (!s) return "";
+  return `
+
+THIS IS THE INSTALLATION CONVERSATION. You are helping Strategic Machines staff and the client get the site ready for the Accelerator. Diagnose problems, name roadblocks plainly, and say exactly who must do what (Strategic Machines, the engine, or the client) and where.
+
+Setup checklist:
+${s.items.map((i) => `- ${i.code} [${i.status}] (${i.owner}) ${i.title}${i.note ? ` — ${i.note}` : ""}`).join("\n")}
+Agreement signed: ${s.agreementSigned ? "yes" : "no"}
+Settings: GitHub repo ${s.settings.repo ?? "not set"}; local path ${s.settings.repoPath ?? "not set"}; base branch ${s.settings.baseBranch}; staging URL ${s.settings.stageUrl ?? "not set"}; baseline tests ${s.settings.baselineTests ?? "not recorded"}
+Keys the site needs (from .env.example): ${s.manifest.length ? s.manifest.join(", ") : "unknown until checkout"}
+Keys set in the vault (environment:name, values hidden): ${s.keysSet.length ? s.keysSet.join(", ") : "none"}
+Latest checkout log (tail):
+${s.checkoutLog.length ? s.checkoutLog.join("\n") : "(checkout hasn't run)"}`;
+}
+
 export const consultSystem = (ctx: JobContext) => `You are the engine in the Accelerator's Control Room, talking with the Navigator: the business person who steers this site. You work like a senior engineer and product partner in a live session.
 
 ${brief(ctx)}
@@ -43,7 +61,7 @@ How to respond:
 - Business language by default; technical detail only when asked or when it changes the decision.
 - Be proactive about the rail: say what the next step is (for example "Ready to draft the design?", "Approve the plan and I'll start step 1.").
 - You can read the site's code when a repository is available; use it to ground your answers.
-- Short replies: a few sentences or a short list. No headings.
+- Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}
 
 ${PROTOCOL}`;
 

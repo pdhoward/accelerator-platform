@@ -1,5 +1,7 @@
 import {
+  canPlatform,
   canApprove,
+  type Account,
   type AccountStatus,
   canShip,
   type Change,
@@ -15,6 +17,7 @@ import {
 } from "@accelerator/domain";
 
 import * as F from "./fixtures";
+import { repoFile, repoTree } from "./github";
 import type { AcceleratorStore } from "./store-types";
 import { memberships } from "./identity";
 import { db } from "./supabase";
@@ -59,6 +62,37 @@ function memberName(v: unknown): string {
   return (m as { name?: string } | null)?.name ?? "Someone";
 }
 
+/**
+ * Sample data (fixtures.ts) belongs only to demo sites (acc_sites.demo, the
+ * seeded Cypress tenant). Every real site shows its own data or nothing.
+ */
+const demoCache = new Map<string, { demo: boolean; until: number }>();
+async function isDemo(siteId: string): Promise<boolean> {
+  const hit = demoCache.get(siteId);
+  if (hit && hit.until > Date.now()) return hit.demo;
+  const { data } = await db().from("acc_sites").select("demo").eq("id", siteId).maybeSingle();
+  const demo = !!data?.demo;
+  demoCache.set(siteId, { demo, until: Date.now() + 60_000 });
+  return demo;
+}
+
+async function repoSite(siteId: string) {
+  const { data } = await db().from("acc_sites").select("id, repo, base_branch").eq("id", siteId).single();
+  return { id: siteId, repo: (data?.repo as string) ?? "", baseBranch: (data?.base_branch as string) ?? undefined };
+}
+
+const EMPTY_GAUGES = {
+  health: 0,
+  healthNote: "Not measured yet. Run Lighthouse on the Health page.",
+  timeToLiveDays: 0,
+  timeToLiveNote: "No releases through the Accelerator yet.",
+  quality: 0,
+  qualityNote: "No releases yet.",
+  spendUsd: 0,
+  budgetUsd: 0,
+  spendNote: "See Account & usage.",
+};
+
 function toSite(r: Row): Site {
   return {
     id: r.id,
@@ -70,6 +104,7 @@ function toSite(r: Row): Site {
     stack: (r.stack as string) ?? "",
     status: r.status as Site["status"],
     lastReleaseAt: r.created_at as string,
+    demo: !!r.demo,
   };
 }
 
@@ -209,8 +244,24 @@ export function createSupabaseStore(): AcceleratorStore {
     }
     const list = [...meters.values()].map((m) => ({ ...m, costUsd: Math.round(m.costUsd * 100) / 100 }));
     const daily = limits.find((l) => l.model === "*" && l.period === "day");
+    const demo = ((await db().from("acc_sites").select("id").eq("org_id", orgId).eq("demo", true).limit(1)).data ?? []).length > 0;
+    const PLAN_NAME = { commission: "Commission", operate: "Operate", managed: "Managed" } as const;
+    const base: Omit<Account, "org" | "meters" | "dailyCapUsd" | "monthToDateUsd"> = demo
+      ? F.ACCOUNT
+      : {
+          plan: {
+            id: org.plan as Account["plan"]["id"],
+            name: PLAN_NAME[org.plan as keyof typeof PLAN_NAME] ?? String(org.plan),
+            monthlyUsd: 0,
+            installFeeUsd: Number(org.install_fee_quote_usd ?? 0),
+            installPaid: false,
+            renewsOn: "Not billed yet",
+          },
+          card: null,
+          invoices: [],
+        };
     return {
-      ...F.ACCOUNT, // plan, card and invoices come from Stripe later
+      ...base, // card and invoices come from Stripe later
       org: { id: org.id, name: org.name as string, plan: org.plan as typeof F.ACCOUNT.org.plan },
       meters: list,
       dailyCapUsd: daily ? Number(daily.limit_usd) : F.ACCOUNT.dailyCapUsd,
@@ -231,10 +282,18 @@ export function createSupabaseStore(): AcceleratorStore {
         must<Row>(db().from("acc_orgs").select("status").eq("id", site.org_id as string).single()),
       ]);
       const m = member[0];
-      if (!m) return undefined;
+      if (m) {
+        return {
+          site: toSite(site),
+          caller: { memberId: m.id, orgId: m.org_id as string, role: m.role as Role, name: m.name as string },
+          status: org.status as AccountStatus,
+        };
+      }
+      // Strategic Machines staff (installation, support): Operator rights on any account, never members or billing.
+      if (!canPlatform(identity.platformRole, "accounts.manage")) return undefined;
       return {
         site: toSite(site),
-        caller: { memberId: m.id, orgId: m.org_id as string, role: m.role as Role, name: m.name as string },
+        caller: { memberId: "staff", orgId: site.org_id as string, role: "operator", name: `${identity.email} (Strategic Machines)`, staff: true },
         status: org.status as AccountStatus,
       };
     },
@@ -242,13 +301,13 @@ export function createSupabaseStore(): AcceleratorStore {
     memberships: (identity) => memberships(identity.userId),
 
     async bridge(site) {
-      const [requests, releases] = await Promise.all([requestsFor(site.id), releasesFor(site.id)]);
+      const [requests, releases, demo] = await Promise.all([requestsFor(site.id), releasesFor(site.id), isDemo(site.id)]);
       const open = requests.filter((r) => r.stage !== "done" && r.stage !== "watch");
       return {
         site,
-        gauges: { ...F.GAUGES, openRequests: open.length },
-        needsYou: F.NEEDS_YOU,
-        signals: F.SIGNALS,
+        gauges: { ...(demo ? F.GAUGES : EMPTY_GAUGES), openRequests: open.length, openNote: demo ? F.GAUGES.openNote : `${open.length} open.` },
+        needsYou: demo ? F.NEEDS_YOU : [],
+        signals: demo ? F.SIGNALS : [],
         inFlight: requests.filter((r) => r.stage !== "new" && r.stage !== "done"),
         recentReleases: releases.slice(0, 3),
       };
@@ -275,7 +334,7 @@ export function createSupabaseStore(): AcceleratorStore {
             priority: "now",
             stage: "clarify",
             source,
-            created_by: caller.memberId,
+            created_by: caller.staff ? null : caller.memberId,
           })
           .select("*")
           .single();
@@ -296,6 +355,7 @@ export function createSupabaseStore(): AcceleratorStore {
     async approveChange(siteId, id, checked, caller) {
       const change = await this.change(siteId, id);
       if (!change) return { ok: false, error: "Change not found.", status: 404 };
+      if (caller.staff) return { ok: false, error: "Approvals belong to the account's own people, not Strategic Machines staff.", status: 403 };
       if (!canApprove(caller.role, change.risk)) return { ok: false, error: "Your role can't approve this change. Ask the site Owner.", status: 403 };
       if (!change.checklist.every((s) => checked.includes(s.id))) return { ok: false, error: "Finish the checklist before approving.", status: 422 };
 
@@ -311,14 +371,14 @@ export function createSupabaseStore(): AcceleratorStore {
       return { ok: true, change: (await this.change(siteId, id))!, blockers: check.blockers };
     },
 
-    async dataDesk() {
-      return { investigations: F.INVESTIGATIONS, checks: F.DATA_CHECKS };
+    async dataDesk(siteId) {
+      return (await isDemo(siteId)) ? { investigations: F.INVESTIGATIONS, checks: F.DATA_CHECKS } : { investigations: [], checks: [] };
     },
 
     async library(siteId) {
       const rows = await must<Row[]>(db().from("acc_docs").select("*").eq("site_id", siteId).order("updated_at", { ascending: false }));
       const docs = rows.map(toDoc).sort((a, b) => (a.kind === "rulebook" ? -1 : b.kind === "rulebook" ? 1 : 0));
-      return { docs, facts: F.FACTS, drift: F.DRIFT };
+      return (await isDemo(siteId)) ? { docs, facts: F.FACTS, drift: F.DRIFT } : { docs, facts: [], drift: [] };
     },
     async doc(siteId, id) {
       if (!/^[0-9a-f-]{36}$/i.test(id)) return undefined;
@@ -346,8 +406,17 @@ export function createSupabaseStore(): AcceleratorStore {
 
     releases: releasesFor,
 
-    async proof() {
-      return F.PROOF;
+    async proof(siteId) {
+      if (await isDemo(siteId)) return F.PROOF;
+      const { data } = await db().from("acc_sites").select("baseline_tests").eq("id", siteId).maybeSingle();
+      const n = data?.baseline_tests as number | null | undefined;
+      return {
+        verdict: "needs-work",
+        verdictNote: n ? `Baseline: ${n} tests passing (from checkout). Layer results arrive with the first built step.` : "No evidence yet. Run checkout on the Setup page to record the baseline.",
+        suites: [],
+        datasets: [],
+        recentRuns: [],
+      };
     },
 
     async health(siteId) {
@@ -359,9 +428,18 @@ export function createSupabaseStore(): AcceleratorStore {
         const d = s.data as typeof F.HEALTH.lighthouse[number];
         if (!latest.has(d.page)) latest.set(d.page, d);
       }
-      // Pages never audited live keep their nightly sample until they are.
-      const merged = [...latest.values(), ...F.HEALTH.lighthouse.filter((l) => !latest.has(l.page))];
-      return { ...F.HEALTH, lighthouse: merged };
+      if (await isDemo(siteId)) {
+        // Demo: pages never audited live keep their sample until they are.
+        return { ...F.HEALTH, lighthouse: [...latest.values(), ...F.HEALTH.lighthouse.filter((l) => !latest.has(l.page))] };
+      }
+      return {
+        lighthouse: [...latest.values()],
+        triage: "healthy",
+        triageNote: "Not assessed yet. The engine assesses code health after checkout.",
+        vitals: [],
+        hotspots: [],
+        treatmentPlan: [],
+      };
     },
     async recordLighthouse(site, scores) {
       await must(db().from("acc_health_snapshots").insert({ org_id: site.orgId, site_id: site.id, kind: "lighthouse", data: scores }).select("id"));
@@ -386,6 +464,7 @@ export function createSupabaseStore(): AcceleratorStore {
       }));
       return {
         ...F.CONFIGURATION,
+        connections: (await isDemo(siteId)) ? F.CONFIGURATION.connections : [],
         env,
         members: members.map((m) => ({ id: m.id, name: m.name as string, email: "", role: m.role as Role })),
       };
@@ -410,11 +489,13 @@ export function createSupabaseStore(): AcceleratorStore {
       return account(orgId);
     },
 
-    async codeTree() {
-      return F.FILE_TREE;
+    async codeTree(siteId) {
+      if (await isDemo(siteId)) return F.FILE_TREE;
+      return repoTree(await repoSite(siteId));
     },
-    async codeFile(_siteId, path) {
-      return F.FILE_CONTENTS[path] ?? `// ${path}\n// File contents stream from the site's repository once GitHub is connected.\n`;
+    async codeFile(siteId, path) {
+      if (await isDemo(siteId)) return F.FILE_CONTENTS[path] ?? `// ${path}\n// File contents stream from the site's repository once GitHub is connected.\n`;
+      return repoFile(await repoSite(siteId), path);
     },
   };
 }

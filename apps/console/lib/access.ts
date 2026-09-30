@@ -2,7 +2,7 @@ import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import { canPlatform, canSite, type Me, type PlatformAction, type SiteAction } from "@accelerator/domain";
 
-import { getMe } from "./api";
+import { getMe, serverApi } from "./api";
 
 /**
  * Role checks for rendering. The API enforces every permission; these only
@@ -30,13 +30,25 @@ async function readyMe() {
   return me;
 }
 
-/** The caller's membership for a site slug, or 404. Suspended accounts go to /suspended. */
+/**
+ * The caller's footing on a site: a member (from /me), or Strategic Machines
+ * staff working on the account (Operator rights, never approvals). 404 otherwise.
+ */
 export const siteAccess = cache(async (slug: string) => {
   const me = await readyMe();
-  const membership = me.memberships.find((m) => m.sites.some((s) => s.slug === slug));
+  let membership = me.memberships.find((m) => m.sites.some((s) => s.slug === slug));
+  let staff = false;
+  if (!membership && canPlatform(me.identity?.platformRole, "accounts.manage")) {
+    const a = await (await serverApi()).access(slug).catch(() => null);
+    if (a) {
+      membership = { orgId: a.orgId, orgName: a.orgName, role: a.role, status: a.status, sites: [a.site] };
+      staff = true;
+    }
+  }
   if (!membership) notFound();
   if (membership.status === "suspended") redirect("/suspended");
-  return { me, membership, role: membership.role, can: (action: SiteAction) => canSite(membership.role, action) };
+  const role = membership.role;
+  return { me, membership, role, staff, can: (action: SiteAction) => canSite(role, action) };
 });
 
 /** Platform Admin: the caller's platform role, or 404 (the area doesn't exist for others). */

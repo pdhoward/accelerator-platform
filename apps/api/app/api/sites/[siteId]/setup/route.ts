@@ -7,6 +7,7 @@ import { latestCheckout, saveSiteSettings, siteSetup } from "@/lib/work";
 export const GET = workRoute(async ({ site }) => json({ ...(await siteSetup(site)), checkout: await latestCheckout(site.id) }));
 
 const schema = z.object({
+  repo: z.union([z.string().regex(/^(https:\/\/github\.com\/)?[\w.-]+\/[\w.-]+?(\.git)?$/, "Use owner/name, e.g. pdhoward/machineshop"), z.literal("")]).nullable().optional(),
   repoPath: z.string().max(400).nullable().optional(),
   baseBranch: z.string().trim().min(1).max(80).optional(),
   stageUrl: z.union([z.url(), z.literal("")]).nullable().optional(),

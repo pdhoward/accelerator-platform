@@ -12,6 +12,8 @@ import {
 } from "@accelerator/domain";
 
 import { CodeError } from "./codes";
+import { consoleUrl } from "./env";
+import { emailLayout, sendMail } from "./mail";
 import { db, rows, type Row } from "./supabase";
 
 /**
@@ -138,11 +140,21 @@ export async function accountDetail(id: string): Promise<AdminAccountDetail | un
   };
 }
 
+/** Site slugs are unique across the platform (pages look sites up by slug): machine-shop, machine-shop-2, … */
+async function freeSlug(name: string) {
+  const base = slugify(name);
+  const taken = new Set((await rows(db().from("acc_sites").select("slug").like("slug", `${base}%`))).map((r) => r.slug as string));
+  for (let n = 1; ; n++) {
+    const slug = n === 1 ? base : `${base}-${n}`;
+    if (!taken.has(slug)) return slug;
+  }
+}
+
 const slugify = (s: string) =>
   s.toLowerCase().replace(/^https?:\/\//, "").replace(/\.[a-z]+(\/.*)?$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "site";
 
 /** Owner-provisioned account: org + first site + the owner's invite (invite-only launch). */
-export async function createAccount(identity: Identity, input: NewAccountInput): Promise<{ id: string }> {
+export async function createAccount(identity: Identity, input: NewAccountInput): Promise<{ id: string; emailed: boolean }> {
   const { data: org, error } = await db()
     .from("acc_orgs")
     .insert({
@@ -158,14 +170,12 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
   if (error || !org) throw new Error(error?.message ?? "Couldn't create the account.");
 
   const url = /^https?:\/\//.test(input.siteUrl) ? input.siteUrl : `https://${input.siteUrl}`;
-  const [site, invite] = await Promise.all([
-    db().from("acc_sites").insert({ org_id: org.id, slug: slugify(input.siteUrl), name: input.siteName, url, repo: "", status: "onboarding" }),
-    db().from("acc_invites").insert({ org_id: org.id, email: input.ownerEmail.toLowerCase(), role: "owner", invited_by: identity.userId }),
-  ]);
-  if (site.error || invite.error) throw new Error((site.error ?? invite.error)!.message);
+  const site = await db().from("acc_sites").insert({ org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, repo: "", status: "onboarding" });
+  if (site.error) throw new Error(site.error.message);
 
   await audit(identity, "account.create", org.id, { name: input.name, plan: input.plan, billingMode: input.billingMode, owner: input.ownerEmail.toLowerCase() });
-  return { id: org.id };
+  const sent = await invite(identity, org.id, input.ownerEmail, "owner");
+  return { id: org.id, emailed: sent.emailed };
 }
 
 export async function setAccountStatus(identity: Identity, id: string, action: "suspend" | "resume", reason: string) {
@@ -178,10 +188,52 @@ export async function setAccountStatus(identity: Identity, id: string, action: "
   await audit(identity, `account.${action}`, id, { reason });
 }
 
-export async function invite(identity: Identity, orgId: string, email: string, role: Role) {
-  const { error } = await db().from("acc_invites").insert({ org_id: orgId, email: email.toLowerCase(), role, invited_by: identity.userId });
+/**
+ * Invite someone to an account and email them. An address with an open
+ * invite is re-sent (role updated), never duplicated. The email links to the
+ * sign-in page with the address filled in; it doesn't sign anyone in itself,
+ * because invites can sit in an inbox for days or be forwarded.
+ */
+export async function invite(identity: Identity, orgId: string, email: string, role: Role): Promise<{ emailed: boolean; resent: boolean; note?: string }> {
+  const e = email.trim().toLowerCase();
+  const [org] = await rows(db().from("acc_orgs").select("name").eq("id", orgId));
+  if (!org) throw new CodeError("That account doesn't exist.");
+  if ((await rows(db().from("acc_members").select("id").eq("org_id", orgId).eq("email", e).limit(1))).length) {
+    throw new CodeError(`${e} is already a member of ${org.name}.`);
+  }
+  const [open] = await rows(db().from("acc_invites").select("id").eq("org_id", orgId).eq("email", e).is("accepted_at", null).is("revoked_at", null).limit(1));
+  const { error } = open
+    ? await db().from("acc_invites").update({ role, invited_by: identity.userId }).eq("id", open.id as string)
+    : await db().from("acc_invites").insert({ org_id: orgId, email: e, role, invited_by: identity.userId });
   if (error) throw new Error(error.message);
-  await audit(identity, "account.invite", orgId, { email: email.toLowerCase(), role });
+
+  const roleName = role[0]!.toUpperCase() + role.slice(1);
+  const login = new URL(`${consoleUrl()}/login`);
+  login.searchParams.set("email", e);
+  let emailed = true;
+  let note: string | undefined;
+  try {
+    await sendMail({
+      to: e,
+      subject: `You're invited to ${org.name}'s Control Room`,
+      ...emailLayout({
+        heading: `You're invited to ${org.name}'s Control Room`,
+        lines: [
+          `${identity.email} invited you to join ${org.name} as ${roleName}.`,
+          "The Control Room is where you steer your website with AI: conversations, designs, approvals and releases, with evidence for every change.",
+          `Sign in with this email address: ${e}`,
+        ],
+        button: { label: "Accept and sign in", href: login.toString() },
+        footer: "Didn't expect this? You can ignore it; nothing happens unless you sign in.",
+      }),
+    });
+  } catch (err) {
+    emailed = false;
+    note = (err as Error).message;
+    console.error("[invite] email failed:", note);
+  }
+  await audit(identity, open ? "account.invite.resend" : "account.invite", orgId, { email: e, role, emailed });
+  return { emailed, resent: !!open, note };
 }
 
 // ── Members ──────────────────────────────────────────────────────────────────
