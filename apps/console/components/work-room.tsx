@@ -236,7 +236,9 @@ function NeedsYou({ d, working, canApprove, busy, onTab, act, siteId }: { d: Wor
 function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: boolean; canAsk: boolean; busy: boolean; onSend: (body: string) => Promise<void> }) {
   const [draft, setDraft] = useState("");
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: "nearest" }), [d.messages.length]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [d.messages.length]);
 
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
@@ -501,7 +503,9 @@ const EVENT_CLS = { log: "text-ink", tool: "text-cyan", check: "text-gold-2", st
 function LogPanel({ d }: { d: WorkDetail }) {
   const job = d.jobs[0];
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ block: "nearest" }), [d.events.length]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [d.events.length]);
   if (!job) return <p className="py-16 text-center text-[13.5px] text-mist">Nothing has run yet.</p>;
   return (
     <div className="flex flex-col gap-2">
