@@ -1,8 +1,9 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { canPlatform, canSite, type Caller, type Identity, type PlatformAction, type Site, type SiteAction } from "@accelerator/domain";
 import type { ZodType } from "zod";
 
-import { resolveIdentity } from "./auth";
+import { demoMode, resolveIdentity } from "./auth";
 import { CodeError } from "./codes";
 import { store } from "./store";
 
@@ -67,4 +68,25 @@ export function siteRoute<P extends { siteId: string } = { siteId: string }>(
     if (!canSite(access.caller.role, action)) return fail("Your role can't do that here.", 403);
     return handler({ request, identity, caller: access.caller, site: access.site, params });
   });
+}
+
+/** The Flywheel needs the database: a site route that says so plainly in the local demo. */
+export function workRoute<P extends { siteId: string } = { siteId: string }>(
+  handler: (ctx: { request: Request; identity: Identity; caller: Caller; site: Site; params: P }) => Promise<Response>,
+  action: SiteAction = "site.view",
+) {
+  const route = siteRoute<P>(handler, action);
+  return (request: Request, context: Ctx<P>) => (demoMode() ? Promise.resolve(fail("Work items need the database; the local demo has none.", 503)) : route(request, context));
+}
+
+/** The runner authenticates with RUNNER_TOKEN (a shared secret, never sent to browsers). */
+export function runnerRoute<P = object>(handler: (ctx: { request: Request; params: P }) => Promise<Response>) {
+  return (request: Request, context: Ctx<P>) =>
+    guarded(async () => {
+      const want = process.env.RUNNER_TOKEN;
+      const got = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? "";
+      const ok = !!want && got.length === want.length && timingSafeEqual(Buffer.from(got), Buffer.from(want));
+      if (!ok) return fail("Not the runner.", 401);
+      return handler({ request, params: await context.params });
+    });
 }

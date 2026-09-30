@@ -24,6 +24,16 @@ import type {
   Role,
   SiteRequest,
   Skill,
+  Cadence,
+  JobEvent,
+  RiskClass,
+  SetupStatus,
+  SiteModel,
+  SiteSetup,
+  WorkDetail,
+  WorkItem,
+  ModelRole,
+  Job,
 } from "@accelerator/domain";
 
 /**
@@ -125,6 +135,30 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
         post<Account>(`${site(siteId)}/account/limits`, input, "PUT"),
     },
 
+    /** The Flywheel: Work items on the rail (work/flywheel.md). */
+    work: {
+      list: (siteId: string) => call<WorkItem[]>(`${site(siteId)}/work`),
+      create: (siteId: string, input: { title: string; message: string; risk?: RiskClass[] }) => post<{ number: number }>(`${site(siteId)}/work`, input),
+      get: (siteId: string, n: number) => call<WorkDetail>(`${site(siteId)}/work/${n}`),
+      say: (siteId: string, n: number, body: string) => post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body }),
+      design: (siteId: string, n: number, action: { action: "draft"; note?: string } | { action: "save"; body: string } | { action: "approve"; version: number }) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}/design`, action),
+      plan: (siteId: string, n: number, action: { action: "draft"; note?: string } | { action: "approve" }) => post<{ ok: true }>(`${site(siteId)}/work/${n}/plan`, action),
+      next: (siteId: string, n: number) => post<{ ok: true }>(`${site(siteId)}/work/${n}/steps/next`, {}),
+      cadence: (siteId: string, n: number, cadence: Cadence) => post<{ ok: true }>(`${site(siteId)}/work/${n}`, { cadence }, "PATCH"),
+    },
+    models: {
+      get: (siteId: string) => call<Record<ModelRole, SiteModel>>(`${site(siteId)}/models`),
+      save: (siteId: string, models: SiteModel[]) => post<Record<ModelRole, SiteModel>>(`${site(siteId)}/models`, { models }, "PUT"),
+    },
+    setup: {
+      get: (siteId: string) => call<SiteSetup & { checkout: { job: Job; events: JobEvent[] } | null }>(`${site(siteId)}/setup`),
+      settings: (siteId: string, input: { repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) =>
+        post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
+      item: (siteId: string, code: string, status: SetupStatus, note?: string) => post<{ ok: true }>(`${site(siteId)}/setup/items/${code}`, { status, note }),
+      checkout: (siteId: string) => post<{ ok: true }>(`${site(siteId)}/setup/checkout`, {}),
+      sign: (siteId: string, body: string) => post<{ ok: true }>(`${site(siteId)}/setup/agreement`, { body }),
+    },
     admin: {
       overview: () => call<AdminOverview>("/admin/overview"),
       accounts: () => call<AdminAccountRow[]>("/admin/accounts"),

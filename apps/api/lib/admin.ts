@@ -12,7 +12,7 @@ import {
 } from "@accelerator/domain";
 
 import { CodeError } from "./codes";
-import { db } from "./supabase";
+import { db, rows, type Row } from "./supabase";
 
 /**
  * Platform Admin queries (across every account). Service-role reads; callers
@@ -20,15 +20,8 @@ import { db } from "./supabase";
  * audited.
  */
 
-type Row = Record<string, unknown>;
 const monthStart = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 const num = (v: unknown) => Number(v ?? 0) || 0;
-
-async function rows(q: PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<Row[]> {
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  return (data as Row[]) ?? [];
-}
 
 export async function audit(identity: Identity, action: string, orgId: string | null, detail: Record<string, unknown> = {}) {
   const { error } = await db().from("acc_admin_audit").insert({ actor_user_id: identity.userId, actor_email: identity.email, action, org_id: orgId, detail });

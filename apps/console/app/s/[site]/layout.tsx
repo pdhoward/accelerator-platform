@@ -14,9 +14,7 @@ export default async function SiteLayout({ children, params }: { children: React
     {
       items: [
         { href: base, label: "Bridge", icon: "activity", badge: bridge.needsYou.length, exact: true },
-        { href: `${base}/requests`, label: "Requests", icon: "list", badge: bridge.gauges.openRequests },
-        { href: `${base}/change`, label: "Change Room", icon: "split" },
-        { href: `${base}/consult`, label: "Consultations", icon: "chat" },
+        { href: `${base}/work`, label: "Work", icon: "work" },
       ],
     },
     {
@@ -33,6 +31,7 @@ export default async function SiteLayout({ children, params }: { children: React
     {
       title: "Set up",
       items: [
+        { href: `${base}/setup`, label: "Setup", icon: "setup" },
         { href: `${base}/config`, label: "Configuration", icon: "settings" },
         { href: `${base}/skills`, label: "Skills", icon: "puzzle" },
         { href: `${base}/account`, label: "Account & usage", icon: "card" },

@@ -22,3 +22,12 @@ export function db(): SupabaseClient {
   client ??= createClient(cfg.url, cfg.key, { auth: { persistSession: false, autoRefreshToken: false } });
   return client;
 }
+
+export type Row = Record<string, unknown>;
+
+/** Awaits a query; throws on error; always an array. */
+export async function rows(q: PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<Row[]> {
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data as Row[]) ?? [];
+}

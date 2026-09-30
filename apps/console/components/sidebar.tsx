@@ -7,6 +7,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  ClipboardCheck,
   Building2,
   CreditCard,
   Database,
@@ -23,6 +24,7 @@ import {
   Settings2,
   SplitSquareHorizontal,
   Users,
+  Waypoints,
 } from "lucide-react";
 
 import { signOut } from "@/app/login/actions";
@@ -51,6 +53,8 @@ const ICONS = {
   settings: Settings2,
   split: SplitSquareHorizontal,
   users: Users,
+  work: Waypoints,
+  setup: ClipboardCheck,
 } as const;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; engineer?: boolean; exact?: boolean };
