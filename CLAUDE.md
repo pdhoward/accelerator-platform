@@ -1,8 +1,13 @@
 # Accelerator Platform — working rules
 
 The product behind strategicmachines.ai: the **Control Room** a site owner uses to run their
-website, and the API and agents behind it. Design source of truth:
-`cypress-actions/accelerator-control-room.md`. **When a doc and the code disagree, the code wins.**
+website, and the API and agents behind it. Design docs live in `machine/accelerator/work/`; the
+current direction is **`newvision.md`** and the Gen 2 design is **`gen2-crew.md`** (crew per site,
+MCP Toolbelt, Library, Skillsmith). **When a doc and the code disagree, the code wins.**
+
+**Test site: Machine Shop** (`machine/machineshop`). Prove every capability there first. **Never point
+the runner, a crew or any test at Cypress Resort (`ts-platform`)**: it is live production serving
+real guests.
 
 ## The one rule
 All business logic and all data access live in **`apps/api`**, backed by pure functions in
