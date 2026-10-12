@@ -2,8 +2,9 @@
 
 The product behind strategicmachines.ai: the **Control Room** a site owner uses to run their
 website, and the API and agents behind it. Design docs live in `machine/accelerator/work/`; the
-current direction is **`newvision.md`** and the Gen 2 design is **`gen2-crew.md`** (crew per site,
-MCP Toolbelt, Library, Skillsmith). **When a doc and the code disagree, the code wins.**
+current direction is **`newvision.md`**. **`gen2-crew.md` is the approved Gen 2 foundation that all
+refactoring and database work executes from:** its §0 foundation rules, §4.5 build order and §8 action
+list. **When a doc and the code disagree, the code wins**, and the doc is fixed in the same change.
 
 **Test site: Machine Shop** (`machine/machineshop`). Prove every capability there first. **Never point
 the runner, a crew or any test at Cypress Resort (`ts-platform`)**: it is live production serving
@@ -55,12 +56,19 @@ Supabase (Postgres/Auth, RLS on every table)
   a second one. In the console, Supabase is used **only** for auth/session (cookies), never for data.
 
 ## Tenancy
-Organization → Sites → Members (Owner · Operator · Tester · Viewer). A **site** is the unit: its own
-rulebook, configuration (env manifest), connections, skills, test suites, metrics and meters.
-`org_id` always comes from the caller's credential, never from client input. RLS on every table
-(`supabase/migrations`) is a second line of defence, not the only guard. Until Supabase is
-configured, `apps/api/lib/store.ts` serves a seeded in-memory demo tenant (Cypress Resort,
-Customer Zero).
+Platform → **Partner** → Organization (company) → Sites → Members (Owner · Operator · Tester · Viewer).
+- A **site** is the unit: its own crew, rulebook, configuration (env manifest), connections, skills,
+  test suites, metrics and meters.
+- Every organization belongs to exactly one **partner**. Strategic Machines' direct clients belong to
+  the **house partner**, which has no special code path.
+- **Platform powers are infrastructure only.** Platform staff reach a client only through an
+  explicit, audited support grant, never through a standing bypass (gen2-crew.md §5; phase G2.0b
+  removes the staff bypass that `store.access()` still has today).
+- Partner and platform staff never hold a client's gates.
+- `org_id` (and partner) always comes from the caller's credential, never from client input.
+- RLS is on every table (`supabase/migrations`).
+- Until Supabase is configured, `apps/api/lib/store.ts` serves a seeded in-memory demo tenant.
+- Skills come in four tiers: platform, partner, company, site.
 
 ## Product rules
 - **Gates are deterministic policy** (`packages/domain/src/gates.ts`). Models classify; policy decides
@@ -101,11 +109,12 @@ Customer Zero).
 - Suites that need live secrets should skip cleanly without them; that's expected, not a failure.
 
 ## Shipping
-- **Branch off `stage`; never commit to `main`.** PRs target `stage` (GitHub defaults the base to
-  `main`, so change it). `main` is production. (As of 2026-10, only `main` exists on the remote, so
-  create `stage` before the first feature branch.)
+- **Work on `main` and push to production** (decision D15, 2026-10-12: two developers, the owner and
+  Claude). `main` is production, and Vercel deploys every push. There's no `stage` branch until a
+  second contributor or the first paying client. Client sites the crew manages keep the full
+  `work/<n>` → preview → `stage` → `main` path.
 - Turbo 2.x (`turbo.json` uses `tasks`): packages build and typecheck before the apps that depend on them.
-- No CI workflow exists yet, so the pre-merge `pnpm typecheck && pnpm test` is the gate. Don't skip it.
+- No CI by decision (D15): **run `pnpm typecheck && pnpm test` locally before every push.** That is the only gate, so never skip it.
 
 ## Always / Never
 
@@ -118,7 +127,7 @@ Customer Zero).
 - Keep components small and shared pieces in one place.
 - Write a doc comment on exports and a comment on anything non-obvious.
 - Add tests with every domain rule change.
-- Run `pnpm typecheck && pnpm test` before merging. Branch off `stage`.
+- Run `pnpm typecheck && pnpm test` before every push to `main`.
 
 **Never**
 - Read or write the database from `apps/console` or any client app (Supabase there is auth only).
@@ -128,4 +137,4 @@ Customer Zero).
 - Put a secret value in the repo, a prompt, a log or the Configuration page.
 - Add vector embeddings.
 - Weaken or skip a failing test to get green.
-- Commit to `main`, or trust a design doc over the code.
+- Push to `main` with a failing typecheck or test, or trust a design doc over the code.
