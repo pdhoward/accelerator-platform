@@ -31,7 +31,7 @@ export const CADENCE_LABEL: Record<Cadence, string> = {
 };
 
 export type StepStatus = "todo" | "running" | "done" | "blocked" | "skipped";
-export type JobKind = "discuss" | "design" | "plan" | "build_step" | "checkout";
+export type JobKind = "discuss" | "design" | "plan" | "build_step" | "checkout" | "prove" | "release";
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 // ── Models: the customer picks one per job (F15) ─────────────────────────────
@@ -105,7 +105,15 @@ export type WorkFacts = {
   latestDesign: { version: number; approved: boolean } | null;
   planApproved: boolean;
   steps: { status: StepStatus }[];
+  /** The last Prove passed: checks green, branch pushed, preview found. */
+  proven: boolean;
+  /** The Navigator tried the preview and approved it (gate 3). */
+  tryApproved: boolean;
+  /** Merged to main and the live site checked. */
+  released: boolean;
 };
+
+const allStepsDone = (steps: { status: StepStatus }[]) => steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped");
 
 const RISKY: RiskClass[] = ["money", "data", "auth", "security"];
 export const isRisky = (risk: RiskClass[]) => risk.some((r) => RISKY.includes(r));
@@ -118,6 +126,14 @@ export type WorkActions = {
   approvePlan: boolean;
   runNextStep: boolean;
   nextStep: number | null; // index into steps
+  /** Every step built: run the full checks, push the branch, open a preview. */
+  prove: boolean;
+  /** The preview is up: try it and approve it for release (gate 3). */
+  approveTry: boolean;
+  /** Approved: merge to stage, then main, and check the live site. */
+  release: boolean;
+  /** Live: record what was learned and close the item. */
+  close: boolean;
 };
 
 /** The three gates (F4): design, plan, release. Money/data/auth never skip. */
@@ -127,20 +143,29 @@ export function workActions(f: WorkFacts): WorkActions {
   const designApproved = !!f.latestDesign?.approved;
   const next = f.steps.findIndex((s) => s.status === "todo" || s.status === "blocked");
   const running = f.steps.some((s) => s.status === "running");
+  const built = f.planApproved && allStepsDone(f.steps);
   return {
     ask: idle,
-    draftDesign: idle,
+    draftDesign: idle && !f.released,
     approveDesign: idle && !!f.latestDesign && !designApproved,
-    draftPlan: idle && designApproved,
+    draftPlan: idle && designApproved && !f.released,
     approvePlan: idle && designApproved && f.steps.length > 0 && !f.planApproved,
     runNextStep: idle && f.planApproved && next >= 0 && !running,
     nextStep: next >= 0 ? next : null,
+    prove: idle && built && !f.tryApproved && !f.released,
+    approveTry: idle && built && f.proven && !f.tryApproved,
+    release: idle && built && f.proven && f.tryApproved && !f.released,
+    close: idle && f.released,
   };
 }
 
 /** The stage a Work item is at, from what exists (the rail never lies). */
 export function stageFor(f: Omit<WorkFacts, "stage" | "jobRunning">): RailStop {
-  if (f.planApproved && f.steps.length && f.steps.every((s) => s.status === "done" || s.status === "skipped")) return "prove";
+  const built = f.planApproved && allStepsDone(f.steps);
+  if (built && f.released) return "learn";
+  if (built && f.proven && f.tryApproved) return "release";
+  if (built && f.proven) return "try";
+  if (built) return "prove";
   if (f.planApproved) return "build";
   if (f.latestDesign?.approved) return "plan";
   if (f.latestDesign) return "design";
@@ -168,6 +193,72 @@ export function protocolVerdict(c: StepChecks): { ok: boolean; reasons: string[]
     if (c.baseline != null && c.tests.total < c.baseline) reasons.push(`The suite is below the site's baseline of ${c.baseline} tests.`);
   }
   if (!c.touchedTests && !c.noTestsReason?.trim()) reasons.push("No tests were added or updated, and no reason was given.");
+  return { ok: reasons.length === 0, reasons };
+}
+
+// ── Prove and Release (flywheel.md F14) ──────────────────────────────────────
+/** What a Prove run found. The runner reports facts; proveVerdict decides. */
+export type ProveFacts = {
+  typecheck: boolean;
+  build: boolean | null; // null: the site has no build script
+  tests: { passed: number; failed: number; total: number } | null;
+  baseline: number | null;
+  pushed: boolean;
+  /**
+   * The preview deployment's final state from GitHub ("success", "failure", "error"),
+   * "missing" if none appeared, or "skipped" when the checks failed and nothing was pushed.
+   */
+  previewState: string;
+};
+
+export type ProveEvidence = ProveFacts & {
+  ok: boolean;
+  reasons: string[];
+  branch: string;
+  commit: string | null;
+  previewUrl: string | null;
+  /** HTTP status of the preview page; 401/403 means Vercel protection (sign in to Vercel to view). */
+  previewStatus: number | null;
+  at: string;
+};
+
+/** Prove passes only if every check is green and the preview deployed. Returns the reasons it isn't. */
+export function proveVerdict(f: ProveFacts): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!f.typecheck) reasons.push("Typecheck failed.");
+  if (f.build === false) reasons.push("The production build failed.");
+  if (!f.tests) reasons.push("The test suite didn't run.");
+  else {
+    if (f.tests.failed > 0) reasons.push(`${f.tests.failed} test${f.tests.failed === 1 ? "" : "s"} failing.`);
+    if (f.baseline != null && f.tests.total < f.baseline) reasons.push(`The suite is below the site's baseline of ${f.baseline} tests.`);
+  }
+  if (f.previewState === "skipped") {
+    if (!reasons.length) reasons.push("The preview was skipped.");
+  } else if (!f.pushed) reasons.push("The branch couldn't be pushed to GitHub.");
+  else if (f.previewState === "missing") reasons.push("No preview deployment appeared. Check the Vercel project is linked to the repository.");
+  else if (f.previewState !== "success") reasons.push(`The preview deployment ended in "${f.previewState}". See the Vercel build log.`);
+  return { ok: reasons.length === 0, reasons };
+}
+
+/** What a Release run did. */
+export type ReleaseEvidence = {
+  ok: boolean;
+  reasons: string[];
+  stageCommit: string | null;
+  mainCommit: string | null;
+  productionState: string; // the production deployment's final state, or "missing"
+  liveUrl: string;
+  liveStatus: number | null;
+  at: string;
+};
+
+/** Release passes when main moved, production deployed, and the live site answers. */
+export function releaseVerdict(r: Pick<ReleaseEvidence, "mainCommit" | "productionState" | "liveStatus">): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!r.mainCommit) reasons.push("main wasn't updated.");
+  if (r.productionState === "missing") reasons.push("No production deployment appeared for the new main commit.");
+  else if (r.productionState !== "success") reasons.push(`The production deployment ended in "${r.productionState}".`);
+  if (r.liveStatus == null || r.liveStatus >= 400) reasons.push(`The live site answered ${r.liveStatus ?? "nothing"}.`);
   return { ok: reasons.length === 0, reasons };
 }
 
@@ -240,6 +331,13 @@ export type WorkItem = {
   risk: RiskClass[];
   branch: string | null;
   planApproved: boolean;
+  /** The preview of the proven branch (Try). */
+  previewUrl: string | null;
+  /** The last Prove run, passed or not. */
+  proof: ProveEvidence | null;
+  tryApproved: boolean;
+  released: boolean;
+  release: ReleaseEvidence | null;
   createdAt: string;
   updatedAt: string;
 };

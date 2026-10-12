@@ -1,7 +1,10 @@
 import {
   agreementText,
+  canApprove,
   isRisky,
   protocolVerdict,
+  proveVerdict,
+  releaseVerdict,
   resolveModels,
   SETUP_TEMPLATE,
   setupDone,
@@ -15,7 +18,11 @@ import {
   type JobEvent,
   type JobKind,
   type ModelRole,
+  type ProveEvidence,
+  type ProveFacts,
+  type ReleaseEvidence,
   type RiskClass,
+  type Role,
   type Site,
   type SiteModel,
   type SiteSetup,
@@ -51,6 +58,11 @@ const toWork = (r: Row): WorkItem => ({
   risk: (r.risk as RiskClass[]) ?? [],
   branch: (r.branch as string) ?? null,
   planApproved: !!r.plan_approved_at,
+  previewUrl: (r.preview_url as string) ?? null,
+  proof: (r.proof as ProveEvidence) ?? null,
+  tryApproved: !!r.try_approved_at,
+  released: !!r.released_at,
+  release: (r.release as ReleaseEvidence) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
 });
@@ -137,8 +149,14 @@ const facts = (w: WorkItem, p: Awaited<ReturnType<typeof parts>>) => {
     latestDesign: latest ? { version: latest.version, approved: !!latest.approvedAt } : null,
     planApproved: w.planApproved,
     steps: p.steps,
+    proven: w.proof?.ok === true,
+    tryApproved: w.tryApproved,
+    released: w.released,
   };
 };
+
+/** New or rebuilt steps make the last Prove, preview and Try approval stale. */
+const UNPROVEN = { preview_url: null, proven_at: null, proof: null, try_approved_at: null, try_approved_by: null };
 
 export async function runnerOnline() {
   const since = new Date(Date.now() - 30_000).toISOString();
@@ -170,8 +188,8 @@ async function restage(workId: string) {
   if (!w || w.stage === "done" || w.stage === "cancelled") return;
   const work = toWork(w);
   const p = await parts(workId);
-  const { latestDesign, planApproved, steps } = facts(work, p);
-  const stage = stageFor({ risk: work.risk, latestDesign, planApproved, steps });
+  const { stage: _stage, jobRunning: _running, ...f } = facts(work, p);
+  const stage = stageFor(f);
   await db().from("acc_work").update({ stage, updated_at: now() }).eq("id", workId);
 }
 
@@ -290,6 +308,46 @@ export async function runNextStep(site: Site, identity: Identity, number: number
   if (!a.runNextStep || a.nextStep == null) throw new CodeError("There's no approved step to run.");
   const step = p.steps[a.nextStep]!;
   await enqueue(site, w, "build_step", "build", identity.userId, { stepId: step.id });
+}
+
+// ── Prove · Try · Release · Close (flywheel.md F14) ─────────────────────────
+async function actionsFor(site: Site, number: number) {
+  const w = await workRow(site.id, number);
+  const p = await parts(w.id as string);
+  return { w, p, a: workActions(facts(toWork(w), p)) };
+}
+
+/** Every step is built: run the full checks, push the branch, find its preview. */
+export async function proveWork(site: Site, identity: Identity, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.prove) throw new CodeError("Prove runs once every step is built and checked.");
+  await enqueue(site, w, "prove", "build", identity.userId);
+}
+
+/** Gate 3: the Navigator tried the preview and approves it for release. Risky changes need the Owner. */
+export async function approveTry(site: Site, identity: Identity, name: string, role: Role, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.approveTry) throw new CodeError("There's no proven preview to approve yet.");
+  if (!canApprove(role, (w.risk as RiskClass[]) ?? [])) throw new CodeError("This touches money, data, auth or security, so the site Owner approves it.");
+  await db().from("acc_work").update({ try_approved_at: now(), try_approved_by: identity.userId }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} tried the preview and approved it for release.` });
+  await restage(w.id as string);
+}
+
+/** Go live: merge to stage, move main to stage, check the live site. */
+export async function releaseWork(site: Site, identity: Identity, name: string, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.release) throw new CodeError("Release needs a proven preview that has been tried and approved.");
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} pressed Go live.` });
+  await enqueue(site, w, "release", "build", identity.userId);
+}
+
+/** Live and checked: close the item (Learn feeds the next conversation). */
+export async function closeWork(site: Site, identity: Identity, name: string, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.close) throw new CodeError("Close a work item once it's live.");
+  await db().from("acc_work").update({ stage: "done", updated_at: now() }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} closed #${number}.` });
 }
 
 export async function setCadence(site: Site, number: number, cadence: WorkItem["cadence"]) {
@@ -445,7 +503,9 @@ export type JobResult =
       items: { code: string; status: "done" | "failed" | "waiting"; note?: string; evidence?: Record<string, unknown> }[];
       baselineTests?: number;
       manifest?: { key: string; purpose: string; howToGet: string }[];
-    };
+    }
+  | { kind: "prove"; facts: Omit<ProveFacts, "baseline">; branch: string; commit: string | null; previewUrl: string | null; previewStatus: number | null }
+  | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
 export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string }) {
@@ -478,7 +538,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
     await db().from("acc_work_steps").delete().eq("work_id", w.id as string).neq("status", "done");
     const done = (await rows(db().from("acc_work_steps").select("id").eq("work_id", w.id as string))).length;
     await db().from("acc_work_steps").insert(r.steps.map((s, i) => ({ org_id: w.org_id, work_id: w.id, position: done + i + 1, title: s.title, detail: s.detail })));
-    await db().from("acc_work").update({ plan_approved_at: null, plan_approved_by: null }).eq("id", w.id as string);
+    await db().from("acc_work").update({ plan_approved_at: null, plan_approved_by: null, ...UNPROVEN }).eq("id", w.id as string);
     await say(w, { kind: "model", label, model, body: `${r.summary ? `${r.summary}\n\n` : ""}The plan has ${r.steps.length} steps. Review it, reorder or trim it by asking, then approve.` });
   } else if (w && r.kind === "build_step") {
     const [site] = await rows(db().from("acc_sites").select("baseline_tests").eq("id", job.site_id as string));
@@ -488,6 +548,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       .from("acc_work_steps")
       .update({ status: verdict.ok ? "done" : "blocked", evidence: { summary: r.summary, reasons: verdict.reasons, checks, commit: r.commit, files: r.files }, updated_at: now() })
       .eq("id", r.stepId);
+    if (r.commit) await db().from("acc_work").update(UNPROVEN).eq("id", w.id as string); // new code: prove it again
     const t = checks.tests;
     const tests = t ? `${t.passed}/${t.total} tests passing${checks.testsBefore != null ? ` (was ${checks.testsBefore})` : ""}` : "tests didn't run";
     await say(w, {
@@ -497,6 +558,39 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
         : `${r.summary}\n\nThis step is blocked by the Protocol:\n${verdict.reasons.map((x) => `- ${x}`).join("\n")}\nAsk me to fix it, or run the step again.`,
     });
     if (verdict.ok && (w.cadence === "run" || (w.cadence === "at_risk" && !isRisky((w.risk as RiskClass[]) ?? [])))) next = "build_step";
+  } else if (w && r.kind === "prove") {
+    const [site] = await rows(db().from("acc_sites").select("baseline_tests").eq("id", job.site_id as string));
+    const f: ProveFacts = { ...r.facts, baseline: (site?.baseline_tests as number) ?? null };
+    const verdict = proveVerdict(f);
+    const proof: ProveEvidence = { ...f, ...verdict, branch: r.branch, commit: r.commit, previewUrl: r.previewUrl, previewStatus: r.previewStatus, at: now() };
+    await db()
+      .from("acc_work")
+      .update({ proof, preview_url: verdict.ok ? r.previewUrl : null, proven_at: verdict.ok ? now() : null, try_approved_at: null, try_approved_by: null })
+      .eq("id", w.id as string);
+    const t = f.tests ? `${f.tests.passed}/${f.tests.total} tests passing` : "no tests ran";
+    const guarded = r.previewStatus === 401 || r.previewStatus === 403 ? " It's behind Vercel's protection, so sign in to Vercel to open it." : "";
+    await say(w, {
+      kind: "model", label, model,
+      body: verdict.ok
+        ? `Proven: typecheck clean, ${t}${f.build ? ", production build ok" : ""}. The branch is pushed and the preview is up:\n\n${r.previewUrl}\n\nTry it.${guarded} Approve it for release when it's right, or tell me what to change.`
+        : `Prove didn't pass:\n${verdict.reasons.map((x) => `- ${x}`).join("\n")}\nAsk me to fix it, then prove again.`,
+    });
+  } else if (w && r.kind === "release") {
+    const verdict = releaseVerdict(r);
+    const release: ReleaseEvidence = {
+      ok: verdict.ok, reasons: [...(r.reasons ?? []), ...verdict.reasons], stageCommit: r.stageCommit, mainCommit: r.mainCommit,
+      productionState: r.productionState, liveUrl: r.liveUrl, liveStatus: r.liveStatus, at: now(),
+    };
+    // main moved: the change is released, even if the live check needs a look.
+    await db().from("acc_work").update({ release, released_at: r.mainCommit ? now() : null }).eq("id", w.id as string);
+    await say(w, {
+      kind: "model", label, model,
+      body: verdict.ok
+        ? `Live. main is at ${r.mainCommit!.slice(0, 8)}, production deployed, and ${r.liveUrl} answers ${r.liveStatus}. Anything to learn from this one? Say it here, then close the item.`
+        : r.mainCommit
+          ? `Released to main (${r.mainCommit.slice(0, 8)}), but the live check needs a look:\n${release.reasons.map((x) => `- ${x}`).join("\n")}\nIf the site is broken, roll back in Vercel (Instant Rollback) and tell me what you see.`
+          : `The release didn't reach main:\n${release.reasons.map((x) => `- ${x}`).join("\n")}\nNothing on the live site changed.`,
+    });
   } else if (r.kind === "checkout") {
     for (const it of r.items) {
       await db().from("acc_setup_items").update({ status: it.status, note: it.note ?? null, evidence: it.evidence ?? {}, updated_at: now() }).eq("site_id", job.site_id as string).eq("code", it.code);
@@ -521,10 +615,15 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   if (w) {
     await restage(w.id as string);
     if (next) {
+      // Cadence lets the engine keep going: the next step, or Prove once every step is built. Never past a gate.
+      const [fresh] = await rows(db().from("acc_work").select("*").eq("id", w.id as string));
       const p = await parts(w.id as string);
-      const a = workActions(facts(toWork({ ...w, plan_approved_at: w.plan_approved_at }), p));
+      const a = workActions(facts(toWork(fresh!), p));
+      const siteRef = { id: job.site_id as string, orgId: job.org_id as string };
       if (a.runNextStep && a.nextStep != null) {
-        await enqueue({ id: job.site_id as string, orgId: job.org_id as string }, w, "build_step", "build", job.created_by as string, { stepId: p.steps[a.nextStep]!.id });
+        await enqueue(siteRef, w, "build_step", "build", job.created_by as string, { stepId: p.steps[a.nextStep]!.id });
+      } else if (a.prove) {
+        await enqueue(siteRef, w, "prove", "build", job.created_by as string);
       }
     }
   }

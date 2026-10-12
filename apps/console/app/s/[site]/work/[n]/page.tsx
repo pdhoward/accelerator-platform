@@ -14,5 +14,5 @@ export default async function WorkItemPage({ params }: { params: Promise<{ site:
     if (err instanceof ApiError && (err.status === 400 || err.status === 404)) notFound();
     throw err;
   });
-  return <WorkRoom siteId={site} initial={detail} canAsk={can("request.create")} canApprove={can("change.approve")} />;
+  return <WorkRoom siteId={site} initial={detail} canAsk={can("request.create")} canApprove={can("change.approve")} canShip={can("release.ship")} />;
 }

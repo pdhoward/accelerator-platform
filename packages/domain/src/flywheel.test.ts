@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { agreementText, DEFAULT_MODELS, protocolVerdict, resolveModels, stageFor, validateModels, workActions, type WorkFacts } from "./flywheel";
+import {
+  agreementText,
+  DEFAULT_MODELS,
+  protocolVerdict,
+  proveVerdict,
+  releaseVerdict,
+  resolveModels,
+  stageFor,
+  validateModels,
+  workActions,
+  type ProveFacts,
+  type WorkFacts,
+} from "./flywheel";
 
 const facts = (f: Partial<WorkFacts>): WorkFacts => ({
   stage: "discuss",
@@ -9,8 +21,15 @@ const facts = (f: Partial<WorkFacts>): WorkFacts => ({
   latestDesign: null,
   planApproved: false,
   steps: [],
+  proven: false,
+  tryApproved: false,
+  released: false,
   ...f,
 });
+
+/** Every step built and checked: ready for Prove. */
+const built = facts({ stage: "prove", latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "done" }, { status: "done" }] });
+const { stage: _s, jobRunning: _j, ...builtShape } = built;
 
 describe("workActions: the three gates", () => {
   it("can't plan before the design is approved", () => {
@@ -35,12 +54,64 @@ describe("workActions: the three gates", () => {
 });
 
 describe("stageFor: the rail reflects what exists", () => {
+  const none = { proven: false, tryApproved: false, released: false };
   it("walks discuss → design → plan → build → prove", () => {
-    expect(stageFor({ risk: [], latestDesign: null, planApproved: false, steps: [] })).toBe("discuss");
-    expect(stageFor({ risk: [], latestDesign: { version: 1, approved: false }, planApproved: false, steps: [] })).toBe("design");
-    expect(stageFor({ risk: [], latestDesign: { version: 1, approved: true }, planApproved: false, steps: [] })).toBe("plan");
-    expect(stageFor({ risk: [], latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "todo" }] })).toBe("build");
-    expect(stageFor({ risk: [], latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "done" }, { status: "skipped" }] })).toBe("prove");
+    expect(stageFor({ ...none, risk: [], latestDesign: null, planApproved: false, steps: [] })).toBe("discuss");
+    expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: false }, planApproved: false, steps: [] })).toBe("design");
+    expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: true }, planApproved: false, steps: [] })).toBe("plan");
+    expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "todo" }] })).toBe("build");
+    expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "done" }, { status: "skipped" }] })).toBe("prove");
+  });
+  it("walks prove → try → release → learn", () => {
+    expect(stageFor({ ...builtShape, proven: true })).toBe("try");
+    expect(stageFor({ ...builtShape, proven: true, tryApproved: true })).toBe("release");
+    expect(stageFor({ ...builtShape, proven: true, tryApproved: true, released: true })).toBe("learn");
+  });
+  it("drops back to build when new steps are added after Prove", () => {
+    expect(stageFor({ ...builtShape, proven: true, steps: [{ status: "done" }, { status: "todo" }] })).toBe("build");
+  });
+});
+
+describe("workActions: prove, try, release, close", () => {
+  it("offers Prove once every step is built, and again after a failed Prove", () => {
+    expect(workActions(built)).toMatchObject({ prove: true, approveTry: false, release: false });
+    expect(workActions(facts({ ...built, steps: [{ status: "done" }, { status: "todo" }] })).prove).toBe(false);
+  });
+  it("needs a passed Prove before Try, and an approved Try before Release (gate 3)", () => {
+    expect(workActions({ ...built, stage: "try", proven: true })).toMatchObject({ approveTry: true, release: false });
+    expect(workActions({ ...built, stage: "release", proven: true, tryApproved: true })).toMatchObject({ approveTry: false, release: true, prove: false });
+  });
+  it("closes only after release, and stops design and plan changes once live", () => {
+    const live = { ...built, stage: "learn" as const, proven: true, tryApproved: true, released: true };
+    expect(workActions(live)).toMatchObject({ close: true, release: false, draftDesign: false, draftPlan: false });
+  });
+  it("does nothing while a job runs", () => {
+    expect(workActions({ ...built, jobRunning: true }).prove).toBe(false);
+  });
+});
+
+describe("proveVerdict and releaseVerdict", () => {
+  const green: ProveFacts = { typecheck: true, build: true, tests: { passed: 4, failed: 0, total: 4 }, baseline: 3, pushed: true, previewState: "success" };
+  it("passes when every check is green and the preview deployed", () => {
+    expect(proveVerdict(green)).toEqual({ ok: true, reasons: [] });
+    expect(proveVerdict({ ...green, build: null }).ok).toBe(true); // no build script
+  });
+  it("names every reason it fails", () => {
+    expect(proveVerdict({ ...green, build: false }).reasons).toContain("The production build failed.");
+    expect(proveVerdict({ ...green, tests: { passed: 2, failed: 0, total: 2 } }).reasons[0]).toMatch(/below the site's baseline/);
+    expect(proveVerdict({ ...green, pushed: false }).reasons).toContain("The branch couldn't be pushed to GitHub.");
+    expect(proveVerdict({ ...green, previewState: "missing" }).reasons[0]).toMatch(/No preview deployment/);
+    expect(proveVerdict({ ...green, previewState: "failure" }).reasons[0]).toMatch(/"failure"/);
+  });
+  it("reports only the failed checks when the push was skipped", () => {
+    expect(proveVerdict({ ...green, typecheck: false, pushed: false, previewState: "skipped" }).reasons).toEqual(["Typecheck failed."]);
+    expect(proveVerdict({ ...green, pushed: false, previewState: "skipped" }).ok).toBe(false);
+  });
+  it("passes a release only when main moved, production deployed and the site answers", () => {
+    expect(releaseVerdict({ mainCommit: "abc", productionState: "success", liveStatus: 200 }).ok).toBe(true);
+    expect(releaseVerdict({ mainCommit: null, productionState: "success", liveStatus: 200 }).ok).toBe(false);
+    expect(releaseVerdict({ mainCommit: "abc", productionState: "missing", liveStatus: 200 }).ok).toBe(false);
+    expect(releaseVerdict({ mainCommit: "abc", productionState: "success", liveStatus: 500 }).reasons).toContain("The live site answered 500.");
   });
 });
 

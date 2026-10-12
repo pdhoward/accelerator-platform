@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 
 import { claim, eventLog, finish } from "./api";
-import { buildStep, checkout, design, discuss, plan } from "./jobs";
+import { buildStep, checkout, design, discuss, plan, prove, release } from "./jobs";
 
 /**
  * The Accelerator runner (work/flywheel.md §7). A long-running process:
@@ -12,7 +12,7 @@ import { buildStep, checkout, design, discuss, plan } from "./jobs";
  */
 const VERSION = "0.1.0";
 const runnerId = `${hostname()}-${process.pid}`;
-const JOBS = { discuss, design, plan, build_step: buildStep, checkout } as const;
+const JOBS = { discuss, design, plan, build_step: buildStep, checkout, prove, release } as const;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let stopping = false;

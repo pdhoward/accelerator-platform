@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, CircleCheck, FileText, ListChecks, Loader2, PenLine, Play, ScrollText, Sparkles, User, Wifi, WifiOff } from "lucide-react";
+import { ArrowUp, Bot, CircleCheck, ExternalLink, FileText, Flag, ListChecks, Loader2, PenLine, Play, Rocket, ScrollText, Sparkles, User, Wifi, WifiOff } from "lucide-react";
 import { CADENCE_LABEL, modelLabel, RAIL_LABEL, type Cadence, type WorkDetail, type WorkStep } from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
@@ -11,14 +11,17 @@ import { Markdown, Rail, StepIcon } from "./flywheel";
 import { button, Card, Chip, cx, Eyebrow, PageHeader } from "./ui";
 import { EngineerOnly, useUi } from "./ui-provider";
 
-type Tab = "design" | "plan" | "log";
+type Tab = "design" | "plan" | "ship" | "log";
+
+/** Stops after Build: their artifacts live on the "Prove & release" tab. */
+const SHIP_STAGES = ["prove", "try", "release", "learn", "done"];
 
 /**
  * One Work item: the conversation (left) never goes away; the right side is
- * whatever the current stop produces (design · plan · live log). The page
- * refreshes itself while the engine works.
+ * whatever the current stop produces (design · plan · prove & release · live
+ * log). The page refreshes itself while the engine works.
  */
-export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: string; initial: WorkDetail; canAsk: boolean; canApprove: boolean }) {
+export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { siteId: string; initial: WorkDetail; canAsk: boolean; canApprove: boolean; canShip: boolean }) {
   const [d, setD] = useState(initial);
   const [tab, setTab] = useState<Tab>(defaultTab(initial));
   const [busy, setBusy] = useState(false);
@@ -41,12 +44,15 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
   }, [refresh, working]);
 
   // Follow the rail: when a new design or plan lands, show it.
-  const seen = useRef({ designs: d.designs.length, steps: d.steps.length, job: job?.id });
+  const seen = useRef({ designs: d.designs.length, steps: d.steps.length, job: job?.id, active: working });
   useEffect(() => {
     if (d.designs.length > seen.current.designs) setTab("design");
     else if (d.steps.length !== seen.current.steps && d.steps.length) setTab("plan");
-    if (job?.id !== seen.current.job && job && (job.status === "queued" || job.status === "running") && job.kind === "build_step") setTab("log");
-    seen.current = { designs: d.designs.length, steps: d.steps.length, job: job?.id };
+    const active = job && (job.status === "queued" || job.status === "running");
+    if (job?.id !== seen.current.job && active && (job.kind === "build_step" || job.kind === "prove" || job.kind === "release")) setTab("log");
+    // When Prove or Release finishes, show what it found.
+    if (job && !active && job.id === seen.current.job && seen.current.active && (job.kind === "prove" || job.kind === "release")) setTab("ship");
+    seen.current = { designs: d.designs.length, steps: d.steps.length, job: job?.id, active: !!active };
   }, [d, job]);
 
   async function act(fn: () => Promise<unknown>, done?: string) {
@@ -94,7 +100,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
           <Rail stage={d.work.stage} />
         )}
 
-        <NeedsYou d={d} working={working} canApprove={canApprove} busy={busy} onTab={setTab} act={act} siteId={siteId} />
+        <NeedsYou d={d} working={working} canApprove={canApprove} canShip={canShip} busy={busy} onTab={setTab} act={act} siteId={siteId} />
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
           <Thread d={d} working={working} canAsk={canAsk} busy={busy} onSend={(body) => act(() => api.work.say(siteId, n, body))} />
@@ -105,6 +111,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
                 [
                   ["design", `Design${latest ? ` v${latest.version}` : ""}`, FileText],
                   ["plan", `Plan${d.steps.length ? ` · ${d.steps.filter((s) => s.status === "done").length}/${d.steps.length}` : ""}`, ListChecks],
+                  ["ship", "Prove & release", Rocket],
                   ["log", "Live log", ScrollText],
                 ] as const
               ).filter(([id]) => !install || id === "log").map(([id, label, Icon]) => (
@@ -124,6 +131,7 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
                 <DesignPanel d={d} canAsk={canAsk} canApprove={canApprove} busy={busy || working} siteId={siteId} act={act} />
               )}
               {tab === "plan" && <PlanPanel d={d} canAsk={canAsk} canApprove={canApprove} busy={busy || working} siteId={siteId} act={act} next={next} />}
+              {tab === "ship" && <ShipPanel d={d} />}
               {tab === "log" && <LogPanel d={d} />}
             </div>
           </Card>
@@ -136,7 +144,8 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove }: { siteId: stri
 function defaultTab(d: WorkDetail): Tab {
   if (d.work.kind === "install") return "log";
   const j = d.jobs[0];
-  if (j && j.kind === "build_step" && (j.status === "queued" || j.status === "running")) return "log";
+  if (j && (j.kind === "build_step" || j.kind === "prove" || j.kind === "release") && (j.status === "queued" || j.status === "running")) return "log";
+  if (SHIP_STAGES.includes(d.work.stage) && (d.work.proof || d.work.stage !== "prove")) return "ship";
   if (d.work.stage === "plan" || d.work.stage === "build" || d.work.stage === "prove") return "plan";
   return "design";
 }
@@ -156,7 +165,16 @@ function RunnerBadge({ online }: { online: boolean }) {
 type Act = (fn: () => Promise<unknown>, done?: string) => Promise<void>;
 
 /** The one next decision, in plain words (F9: the engine asks, visibly). */
-function NeedsYou({ d, working, canApprove, busy, onTab, act, siteId }: { d: WorkDetail; working: boolean; canApprove: boolean; busy: boolean; onTab: (t: Tab) => void; act: Act; siteId: string }) {
+const JOB_DOING: Record<string, string> = {
+  build_step: "building a step",
+  discuss: "replying",
+  prove: "proving it: every check, then the push and the preview",
+  release: "releasing: stage, main, production, then the live check",
+};
+
+function NeedsYou({
+  d, working, canApprove, canShip, busy, onTab, act, siteId,
+}: { d: WorkDetail; working: boolean; canApprove: boolean; canShip: boolean; busy: boolean; onTab: (t: Tab) => void; act: Act; siteId: string }) {
   const a = d.actions;
   const api = browserApi();
   const n = d.work.number;
@@ -168,7 +186,7 @@ function NeedsYou({ d, working, canApprove, busy, onTab, act, siteId }: { d: Wor
   let text: string | null = null;
   let action: React.ReactNode = null;
   if (working) {
-    text = `The engine is working: ${job!.kind === "build_step" ? "building a step" : job!.kind === "discuss" ? "replying" : `writing the ${job!.kind}`} (${modelLabel(job!.provider, job!.model)}).`;
+    text = `The engine is working: ${JOB_DOING[job!.kind] ?? `writing the ${job!.kind}`} (${modelLabel(job!.provider, job!.model)}).`;
     action = <Loader2 className="size-4 animate-spin text-gold-2" />;
   } else if (!d.runnerOnline) {
     text = "The engine is offline. Start the runner and it will pick up where things are.";
@@ -202,8 +220,49 @@ function NeedsYou({ d, working, canApprove, busy, onTab, act, siteId }: { d: Wor
         <Play className="size-4" /> {blocked ? `Run step ${step.position} again` : `Build step ${step.position}`}
       </button>
     ) : null;
-  } else if (d.work.stage === "prove") {
-    text = `All ${d.steps.length} steps are built and checked. Next: preview deploys and Try (coming with the GitHub + Vercel setup).`;
+  } else if (a.prove) {
+    const failed = d.work.proof && !d.work.proof.ok ? d.work.proof : null;
+    text = failed
+      ? `Prove didn't pass: ${failed.reasons[0] ?? "see the evidence"} Ask the engine to fix it, then prove again.`
+      : `All ${d.steps.length} steps are built and checked. Prove it: the engine runs every check, pushes the branch and opens a preview.`;
+    action = canApprove ? (
+      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "prove"), "Proving: checks, push, preview.")}>
+        <Rocket className="size-4" /> {failed ? "Prove again" : "Prove and preview"}
+      </button>
+    ) : null;
+  } else if (a.approveTry) {
+    text = "The preview is up. Try it with real clicks, then approve it for release, or tell the engine what to change.";
+    action = (
+      <>
+        {d.work.previewUrl && (
+          <a href={d.work.previewUrl} target="_blank" rel="noreferrer" className={button("plain")}>
+            <ExternalLink className="size-4" /> Open preview
+          </a>
+        )}
+        {canApprove && (
+          <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "approve"), "Approved for release.")}>
+            <CircleCheck className="size-4" /> Approve for release
+          </button>
+        )}
+      </>
+    );
+  } else if (a.release) {
+    text = "Approved. Go live merges this into stage and main, waits for production, and checks the live site.";
+    action = canShip ? (
+      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "release"), "Releasing to production.")}>
+        <Rocket className="size-4" /> Go live
+      </button>
+    ) : null;
+  } else if (a.close) {
+    const r = d.work.release;
+    text = r?.ok
+      ? `Live: ${r.liveUrl} answers ${r.liveStatus}. Note anything you learned in the conversation, then close #${n}.`
+      : `Released to main, but the live check needs a look: ${r?.reasons[0] ?? "see the evidence"}`;
+    action = canApprove ? (
+      <button type="button" className={button("plain")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "close"), `#${n} closed.`)}>
+        <Flag className="size-4" /> Close #{n}
+      </button>
+    ) : null;
   } else if (a.draftPlan) {
     text = "The design is approved. Ask the engine for the build plan.";
     action = (
@@ -494,6 +553,97 @@ function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: Work
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+/** Prove, Try and Release evidence: what was checked, where the preview is, what went live. */
+function ShipPanel({ d }: { d: WorkDetail }) {
+  const { proof, release, previewUrl, tryApproved } = d.work;
+  if (!proof && !release) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
+        <Rocket className="size-8 text-mist" />
+        <p className="max-w-sm text-[13.5px] text-fog">
+          Once every step is built, Prove runs every check, pushes the branch and opens a preview for you to try. Then Go live releases it and checks the live site.
+        </p>
+      </div>
+    );
+  }
+  const guarded = proof?.previewStatus === 401 || proof?.previewStatus === 403;
+  return (
+    <div className="flex flex-col gap-4">
+      {proof && (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Eyebrow>Prove</Eyebrow>
+            <Chip tone={proof.ok ? "good" : "bad"}>{proof.ok ? "Passed" : "Didn't pass"}</Chip>
+            <span className="text-[12px] text-mist">{new Date(proof.at).toLocaleString()}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip tone={proof.typecheck ? "good" : "bad"}>Typecheck {proof.typecheck ? "clean" : "failed"}</Chip>
+            {proof.tests ? (
+              <Chip tone={proof.tests.failed ? "bad" : "good"}>
+                {proof.tests.passed}/{proof.tests.total} tests
+              </Chip>
+            ) : (
+              <Chip tone="bad">Tests didn&apos;t run</Chip>
+            )}
+            {proof.build != null && <Chip tone={proof.build ? "good" : "bad"}>Build {proof.build ? "ok" : "failed"}</Chip>}
+            <Chip tone={proof.previewState === "success" ? "good" : proof.previewState === "skipped" ? "warn" : "bad"}>Preview {proof.previewState}</Chip>
+            <EngineerOnly>{proof.commit && <Chip>{proof.branch} @ {proof.commit.slice(0, 8)}</Chip>}</EngineerOnly>
+          </div>
+          {!!proof.reasons.length && (
+            <ul className="list-disc pl-5 text-[12.5px] text-bad">
+              {proof.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {previewUrl && (
+        <section className="flex flex-col gap-2 rounded-xl border border-line p-3.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Eyebrow>Try</Eyebrow>
+            <Chip tone={tryApproved ? "good" : "warn"}>{tryApproved ? "Approved for release" : "Waiting for you"}</Chip>
+          </div>
+          <a href={previewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 break-all text-[13px] text-cyan hover:underline">
+            <ExternalLink className="size-3.5 shrink-0" /> {previewUrl}
+          </a>
+          {guarded && <p className="text-[12.5px] text-fog">The preview is behind Vercel&apos;s protection: sign in to Vercel in this browser to open it.</p>}
+          <p className="text-[12.5px] text-fog">Try what the design promised, the way a customer would. If something&apos;s off, say so in the conversation instead of approving.</p>
+        </section>
+      )}
+
+      {release && (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Eyebrow>Release</Eyebrow>
+            <Chip tone={release.ok ? "good" : release.mainCommit ? "warn" : "bad"}>{release.ok ? "Live and checked" : release.mainCommit ? "Released; check needed" : "Not released"}</Chip>
+            <span className="text-[12px] text-mist">{new Date(release.at).toLocaleString()}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip tone={release.productionState === "success" ? "good" : "bad"}>Production {release.productionState}</Chip>
+            <Chip tone={release.liveStatus != null && release.liveStatus < 400 ? "good" : "bad"}>Live site {release.liveStatus ?? "unreachable"}</Chip>
+            <EngineerOnly>
+              {release.stageCommit && <Chip>stage @ {release.stageCommit.slice(0, 8)}</Chip>}
+              {release.mainCommit && <Chip>main @ {release.mainCommit.slice(0, 8)}</Chip>}
+            </EngineerOnly>
+          </div>
+          <a href={release.liveUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[13px] text-cyan hover:underline">
+            <ExternalLink className="size-3.5" /> {release.liveUrl}
+          </a>
+          {!!release.reasons.length && (
+            <ul className="list-disc pl-5 text-[12.5px] text-bad">
+              {release.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

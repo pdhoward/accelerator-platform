@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { JobContext } from "@accelerator/domain";
 
 import { secrets, type Log } from "./api";
+import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
 import { changedFiles, checks, commitAll, ensureWorktree, git, headSha, isTestFile } from "./repo";
@@ -123,6 +124,114 @@ export async function buildStep(ctx: JobContext, log: Log) {
   };
 }
 
+// ── Prove · Release (flywheel.md F14) ─────────────────────────────────────────
+/** Git with this machine's credentials, never prompting (a prompt would hang the runner). */
+const gitRemote = (args: string, cwd: string) => sh(`git ${args}`, cwd, { GIT_TERMINAL_PROMPT: "0" }, 180_000);
+const gitAs = (args: string, cwd: string) => sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" ${args}`, cwd, {}, 120_000);
+const githubToken = (env: Record<string, string>) => process.env.GITHUB_TOKEN || env.GITHUB_TOKEN || undefined;
+
+/** Typecheck, tests and the production build, as the site defines them. */
+async function fullChecks(dir: string, env: Record<string, string>, log: Log) {
+  const c = await checks(dir, env);
+  const build = scripts(dir).build ? await sh("pnpm build", dir, env) : null;
+  const typecheck = !c.typecheck || c.typecheck.code === 0;
+  const tests = c.test ? parseTests(c.test.out) : null;
+  log.check(`Typecheck ${typecheck ? "clean" : "failed"} · tests ${tests ? `${tests.passed}/${tests.total}` : "didn't run"} · build ${build ? (build.code === 0 ? "ok" : "failed") : "n/a"}`);
+  if (!typecheck && c.typecheck) log.check("Typecheck output", tail(c.typecheck.out));
+  if (tests?.failed && c.test) log.check("Test output", tail(c.test.out));
+  if (build && build.code !== 0) log.check("Build output", tail(build.out));
+  const ok = typecheck && !!tests && tests.failed === 0 && (!build || build.code === 0);
+  return { ok, typecheck, tests, build: build ? build.code === 0 : null };
+}
+
+/** Prove: the full checks, then push work/<n> and wait for its Vercel preview. The API judges the result. */
+export async function prove(ctx: JobContext, log: Log) {
+  const w = needWork(ctx);
+  if (!ctx.site.repoPath) throw new Error("This site has no repository connected yet (Setup → repository path).");
+  if (!ctx.site.repo) throw new Error("This site has no GitHub repository set (Setup → repository).");
+  const branch = w.branch ?? `work/${w.number}`;
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, branch, ctx.site.baseBranch);
+  const env = await devEnv(ctx);
+
+  log.status("Prove: typecheck, tests and the production build");
+  const c = await fullChecks(dir, env, log);
+  const commit = await headSha(dir);
+  const result = { kind: "prove" as const, branch, commit, previewUrl: null as string | null, previewStatus: null as number | null };
+  const facts = { typecheck: c.typecheck, build: c.build, tests: c.tests, pushed: false, previewState: "skipped" };
+  if (!c.ok) return { ...result, facts }; // don't publish a preview of code that fails its checks
+
+  log.status(`Pushing ${branch}…`);
+  const push = await gitRemote(`push -u origin ${branch}`, dir);
+  facts.pushed = push.code === 0;
+  log.tool(facts.pushed ? `Pushed ${commit.slice(0, 8)} to ${branch}` : `Push failed: ${tail(push.out, 400)}`);
+  if (!facts.pushed) return { ...result, facts: { ...facts, previewState: "missing" } };
+
+  const d = await waitForDeployment(ctx.site.repo, commit, "preview", log, githubToken(env));
+  facts.previewState = d.state;
+  const previewStatus = d.url ? await probe(d.url) : null;
+  log.check(d.url ? `Preview ${d.state}: ${d.url} (answers ${previewStatus ?? "nothing"})` : `No preview (${d.state})`);
+  return { ...result, facts, previewUrl: d.url, previewStatus };
+}
+
+/**
+ * Release (Go live, after the Navigator approved the Try): bring stage up to
+ * date with main, merge work/<n>, check again, push stage, move main to stage
+ * (a fast-forward: stage contains main), then wait for production and check
+ * the live site. Stops before main if anything isn't clean.
+ */
+export async function release(ctx: JobContext, log: Log) {
+  const w = needWork(ctx);
+  if (!ctx.site.repoPath || !ctx.site.repo) throw new Error("This site needs a repository path and a GitHub repository (Setup).");
+  const base = ctx.site.baseBranch;
+  const branch = w.branch ?? `work/${w.number}`;
+  const out = { kind: "release" as const, stageCommit: null as string | null, mainCommit: null as string | null, productionState: "missing", liveUrl: ctx.site.url, liveStatus: null as number | null, reasons: [] as string[] };
+  const stop = (reason: string) => {
+    log.check(reason);
+    return { ...out, reasons: [reason] };
+  };
+
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, "release", "accelerator/release", base);
+  const fetched = await gitRemote("fetch origin --prune", dir);
+  if (fetched.code !== 0) return stop(`Couldn't fetch from GitHub: ${tail(fetched.out, 300)}`);
+  const hasBase = (await git(`rev-parse --verify --quiet origin/${base}`, dir)).code === 0;
+  await git(`reset -q --hard origin/${hasBase ? base : "main"}`, dir);
+
+  log.status(`Bringing ${base} up to date with main…`);
+  const m1 = await gitAs("merge --no-edit origin/main", dir);
+  if (m1.code !== 0) {
+    await git("merge --abort", dir);
+    return stop(`${base} and main conflict. Nothing was released; resolve the conflict, then release again.`);
+  }
+  log.status(`Merging ${branch} into ${base}…`);
+  const m2 = await gitAs(`merge --no-ff -m ${JSON.stringify(`Release #${w.number}: ${w.title}`)} origin/${branch}`, dir);
+  if (m2.code !== 0) {
+    await git("merge --abort", dir);
+    return stop(`${branch} conflicts with ${base}. Nothing was released; ask the engine to rebase the work, prove it again, then release.`);
+  }
+
+  log.status("Checking the merged result before it goes anywhere…");
+  const env = await devEnv(ctx);
+  const c = await fullChecks(dir, env, log);
+  if (!c.ok) return stop("The merged result fails its checks. Nothing was released.");
+
+  const sha = await headSha(dir);
+  const pushStage = await gitRemote(`push origin HEAD:${base}`, dir);
+  if (pushStage.code !== 0) return stop(`Couldn't push ${base}: ${tail(pushStage.out, 300)}`);
+  out.stageCommit = sha;
+  log.tool(`${base} is at ${sha.slice(0, 8)}`);
+
+  const pushMain = await gitRemote("push origin HEAD:main", dir);
+  if (pushMain.code !== 0) return stop(`${base} is updated, but main couldn't be moved: ${tail(pushMain.out, 300)}`);
+  out.mainCommit = sha;
+  log.tool(`main is at ${sha.slice(0, 8)}: production deploys from here`);
+
+  const d = await waitForDeployment(ctx.site.repo, sha, "production", log, githubToken(env));
+  out.productionState = d.state;
+  out.liveStatus = await probe(ctx.site.url);
+  log.check(`Production ${d.state}; ${ctx.site.url} answers ${out.liveStatus ?? "nothing"}`);
+  return out;
+}
+
 /** Checkout (flywheel.md §3): prove what can be proven; say plainly what's still waiting. */
 export async function checkout(ctx: JobContext, log: Log) {
   type Item = { code: string; status: "done" | "failed" | "waiting"; note?: string; evidence?: Record<string, unknown> };
@@ -177,10 +286,31 @@ export async function checkout(ctx: JobContext, log: Log) {
 
     // C7: baselines recorded where we can.
     items.push({ code: "C7", status: tests ? "done" : "waiting", note: tests ? `Test baseline ${tests.total}. Lighthouse and data baselines come with preview deploys.` : "No test suite to baseline." });
+
+    // C2: push a throwaway branch, see its Vercel preview load, then delete the branch.
+    if (ctx.site.repo && ok) {
+      log.status("C2: push a branch and wait for its preview");
+      const sha = await headSha(dir);
+      const push = await gitRemote("push -f origin HEAD:refs/heads/accelerator/checkout", dir);
+      if (push.code !== 0) {
+        items.push({ code: "C2", status: "failed", note: `Couldn't push to GitHub from this machine: ${tail(push.out, 300)}` });
+      } else {
+        const d = await waitForDeployment(ctx.site.repo, sha, "preview", log, githubToken(env), 6 * 60_000);
+        const status = d.url ? await probe(d.url) : null;
+        await gitRemote("push origin --delete accelerator/checkout", dir);
+        const guarded = status === 401 || status === 403 ? " (behind Vercel protection: sign in to Vercel to view previews)" : "";
+        items.push({
+          code: "C2",
+          status: d.state === "success" ? "done" : "failed",
+          note: d.state === "success" ? `Preview deployed: ${d.url}${guarded}.` : d.state === "missing" ? "No preview appeared. Link the Vercel project to the repository with previews on." : `The preview ended in "${d.state}".`,
+          evidence: { url: d.url, status, environment: d.environment },
+        });
+      }
+    }
   }
 
   // What needs GitHub + Vercel + a test database is waiting on Install, and says so.
-  items.push({ code: "C2", status: "waiting", note: "Needs the GitHub App and Vercel (I1, I3). Until then, work stays on local branches." });
+  if (!items.some((i) => i.code === "C2")) items.push({ code: "C2", status: "waiting", note: "Needs a passing C1 and the site's GitHub repository (Setup)." });
   items.push({ code: "C3", status: "waiting", note: "Needs the test database (I5)." });
   items.push({ code: "C5", status: "waiting", note: "Proven once the GitHub App and branch protection are in (I1, I2)." });
   return { kind: "checkout", items, baselineTests, manifest };
