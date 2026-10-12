@@ -290,6 +290,8 @@ export async function checkout(ctx: JobContext, log: Log) {
     // C2: push a throwaway branch, see its Vercel preview load, then delete the branch.
     if (ctx.site.repo && ok) {
       log.status("C2: push a branch and wait for its preview");
+      // A new (empty) commit: Vercel doesn't deploy a push of a commit it has already deployed.
+      await gitAs(`commit -q --allow-empty -m "Accelerator checkout: preview test"`, dir);
       const sha = await headSha(dir);
       const push = await gitRemote("push -f origin HEAD:refs/heads/accelerator/checkout", dir);
       if (push.code !== 0) {
