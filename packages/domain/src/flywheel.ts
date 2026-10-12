@@ -134,6 +134,8 @@ export type WorkActions = {
   release: boolean;
   /** Live: record what was learned and close the item. */
   close: boolean;
+  /** Not going ahead: file the item as cancelled, at any stop before release. */
+  cancel: boolean;
 };
 
 /** The three gates (F4): design, plan, release. Money/data/auth never skip. */
@@ -156,6 +158,7 @@ export function workActions(f: WorkFacts): WorkActions {
     approveTry: idle && built && f.proven && !f.tryApproved,
     release: idle && built && f.proven && f.tryApproved && !f.released,
     close: idle && f.released,
+    cancel: idle && !f.released,
   };
 }
 

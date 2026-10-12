@@ -88,6 +88,13 @@ describe("workActions: prove, try, release, close", () => {
   it("does nothing while a job runs", () => {
     expect(workActions({ ...built, jobRunning: true }).prove).toBe(false);
   });
+  it("can cancel at any stop before release, never after, and not while a job runs", () => {
+    expect(workActions(facts({})).cancel).toBe(true); // still discussing
+    expect(workActions({ ...built, stage: "try", proven: true }).cancel).toBe(true);
+    expect(workActions({ ...built, stage: "learn", proven: true, tryApproved: true, released: true }).cancel).toBe(false);
+    expect(workActions(facts({ jobRunning: true })).cancel).toBe(false);
+    expect(workActions(facts({ stage: "cancelled" })).cancel).toBe(false);
+  });
 });
 
 describe("proveVerdict and releaseVerdict", () => {

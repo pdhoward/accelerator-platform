@@ -150,8 +150,8 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
         post<{ ok: true }>(`${site(siteId)}/work/${n}/design`, action),
       plan: (siteId: string, n: number, action: { action: "draft"; note?: string } | { action: "approve" }) => post<{ ok: true }>(`${site(siteId)}/work/${n}/plan`, action),
       next: (siteId: string, n: number) => post<{ ok: true }>(`${site(siteId)}/work/${n}/steps/next`, {}),
-      /** Prove · approve the Try · release (Go live) · close. */
-      ship: (siteId: string, n: number, action: "prove" | "approve" | "release" | "close") => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
+      /** Prove · approve the Try · release (Go live) · close · cancel (close without building). */
+      ship: (siteId: string, n: number, action: "prove" | "approve" | "release" | "close" | "cancel") => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
       cadence: (siteId: string, n: number, cadence: Cadence) => post<{ ok: true }>(`${site(siteId)}/work/${n}`, { cadence }, "PATCH"),
     },
     models: {

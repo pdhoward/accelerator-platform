@@ -350,6 +350,18 @@ export async function closeWork(site: Site, identity: Identity, name: string, nu
   await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} closed #${number}.` });
 }
 
+/**
+ * Not going ahead: file it as cancelled (any stop before release). Its branch and history stay.
+ * The account's own people can close any item; partner staff only the items they started.
+ */
+export async function cancelWork(site: Site, identity: Identity, name: string, number: number, member: boolean) {
+  const { w, a } = await actionsFor(site, number);
+  if (!member && w.created_by !== identity.userId) throw new CodeError("Only the account's own people can close an item someone else started.");
+  if (!a.cancel) throw new CodeError(toWork(w).released ? "This is already live; close it instead." : "Wait for the engine to finish, then close it.");
+  await db().from("acc_work").update({ stage: "cancelled", updated_at: now() }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} closed #${number} without building it.` });
+}
+
 export async function setCadence(site: Site, number: number, cadence: WorkItem["cadence"]) {
   const w = await workRow(site.id, number);
   await db().from("acc_work").update({ cadence, updated_at: now() }).eq("id", w.id as string);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, CircleCheck, ExternalLink, FileText, Flag, ListChecks, Loader2, PenLine, Play, Rocket, ScrollText, Sparkles, User, Wifi, WifiOff } from "lucide-react";
+import { ArrowUp, Bot, CircleCheck, ExternalLink, FileText, Flag, ListChecks, Loader2, PenLine, Play, Rocket, ScrollText, Sparkles, User, Wifi, WifiOff, XCircle } from "lucide-react";
 import { CADENCE_LABEL, modelLabel, RAIL_LABEL, type Cadence, type WorkDetail, type WorkStep } from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
@@ -90,6 +90,20 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
               </option>
             ))}
           </select>
+        )}
+        {canAsk && d.actions.cancel && d.work.kind === "change" && (
+          <button
+            type="button"
+            className={button("ghost", "text-xs")}
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`Close #${n} without building it? The conversation and any design stay in its history.`)) {
+                void act(() => api.work.ship(siteId, n, "cancel"), `#${n} closed without building.`);
+              }
+            }}
+          >
+            <XCircle className="size-3.5" /> Close without building
+          </button>
         )}
       </PageHeader>
 
