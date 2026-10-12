@@ -4,7 +4,7 @@ import { identityFromToken } from "./identity";
 import { supabaseConfig } from "./supabase";
 
 /** The local, no-keys demo: everyone is the demo Operator (store-memory.ts). */
-export const DEMO_IDENTITY: Identity = { userId: "demo", email: "demo@local", platformRole: null };
+export const DEMO_IDENTITY: Identity = { userId: "demo", email: "demo@local", platformRole: null, partnerSeats: [] };
 
 export const demoMode = () => !supabaseConfig();
 

@@ -1,6 +1,7 @@
 import {
-  canPlatform,
   canApprove,
+  holdsGates,
+  resolveSiteAccess,
   type Account,
   type AccountStatus,
   canShip,
@@ -20,6 +21,7 @@ import * as F from "./fixtures";
 import { repoFile, repoTree } from "./github";
 import type { AcceleratorStore } from "./store-types";
 import { memberships } from "./identity";
+import { hasSupportGrant } from "./partners";
 import { db } from "./supabase";
 import { requestTitle, triage } from "./triage";
 
@@ -272,33 +274,38 @@ export function createSupabaseStore(): AcceleratorStore {
   return {
     kind: "supabase",
 
+    /**
+     * Who may open this site, in the fixed order of tenancy.ts: the account's
+     * own people, then its partner's team, then a live support grant. There is
+     * no standing platform bypass (gen2-crew.md §5).
+     */
     async access(identity, idOrSlug) {
       const isUuid = /^[0-9a-f-]{36}$/i.test(idOrSlug);
       const rows = await must<Row[]>(db().from("acc_sites").select("*").eq(isUuid ? "id" : "slug", idOrSlug).limit(1));
       const site = rows[0];
       if (!site) return undefined;
+      const orgId = site.org_id as string;
       const [member, org] = await Promise.all([
-        must<Row[]>(db().from("acc_members").select("*").eq("org_id", site.org_id as string).eq("user_id", identity.userId).limit(1)),
-        must<Row>(db().from("acc_orgs").select("status").eq("id", site.org_id as string).single()),
+        must<Row[]>(db().from("acc_members").select("*").eq("org_id", orgId).eq("user_id", identity.userId).limit(1)),
+        must<Row>(db().from("acc_orgs").select("status, partner_id, acc_partners(name)").eq("id", orgId).single()),
       ]);
       const m = member[0];
-      if (m) {
-        return {
-          site: toSite(site),
-          caller: { memberId: m.id, orgId: m.org_id as string, role: m.role as Role, name: m.name as string },
-          status: org.status as AccountStatus,
-        };
-      }
-      // Strategic Machines staff (installation, support): Operator rights on any account, never members or billing.
-      if (!canPlatform(identity.platformRole, "accounts.manage")) return undefined;
-      return {
-        site: toSite(site),
-        caller: { memberId: "staff", orgId: site.org_id as string, role: "operator", name: `${identity.email} (Strategic Machines)`, staff: true },
-        status: org.status as AccountStatus,
-      };
-    },
+      const partnerId = org.partner_id as string;
+      const partner = (Array.isArray(org.acc_partners) ? org.acc_partners[0] : org.acc_partners) as { name: string } | null;
+      const partnerName = partner?.name ?? "Partner";
+      const partnerRole = identity.partnerSeats.find((p) => p.partnerId === partnerId)?.role ?? null;
+      // Only look for a support grant when nothing else applies.
+      const supportGrant = !m && !partnerRole && !!identity.platformRole && (await hasSupportGrant(identity.userId, orgId, partnerId));
 
-    memberships: (identity) => memberships(identity.userId),
+      const access = resolveSiteAccess({ memberRole: (m?.role as Role | undefined) ?? null, partnerRole, supportGrant });
+      if (!access) return undefined;
+      const caller =
+        access.via === "member"
+          ? { memberId: m!.id as string, orgId, role: access.role, name: m!.name as string, via: access.via, partnerName }
+          : { memberId: access.via, orgId, role: access.role, name: `${identity.email} (${partnerName})`, via: access.via, partnerName };
+      return { site: toSite(site), caller, status: org.status as AccountStatus };
+    },
+    memberships: (identity) => memberships(identity),
 
     async bridge(site) {
       const [requests, releases, demo] = await Promise.all([requestsFor(site.id), releasesFor(site.id), isDemo(site.id)]);
@@ -334,7 +341,7 @@ export function createSupabaseStore(): AcceleratorStore {
             priority: "now",
             stage: "clarify",
             source,
-            created_by: caller.staff ? null : caller.memberId,
+            created_by: holdsGates(caller) ? caller.memberId : null,
           })
           .select("*")
           .single();
@@ -355,7 +362,7 @@ export function createSupabaseStore(): AcceleratorStore {
     async approveChange(siteId, id, checked, caller) {
       const change = await this.change(siteId, id);
       if (!change) return { ok: false, error: "Change not found.", status: 404 };
-      if (caller.staff) return { ok: false, error: "Approvals belong to the account's own people, not Strategic Machines staff.", status: 403 };
+      if (!holdsGates(caller)) return { ok: false, error: `Approvals belong to the account's own people. ${caller.partnerName ?? "Partner"} staff can discuss and draft.`, status: 403 };
       if (!canApprove(caller.role, change.risk)) return { ok: false, error: "Your role can't approve this change. Ask the site Owner.", status: 403 };
       if (!change.checklist.every((s) => checked.includes(s.id))) return { ok: false, error: "Finish the checklist before approving.", status: 422 };
 

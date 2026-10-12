@@ -1,8 +1,9 @@
-import type { Identity, Membership, PlatformRole, Role } from "@accelerator/domain";
+import { canPartner, type Identity, type Membership, type PlatformRole, type Role } from "@accelerator/domain";
 
 import { checkCode, CodeError, issueCode } from "./codes";
 import { consoleUrl, devAllowlist, isProduction, platformAdminEmails } from "./env";
 import { emailLayout, sendMail } from "./mail";
+import { partnerSeats, seatOnHousePartner } from "./partners";
 import { maskPhone, toE164 } from "./phone";
 import { db } from "./supabase";
 
@@ -25,7 +26,8 @@ export async function identityFromToken(token: string): Promise<Identity | null>
   const email = data.user?.email?.toLowerCase();
   if (error || !data.user || !email) return null;
 
-  const identity: Identity = { userId: data.user.id, email, platformRole: await platformRole(data.user.id, email) };
+  const role = await platformRole(data.user.id, email);
+  const identity: Identity = { userId: data.user.id, email, platformRole: role, partnerSeats: await partnerSeats(data.user.id) };
   if (cache.size > 500) cache.clear();
   cache.set(token, { identity, until: Date.now() + 60_000 });
   return identity;
@@ -37,21 +39,24 @@ async function platformRole(userId: string, email: string): Promise<PlatformRole
   if (data) return data.role as PlatformRole;
   if (!platformAdminEmails().includes(email)) return null;
   await db().from("acc_platform_admins").upsert({ user_id: userId, email, role: "owner" }, { onConflict: "user_id" });
+  // The platform Owner also works the house partner's clients (two hats, two seats).
+  await seatOnHousePartner(userId, email, "owner");
   return "owner";
 }
 
 // ── Invite-only entry ────────────────────────────────────────────────────────
-/** Outside production: DEV_ALLOWLIST only. In production: staff, members and invitees. */
+/** Outside production: DEV_ALLOWLIST only. In production: staff, partner teams, members and invitees. */
 export async function mayStartSignIn(email: string): Promise<boolean> {
   const e = email.trim().toLowerCase();
   if (!isProduction()) return devAllowlist().includes(e);
   if (platformAdminEmails().includes(e)) return true;
-  const [admin, invite, member] = await Promise.all([
+  const [admin, partner, invite, member] = await Promise.all([
     db().from("acc_platform_admins").select("user_id").eq("email", e).limit(1),
+    db().from("acc_partner_members").select("id").eq("email", e).limit(1),
     db().from("acc_invites").select("id").eq("email", e).is("accepted_at", null).is("revoked_at", null).limit(1),
     db().from("acc_members").select("id").eq("email", e).limit(1),
   ]);
-  return !!(admin.data?.length || invite.data?.length || member.data?.length);
+  return !!(admin.data?.length || partner.data?.length || invite.data?.length || member.data?.length);
 }
 
 // ── First sign-in: profile row, and pending invites become memberships ─────
@@ -59,6 +64,8 @@ export async function settle(identity: Identity) {
   await db().from("acc_profiles").upsert({ user_id: identity.userId, email: identity.email }, { onConflict: "user_id", ignoreDuplicates: true });
   // Seats an admin moved to this email (admin.ts updateMember) are claimed on sign-in.
   await db().from("acc_members").update({ user_id: identity.userId }).eq("email", identity.email).neq("user_id", identity.userId);
+  // Partner seats added by email are claimed the same way.
+  await db().from("acc_partner_members").update({ user_id: identity.userId }).eq("email", identity.email).or(`user_id.is.null,user_id.neq.${identity.userId}`);
   const { data: invites } = await db()
     .from("acc_invites")
     .select("id, org_id, role")
@@ -84,22 +91,33 @@ export async function profile(userId: string) {
   };
 }
 
-export async function memberships(userId: string): Promise<Membership[]> {
-  const { data: rows } = await db().from("acc_members").select("org_id, role, acc_orgs(name, status)").eq("user_id", userId);
-  if (!rows?.length) return [];
-  const { data: sites } = await db()
-    .from("acc_sites")
-    .select("id, slug, name, url, org_id")
-    .in("org_id", rows.map((r) => r.org_id))
-    .order("created_at");
-  return rows.map((r) => {
-    const org = (Array.isArray(r.acc_orgs) ? r.acc_orgs[0] : r.acc_orgs) as { name: string; status: Membership["status"] } | null;
+/**
+ * The accounts a person can open: those they belong to (`member`), then the
+ * clients of every partner team they sit on (`partner`: Operator, no gates).
+ */
+export async function memberships(identity: Identity): Promise<Membership[]> {
+  const { data: own } = await db().from("acc_members").select("org_id, role").eq("user_id", identity.userId);
+  const roleOf = new Map((own ?? []).map((r) => [r.org_id as string, r.role as Role]));
+  const partnerIds = identity.partnerSeats.filter((p) => canPartner(p.role, "clients.operate")).map((p) => p.partnerId);
+  const { data: clients } = partnerIds.length ? await db().from("acc_orgs").select("id").in("partner_id", partnerIds) : { data: [] };
+  const orgIds = [...new Set([...roleOf.keys(), ...(clients ?? []).map((c) => c.id as string)])];
+  if (!orgIds.length) return [];
+
+  const [{ data: orgs }, { data: sites }] = await Promise.all([
+    db().from("acc_orgs").select("id, name, status, created_at, acc_partners(name)").in("id", orgIds).order("created_at"),
+    db().from("acc_sites").select("id, slug, name, url, org_id").in("org_id", orgIds).order("created_at"),
+  ]);
+  return (orgs ?? []).map((o) => {
+    const partner = (Array.isArray(o.acc_partners) ? o.acc_partners[0] : o.acc_partners) as { name: string } | null;
+    const role = roleOf.get(o.id as string);
     return {
-      orgId: r.org_id as string,
-      orgName: org?.name ?? "Account",
-      role: r.role as Role,
-      status: org?.status ?? "active",
-      sites: (sites ?? []).filter((s) => s.org_id === r.org_id).map(({ id, slug, name, url }) => ({ id, slug, name, url })),
+      orgId: o.id as string,
+      orgName: (o.name as string) || "Account",
+      role: role ?? "operator",
+      status: (o.status as Membership["status"]) ?? "active",
+      via: role ? "member" : "partner",
+      partnerName: partner?.name ?? "",
+      sites: (sites ?? []).filter((x) => x.org_id === o.id).map(({ id, slug, name, url }) => ({ id, slug, name, url })),
     };
   });
 }

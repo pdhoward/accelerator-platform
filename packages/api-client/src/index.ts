@@ -1,4 +1,5 @@
 import type {
+  AccessVia,
   Account,
   AdminAccountDetail,
   AdminAccountRow,
@@ -24,6 +25,7 @@ import type {
   Role,
   SiteRequest,
   Skill,
+  SupportGrant,
   Cadence,
   JobEvent,
   RiskClass,
@@ -169,7 +171,15 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
         post<SecretStatus[]>(`${site(siteId)}/vault`, { environment, name, value }, "PUT"),
     },
     access: (siteId: string) =>
-      call<{ orgId: string; orgName: string; status: AccountStatus; role: Role; staff: boolean; site: { id: string; slug: string; name: string; url: string } }>(`${site(siteId)}/access`),
+      call<{
+        orgId: string;
+        orgName: string;
+        status: AccountStatus;
+        role: Role;
+        via: AccessVia;
+        partnerName: string;
+        site: { id: string; slug: string; name: string; url: string };
+      }>(`${site(siteId)}/access`),
     admin: {
       overview: () => call<AdminOverview>("/admin/overview"),
       accounts: () => call<AdminAccountRow[]>("/admin/accounts"),
@@ -182,6 +192,12 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
       invite: (id: string, email: string, role: Role) => post<{ emailed: boolean; resent: boolean; note?: string }>(`/admin/accounts/${id}/invites`, { email, role }),
       audit: () => call<AuditEntry[]>("/admin/audit"),
       team: () => call<PlatformStaff[]>("/admin/team"),
+      support: {
+        live: () => call<SupportGrant[]>("/admin/support"),
+        grant: (input: { toEmail: string; orgId?: string; partnerId?: string; reason: string; hours: number }) =>
+          post<SupportGrant>("/admin/support", input),
+        revoke: (id: string) => call<{ ok: true }>(`/admin/support/${id}`, { method: "DELETE" }),
+      },
     },
   };
 }

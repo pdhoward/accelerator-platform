@@ -44,10 +44,12 @@ async function main() {
   await run("delete org", sb.from("acc_orgs").delete().eq("name", F.ORG.name).select("id"));
 
   // 2. Org, members, site.
-  // Account #1 is boarded free (comped) with the platform owner as its Owner.
+  // Account #1 is boarded free (comped) with the platform owner as its Owner,
+  // as a direct client of the house partner (migration 0006).
+  const house = await run<{ id: string }>("house partner", sb.from("acc_partners").select("id").eq("kind", "house").single());
   const org = await run<{ id: string }>(
     "org",
-    sb.from("acc_orgs").insert({ name: F.ORG.name, plan: F.ORG.plan, status: "active", billing_mode: "comped" }).select("id").single(),
+    sb.from("acc_orgs").insert({ name: F.ORG.name, plan: F.ORG.plan, status: "active", billing_mode: "comped", partner_id: house.id }).select("id").single(),
   );
   const members = await run<{ id: string; name: string }[]>(
     "members",

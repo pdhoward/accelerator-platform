@@ -62,8 +62,9 @@ Platform → **Partner** → Organization (company) → Sites → Members (Owner
 - Every organization belongs to exactly one **partner**. Strategic Machines' direct clients belong to
   the **house partner**, which has no special code path.
 - **Platform powers are infrastructure only.** Platform staff reach a client only through an
-  explicit, audited support grant, never through a standing bypass (gen2-crew.md §5; phase G2.0b
-  removes the staff bypass that `store.access()` still has today).
+  explicit, audited support grant, never through a standing bypass (gen2-crew.md §5). Access is
+  decided by `resolveSiteAccess()` in `packages/domain/src/tenancy.ts`; only the account's own
+  people hold its gates (`holdsGates()`).
 - Partner and platform staff never hold a client's gates.
 - `org_id` (and partner) always comes from the caller's credential, never from client input.
 - RLS is on every table (`supabase/migrations`).

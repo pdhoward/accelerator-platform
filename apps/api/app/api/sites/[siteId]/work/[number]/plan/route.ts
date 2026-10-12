@@ -1,4 +1,4 @@
-import { canSite } from "@accelerator/domain";
+import { canSite, holdsGates } from "@accelerator/domain";
 import { z } from "zod";
 
 import { body, fail, json, workRoute } from "@/lib/http";
@@ -19,7 +19,7 @@ export const POST = workRoute<P>(async ({ request, identity, caller, site, param
   if (input.action === "draft") await draftPlan(site, identity, n, input.note);
   else {
     if (!canSite(caller.role, "change.approve")) return fail("Your role can't approve plans.", 403);
-    if (caller.staff) return fail("The Navigator approves; Strategic Machines staff can discuss and draft.", 403);
+    if (!holdsGates(caller)) return fail(`The Navigator approves; ${caller.partnerName ?? "partner"} staff can discuss and draft.`, 403);
     await approvePlan(site, identity, caller.name, n);
   }
   return json({ ok: true });

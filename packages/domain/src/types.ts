@@ -31,17 +31,63 @@ export type Site = {
   lastReleaseAt: string;
 };
 
-/** Who is acting on a site. `staff`: Strategic Machines working on the account without being a member. */
-export type Caller = { memberId: string; orgId: string; role: Role; name: string; staff?: boolean };
+// ── Partners (gen2-crew.md §5): Platform → Partner → Company → Site ─────────
+/** A partner firm's own team. The house partner (Strategic Machines Direct) has one too. */
+export type PartnerRole = "owner" | "admin" | "operator";
+
+export type PartnerKind = "house" | "partner";
+
+export type PartnerTier = "silver" | "gold" | "platinum";
+
+/** How a partner's crews look to its clients: named (Silver), co-branded (Gold), white-labelled (Platinum). */
+export type PartnerBrand = { crewName?: string; logoUrl?: string; colors?: Record<string, string>; domain?: string };
+
+export type Partner = {
+  id: string;
+  slug: string;
+  name: string;
+  kind: PartnerKind;
+  tier: PartnerTier | null;
+  status: "active" | "suspended";
+  brand: PartnerBrand;
+};
+
+/** Time-boxed platform access to one account, or to all of one partner's accounts. */
+export type SupportGrant = {
+  id: string;
+  grantedToEmail: string;
+  orgId: string | null;
+  partnerId: string | null;
+  reason: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+};
+
+/** A seat on a partner's team, carried on the identity. */
+export type PartnerSeat = { partnerId: string; partnerName: string; role: PartnerRole };
+
+/**
+ * How a caller reaches a site: as one of the account's own people (`member`),
+ * as its partner's team (`partner`), or under a platform support grant
+ * (`support`). Only members hold the account's gates (tenancy.ts holdsGates).
+ */
+export type AccessVia = "member" | "partner" | "support";
+
+/** Who is acting on a site. `partnerName` labels partner and support callers. */
+export type Caller = { memberId: string; orgId: string; role: Role; name: string; via: AccessVia; partnerName?: string };
 
 /** A signed-in person, before any account is chosen. */
-export type Identity = { userId: string; email: string; platformRole: PlatformRole | null };
+export type Identity = { userId: string; email: string; platformRole: PlatformRole | null; partnerSeats: PartnerSeat[] };
 
 export type Membership = {
   orgId: string;
   orgName: string;
   role: Role;
   status: AccountStatus;
+  /** `partner`: the account is one of the caller's partner's clients, not their own. */
+  via: AccessVia;
+  partnerName: string;
   sites: { id: string; slug: string; name: string; url: string }[];
 };
 

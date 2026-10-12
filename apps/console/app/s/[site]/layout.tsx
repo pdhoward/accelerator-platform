@@ -52,13 +52,13 @@ export default async function SiteLayout({ children, params }: { children: React
         groups={groups}
         context={
           <SidebarContext
-            eyebrow={staff ? `${membership.orgName} · staff` : membership.orgName}
+            eyebrow={staff ? `${membership.orgName} · ${membership.via === "support" ? "support access" : "client"}` : membership.orgName}
             title={site.url.replace(/^https?:\/\//, "")}
             sub={`${site.status === "live" ? "Live" : "Onboarding"} · ${site.stack}`}
             dot={site.status === "live" ? "good" : "warn"}
           />
         }
-        userLabel={`${me.identity?.email ?? "Demo"} · ${staff ? "Strategic Machines" : titleCase(role)}`}
+        userLabel={`${me.identity?.email ?? "Demo"} · ${staff ? membership.partnerName || "Partner" : titleCase(role)}`}
         links={links}
         engineerToggle
         signOutEnabled={authEnabled}

@@ -4,3 +4,4 @@ export * from "./loop";
 export * from "./metrics";
 export * from "./permissions";
 export * from "./flywheel";
+export * from "./tenancy";

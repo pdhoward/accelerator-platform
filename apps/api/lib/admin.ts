@@ -14,6 +14,7 @@ import {
 import { CodeError } from "./codes";
 import { consoleUrl } from "./env";
 import { emailLayout, sendMail } from "./mail";
+import { housePartnerId } from "./partners";
 import { db, rows, type Row } from "./supabase";
 
 /**
@@ -164,6 +165,8 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
       install_fee_quote_usd: input.installFeeQuoteUsd ?? null,
       status: "onboarding",
       created_by: identity.userId,
+      // Accounts opened in Platform Admin are Strategic Machines' direct clients (the house partner).
+      partner_id: await housePartnerId(),
     })
     .select("id")
     .single();

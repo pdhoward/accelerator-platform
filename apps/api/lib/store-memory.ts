@@ -21,7 +21,7 @@ export function createMemoryStore(): AcceleratorStore {
   const siteRequests = (siteId: string) => db.requests.filter((r) => r.siteId === siteId);
   const demoCaller = (): Caller => {
     const m = F.MEMBERS.find((x) => x.role === "operator")!;
-    return { memberId: m.id, orgId: F.ORG.id, role: m.role, name: m.name };
+    return { memberId: m.id, orgId: F.ORG.id, role: m.role, name: m.name, via: "member", partnerName: F.HOUSE_PARTNER.name };
   };
 
   return {
@@ -33,7 +33,17 @@ export function createMemoryStore(): AcceleratorStore {
       return site ? { site, caller: demoCaller(), status: "active" as const } : undefined;
     },
     async memberships() {
-      return [{ orgId: F.ORG.id, orgName: F.ORG.name, role: "operator" as const, status: "active" as const, sites: db.sites.map(({ id, slug, name, url }) => ({ id, slug, name, url })) }];
+      return [
+        {
+          orgId: F.ORG.id,
+          orgName: F.ORG.name,
+          role: "operator" as const,
+          status: "active" as const,
+          via: "member" as const,
+          partnerName: F.HOUSE_PARTNER.name,
+          sites: db.sites.map(({ id, slug, name, url }) => ({ id, slug, name, url })),
+        },
+      ];
     },
 
     async bridge(site: Site) {

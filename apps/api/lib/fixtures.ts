@@ -14,6 +14,7 @@ import type {
   Member,
   NeedsYou,
   Org,
+  Partner,
   Proof,
   Release,
   Signal,
@@ -27,6 +28,17 @@ import type {
  * from the real ts-platform backlog and operating history. Served by
  * lib/store.ts until the Supabase-backed store is wired.
  */
+
+/** The house partner (migration 0006): the demo account is a direct client of Strategic Machines. */
+export const HOUSE_PARTNER: Partner = {
+  id: "partner_house",
+  slug: "strategic-machines",
+  name: "Strategic Machines",
+  kind: "house",
+  tier: null,
+  status: "active",
+  brand: { crewName: "Strategic Machines" },
+};
 
 export const ORG: Org = { id: "org_cypress", name: "Thin Spaces Hotel Company", plan: "operate" };
 

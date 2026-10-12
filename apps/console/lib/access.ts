@@ -31,23 +31,22 @@ async function readyMe() {
 }
 
 /**
- * The caller's footing on a site: a member (from /me), or Strategic Machines
- * staff working on the account (Operator rights, never approvals). 404 otherwise.
+ * The caller's footing on a site: a member or their partner's team (both from
+ * /me), or platform staff under a support grant (asked of the API, which
+ * decides). `staff` means not one of the account's own people: Operator
+ * rights, never approvals. 404 otherwise.
  */
 export const siteAccess = cache(async (slug: string) => {
   const me = await readyMe();
   let membership = me.memberships.find((m) => m.sites.some((s) => s.slug === slug));
-  let staff = false;
-  if (!membership && canPlatform(me.identity?.platformRole, "accounts.manage")) {
+  if (!membership && me.identity?.platformRole) {
     const a = await (await serverApi()).access(slug).catch(() => null);
-    if (a) {
-      membership = { orgId: a.orgId, orgName: a.orgName, role: a.role, status: a.status, sites: [a.site] };
-      staff = true;
-    }
+    if (a) membership = { orgId: a.orgId, orgName: a.orgName, role: a.role, status: a.status, via: a.via, partnerName: a.partnerName, sites: [a.site] };
   }
   if (!membership) notFound();
   if (membership.status === "suspended") redirect("/suspended");
   const role = membership.role;
+  const staff = membership.via !== "member";
   return { me, membership, role, staff, can: (action: SiteAction) => canSite(role, action) };
 });
 
