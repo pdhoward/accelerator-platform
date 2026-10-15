@@ -2,7 +2,7 @@
 
 The product behind [strategicmachines.ai](https://strategicmachines.ai): the **Control Room** a site owner
 uses to run their website, and the API and agents behind it. Design:
-`cypress-actions/accelerator-control-room.md`. Working rules: [CLAUDE.md](CLAUDE.md).
+`../accelerator/work/gen2-crew.md`. Working rules: [CLAUDE.md](CLAUDE.md).
 
 ## Apps and packages
 
@@ -27,3 +27,7 @@ injected by `startup-accelerate.bat` on the Desktop (dotenv-cli), one terminal p
 and the Health page's **Run Lighthouse** needs `PAGESPEED_API_KEY`.
 
 Database schema (multi-tenant, RLS): `supabase/migrations/0001_init.sql`.
+
+## Executive workspace
+
+The site Overview now opens Executive Briefing. Each Work item opens Delivery Studio with Mission Control, Proof Lab and read-only improvement replay. See [implementation and review notes](docs/workspace-first-slice.md) for validation, sample-mode boundaries and remaining stages.

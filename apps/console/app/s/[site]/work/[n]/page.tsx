@@ -7,12 +7,34 @@ import { serverApi } from "@/lib/api";
 
 export const metadata = { title: "Work item" };
 
-export default async function WorkItemPage({ params }: { params: Promise<{ site: string; n: string }> }) {
+export default async function WorkItemPage({
+  params,
+}: {
+  params: Promise<{ site: string; n: string }>;
+}) {
   const { site, n } = await params;
-  const { can } = await siteAccess(site);
-  const detail = await (await serverApi()).work.get(site, Number(n)).catch((err) => {
-    if (err instanceof ApiError && (err.status === 400 || err.status === 404)) notFound();
-    throw err;
-  });
-  return <WorkRoom siteId={site} initial={detail} canAsk={can("request.create")} canApprove={can("change.approve")} canShip={can("release.ship")} />;
+  const { can, staff, membership, role } = await siteAccess(site);
+  const detail = await (await serverApi()).work
+    .studio(site, Number(n))
+    .catch((err) => {
+      if (err instanceof ApiError && (err.status === 400 || err.status === 404))
+        notFound();
+      throw err;
+    });
+  return (
+    <WorkRoom
+      key={`${site}:${n}`}
+      siteId={site}
+      initial={detail.detail}
+      initialStudio={detail.studio}
+      access={{ via: membership.via, role }}
+      canAsk={detail.studio.source !== "sample" && can("request.create")}
+      canApprove={
+        detail.studio.source !== "sample" && !staff && can("change.approve")
+      }
+      canShip={
+        detail.studio.source !== "sample" && !staff && can("release.ship")
+      }
+    />
+  );
 }

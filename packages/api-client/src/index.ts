@@ -1,4 +1,6 @@
 import type {
+  BriefingResponse,
+  StudioResponse,
   AccessVia,
   Account,
   AdminAccountDetail,
@@ -58,7 +60,13 @@ export class ApiError extends Error {
   }
 }
 
-export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: string | null }) {
+export function createApiClient({
+  baseUrl,
+  token,
+}: {
+  baseUrl: string;
+  token?: string | null;
+}) {
   async function call<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${baseUrl}/api${path}`, {
       ...init,
@@ -70,107 +78,213 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new ApiError(res.status, (body as { error?: string }).error ?? `Request failed (${res.status})`);
+    if (!res.ok)
+      throw new ApiError(
+        res.status,
+        (body as { error?: string }).error ?? `Request failed (${res.status})`,
+      );
     return body as T;
   }
-  const post = <T>(path: string, data: unknown, method = "POST") => call<T>(path, { method, body: JSON.stringify(data) });
+  const post = <T>(path: string, data: unknown, method = "POST") =>
+    call<T>(path, { method, body: JSON.stringify(data) });
   const site = (siteId: string) => `/sites/${encodeURIComponent(siteId)}`;
 
   return {
     me: () => call<Me>("/me"),
 
     auth: {
-      precheck: (email: string) => post<{ allowed: boolean }>("/auth/precheck", { email }),
-      emailStart: (email: string, next?: string) => post<{ sent: true }>("/auth/email/start", { email, next }),
-      smsStart: (email: string) => post<{ masked: string; suppressed: boolean }>("/auth/sms/start", { email }),
-      smsVerify: (email: string, code: string) => post<{ tokenHash: string }>("/auth/sms/verify", { email, code }),
+      precheck: (email: string) =>
+        post<{ allowed: boolean }>("/auth/precheck", { email }),
+      emailStart: (email: string, next?: string) =>
+        post<{ sent: true }>("/auth/email/start", { email, next }),
+      smsStart: (email: string) =>
+        post<{ masked: string; suppressed: boolean }>("/auth/sms/start", {
+          email,
+        }),
+      smsVerify: (email: string, code: string) =>
+        post<{ tokenHash: string }>("/auth/sms/verify", { email, code }),
     },
 
     profile: {
-      startMobile: (mobile: string, consentText: string) => post<{ masked: string; suppressed: boolean }>("/profile/mobile", { mobile, consentText }),
-      verifyMobile: (code: string) => post<{ ok: true }>("/profile/mobile/verify", { code }),
+      startMobile: (mobile: string, consentText: string) =>
+        post<{ masked: string; suppressed: boolean }>("/profile/mobile", {
+          mobile,
+          consentText,
+        }),
+      verifyMobile: (code: string) =>
+        post<{ ok: true }>("/profile/mobile/verify", { code }),
     },
+
+    briefing: (siteId: string) =>
+      call<BriefingResponse>(`${site(siteId)}/briefing`),
 
     bridge: (siteId: string) => call<Bridge>(`${site(siteId)}/bridge`),
 
     requests: {
       list: (siteId: string) => call<SiteRequest[]>(`${site(siteId)}/requests`),
-      create: (siteId: string, input: { text: string; source?: string }) => post<SiteRequest>(`${site(siteId)}/requests`, input),
+      create: (siteId: string, input: { text: string; source?: string }) =>
+        post<SiteRequest>(`${site(siteId)}/requests`, input),
     },
 
     changes: {
       list: (siteId: string) => call<Change[]>(`${site(siteId)}/changes`),
-      get: (siteId: string, changeId: string) => call<Change>(`${site(siteId)}/changes/${changeId}`),
-      approve: (siteId: string, changeId: string, input: { checked: string[] }) =>
-        post<{ change: Change; blockers: string[] }>(`${site(siteId)}/changes/${changeId}/approve`, input),
+      get: (siteId: string, changeId: string) =>
+        call<Change>(`${site(siteId)}/changes/${changeId}`),
+      approve: (
+        siteId: string,
+        changeId: string,
+        input: { checked: string[] },
+      ) =>
+        post<{ change: Change; blockers: string[] }>(
+          `${site(siteId)}/changes/${changeId}/approve`,
+          input,
+        ),
     },
 
-    dataDesk: (siteId: string) => call<{ investigations: DataInvestigation[]; checks: DataCheck[] }>(`${site(siteId)}/data-desk`),
+    dataDesk: (siteId: string) =>
+      call<{ investigations: DataInvestigation[]; checks: DataCheck[] }>(
+        `${site(siteId)}/data-desk`,
+      ),
 
     library: {
-      list: (siteId: string) => call<{ docs: Doc[]; facts: Fact[]; drift: Drift[] }>(`${site(siteId)}/library`),
-      get: (siteId: string, docId: string) => call<Doc>(`${site(siteId)}/library/${docId}`),
+      list: (siteId: string) =>
+        call<{ docs: Doc[]; facts: Fact[]; drift: Drift[] }>(
+          `${site(siteId)}/library`,
+        ),
+      get: (siteId: string, docId: string) =>
+        call<Doc>(`${site(siteId)}/library/${docId}`),
     },
 
-    consultations: (siteId: string) => call<Consultation[]>(`${site(siteId)}/consultations`),
+    consultations: (siteId: string) =>
+      call<Consultation[]>(`${site(siteId)}/consultations`),
     releases: (siteId: string) => call<Release[]>(`${site(siteId)}/releases`),
     proof: (siteId: string) => call<Proof>(`${site(siteId)}/proof`),
 
     health: {
       get: (siteId: string) => call<Health>(`${site(siteId)}/health`),
-      runLighthouse: (siteId: string, page = "/") => post<LighthouseScores>(`${site(siteId)}/health/lighthouse`, { page }),
+      runLighthouse: (siteId: string, page = "/") =>
+        post<LighthouseScores>(`${site(siteId)}/health/lighthouse`, { page }),
     },
 
-    configuration: (siteId: string) => call<Configuration>(`${site(siteId)}/configuration`),
+    configuration: (siteId: string) =>
+      call<Configuration>(`${site(siteId)}/configuration`),
 
     skills: {
       list: (siteId: string) => call<Skill[]>(`${site(siteId)}/skills`),
-      toggle: (siteId: string, skillId: string, enabled: boolean) => post<Skill>(`${site(siteId)}/skills/${skillId}`, { enabled }, "PATCH"),
+      toggle: (siteId: string, skillId: string, enabled: boolean) =>
+        post<Skill>(`${site(siteId)}/skills/${skillId}`, { enabled }, "PATCH"),
     },
 
     code: {
       tree: (siteId: string) => call<FileNode[]>(`${site(siteId)}/code/tree`),
       file: (siteId: string, path: string) =>
-        call<{ path: string; language: string; content: string }>(`${site(siteId)}/code/file?path=${encodeURIComponent(path)}`),
+        call<{ path: string; language: string; content: string }>(
+          `${site(siteId)}/code/file?path=${encodeURIComponent(path)}`,
+        ),
     },
 
     account: {
       get: (siteId: string) => call<Account>(`${site(siteId)}/account`),
-      setLimits: (siteId: string, input: { dailyCapUsd?: number; limits?: { model: string; limitUsd: number }[] }) =>
-        post<Account>(`${site(siteId)}/account/limits`, input, "PUT"),
+      setLimits: (
+        siteId: string,
+        input: {
+          dailyCapUsd?: number;
+          limits?: { model: string; limitUsd: number }[];
+        },
+      ) => post<Account>(`${site(siteId)}/account/limits`, input, "PUT"),
     },
 
     /** The Flywheel: Work items on the rail (work/flywheel.md). */
     work: {
+      studio: (siteId: string, n: number) =>
+        call<StudioResponse>(`${site(siteId)}/work/${n}/studio`),
       list: (siteId: string) => call<WorkItem[]>(`${site(siteId)}/work`),
-      create: (siteId: string, input: { title: string; message: string; risk?: RiskClass[] }) => post<{ number: number }>(`${site(siteId)}/work`, input),
-      get: (siteId: string, n: number) => call<WorkDetail>(`${site(siteId)}/work/${n}`),
-      say: (siteId: string, n: number, body: string) => post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body }),
-      design: (siteId: string, n: number, action: { action: "draft"; note?: string } | { action: "save"; body: string } | { action: "approve"; version: number }) =>
-        post<{ ok: true }>(`${site(siteId)}/work/${n}/design`, action),
-      plan: (siteId: string, n: number, action: { action: "draft"; note?: string } | { action: "approve" }) => post<{ ok: true }>(`${site(siteId)}/work/${n}/plan`, action),
-      next: (siteId: string, n: number) => post<{ ok: true }>(`${site(siteId)}/work/${n}/steps/next`, {}),
+      create: (
+        siteId: string,
+        input: { title: string; message: string; risk?: RiskClass[] },
+      ) => post<{ number: number }>(`${site(siteId)}/work`, input),
+      get: (siteId: string, n: number) =>
+        call<WorkDetail>(`${site(siteId)}/work/${n}`),
+      say: (siteId: string, n: number, body: string) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body }),
+      design: (
+        siteId: string,
+        n: number,
+        action:
+          | { action: "draft"; note?: string }
+          | { action: "save"; body: string }
+          | { action: "approve"; version: number },
+      ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/design`, action),
+      plan: (
+        siteId: string,
+        n: number,
+        action: { action: "draft"; note?: string } | { action: "approve" },
+      ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/plan`, action),
+      next: (siteId: string, n: number) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}/steps/next`, {}),
       /** Prove · approve the Try · release (Go live) · close · cancel (close without building). */
-      ship: (siteId: string, n: number, action: "prove" | "approve" | "release" | "close" | "cancel") => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
-      cadence: (siteId: string, n: number, cadence: Cadence) => post<{ ok: true }>(`${site(siteId)}/work/${n}`, { cadence }, "PATCH"),
+      ship: (
+        siteId: string,
+        n: number,
+        action: "prove" | "approve" | "release" | "close" | "cancel",
+      ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
+      cadence: (siteId: string, n: number, cadence: Cadence) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}`, { cadence }, "PATCH"),
     },
     models: {
-      get: (siteId: string) => call<Record<ModelRole, SiteModel>>(`${site(siteId)}/models`),
-      save: (siteId: string, models: SiteModel[]) => post<Record<ModelRole, SiteModel>>(`${site(siteId)}/models`, { models }, "PUT"),
+      get: (siteId: string) =>
+        call<Record<ModelRole, SiteModel>>(`${site(siteId)}/models`),
+      save: (siteId: string, models: SiteModel[]) =>
+        post<Record<ModelRole, SiteModel>>(
+          `${site(siteId)}/models`,
+          { models },
+          "PUT",
+        ),
     },
     setup: {
-      get: (siteId: string) => call<SiteSetup & { checkout: { job: Job; events: JobEvent[] } | null }>(`${site(siteId)}/setup`),
-      settings: (siteId: string, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) =>
-        post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
-      item: (siteId: string, code: string, status: SetupStatus, note?: string) => post<{ ok: true }>(`${site(siteId)}/setup/items/${code}`, { status, note }),
-      checkout: (siteId: string) => post<{ ok: true }>(`${site(siteId)}/setup/checkout`, {}),
-      sign: (siteId: string, body: string) => post<{ ok: true }>(`${site(siteId)}/setup/agreement`, { body }),
-      conversation: (siteId: string) => post<{ number: number }>(`${site(siteId)}/setup/conversation`, {}),
+      get: (siteId: string) =>
+        call<SiteSetup & { checkout: { job: Job; events: JobEvent[] } | null }>(
+          `${site(siteId)}/setup`,
+        ),
+      settings: (
+        siteId: string,
+        input: {
+          repo?: string | null;
+          repoPath?: string | null;
+          baseBranch?: string;
+          stageUrl?: string | null;
+        },
+      ) => post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
+      item: (
+        siteId: string,
+        code: string,
+        status: SetupStatus,
+        note?: string,
+      ) =>
+        post<{ ok: true }>(`${site(siteId)}/setup/items/${code}`, {
+          status,
+          note,
+        }),
+      checkout: (siteId: string) =>
+        post<{ ok: true }>(`${site(siteId)}/setup/checkout`, {}),
+      sign: (siteId: string, body: string) =>
+        post<{ ok: true }>(`${site(siteId)}/setup/agreement`, { body }),
+      conversation: (siteId: string) =>
+        post<{ number: number }>(`${site(siteId)}/setup/conversation`, {}),
     },
     vault: {
       status: (siteId: string) => call<SecretStatus[]>(`${site(siteId)}/vault`),
-      set: (siteId: string, environment: VaultEnv, name: string, value: string | null) =>
-        post<SecretStatus[]>(`${site(siteId)}/vault`, { environment, name, value }, "PUT"),
+      set: (
+        siteId: string,
+        environment: VaultEnv,
+        name: string,
+        value: string | null,
+      ) =>
+        post<SecretStatus[]>(
+          `${site(siteId)}/vault`,
+          { environment, name, value },
+          "PUT",
+        ),
     },
     access: (siteId: string) =>
       call<{
@@ -185,20 +299,44 @@ export function createApiClient({ baseUrl, token }: { baseUrl: string; token?: s
     admin: {
       overview: () => call<AdminOverview>("/admin/overview"),
       accounts: () => call<AdminAccountRow[]>("/admin/accounts"),
-      account: (id: string) => call<AdminAccountDetail>(`/admin/accounts/${id}`),
-      createAccount: (input: NewAccountInput) => post<{ id: string; emailed: boolean }>("/admin/accounts", input),
-      setStatus: (id: string, action: "suspend" | "resume", reason: string) => post<{ ok: true }>(`/admin/accounts/${id}/status`, { action, reason }),
-      updateMember: (id: string, memberId: string, input: { name?: string; email?: string; role?: Role }) =>
-        post<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, input, "PATCH"),
-      removeMember: (id: string, memberId: string) => call<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, { method: "DELETE" }),
-      invite: (id: string, email: string, role: Role) => post<{ emailed: boolean; resent: boolean; note?: string }>(`/admin/accounts/${id}/invites`, { email, role }),
+      account: (id: string) =>
+        call<AdminAccountDetail>(`/admin/accounts/${id}`),
+      createAccount: (input: NewAccountInput) =>
+        post<{ id: string; emailed: boolean }>("/admin/accounts", input),
+      setStatus: (id: string, action: "suspend" | "resume", reason: string) =>
+        post<{ ok: true }>(`/admin/accounts/${id}/status`, { action, reason }),
+      updateMember: (
+        id: string,
+        memberId: string,
+        input: { name?: string; email?: string; role?: Role },
+      ) =>
+        post<{ ok: true }>(
+          `/admin/accounts/${id}/members/${memberId}`,
+          input,
+          "PATCH",
+        ),
+      removeMember: (id: string, memberId: string) =>
+        call<{ ok: true }>(`/admin/accounts/${id}/members/${memberId}`, {
+          method: "DELETE",
+        }),
+      invite: (id: string, email: string, role: Role) =>
+        post<{ emailed: boolean; resent: boolean; note?: string }>(
+          `/admin/accounts/${id}/invites`,
+          { email, role },
+        ),
       audit: () => call<AuditEntry[]>("/admin/audit"),
       team: () => call<PlatformStaff[]>("/admin/team"),
       support: {
         live: () => call<SupportGrant[]>("/admin/support"),
-        grant: (input: { toEmail: string; orgId?: string; partnerId?: string; reason: string; hours: number }) =>
-          post<SupportGrant>("/admin/support", input),
-        revoke: (id: string) => call<{ ok: true }>(`/admin/support/${id}`, { method: "DELETE" }),
+        grant: (input: {
+          toEmail: string;
+          orgId?: string;
+          partnerId?: string;
+          reason: string;
+          hours: number;
+        }) => post<SupportGrant>("/admin/support", input),
+        revoke: (id: string) =>
+          call<{ ok: true }>(`/admin/support/${id}`, { method: "DELETE" }),
       },
     },
   };

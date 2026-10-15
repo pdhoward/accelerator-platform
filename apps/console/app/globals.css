@@ -49,3 +49,12 @@ h1, h2, h3 {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Animate arrival of a recorded event, never fabricate agent activity. */
+@keyframes activity-arrival {
+  from { opacity: 0.5; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .activity-arrival { animation: activity-arrival 260ms ease-out; }
+}

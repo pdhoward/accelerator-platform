@@ -52,6 +52,7 @@ export const MEMBERS: Member[] = [
 export const SITES: Site[] = [
   {
     id: "cypress-resort",
+    demo: true,
     orgId: ORG.id,
     slug: "cypress-resort",
     name: "Cypress Resort",

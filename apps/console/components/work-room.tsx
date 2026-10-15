@@ -1,8 +1,41 @@
 "use client";
+import { timestamp } from "@/lib/format";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, CircleCheck, ExternalLink, FileText, Flag, ListChecks, Loader2, PenLine, Play, Rocket, ScrollText, Sparkles, User, Wifi, WifiOff, XCircle } from "lucide-react";
-import { CADENCE_LABEL, modelLabel, RAIL_LABEL, type Cadence, type WorkDetail, type WorkStep } from "@accelerator/domain";
+import {
+  ArrowUp,
+  Bot,
+  CircleCheck,
+  ExternalLink,
+  FileText,
+  Flag,
+  ListChecks,
+  Loader2,
+  PenLine,
+  Play,
+  Rocket,
+  ScrollText,
+  Sparkles,
+  User,
+  Wifi,
+  WifiOff,
+  XCircle,
+} from "lucide-react";
+import {
+  decisionAccessReason,
+  type AccessVia,
+  type Role,
+  safeWebUrl,
+  WORKSPACE_LENSES,
+  type WorkspaceLens,
+  type StudioSnapshot,
+  CADENCE_LABEL,
+  modelLabel,
+  RAIL_LABEL,
+  type Cadence,
+  type WorkDetail,
+  type WorkStep,
+} from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
 
@@ -10,6 +43,11 @@ import { inputClass } from "./action-form";
 import { Markdown, Rail, StepIcon } from "./flywheel";
 import { button, Card, Chip, cx, Eyebrow, PageHeader } from "./ui";
 import { EngineerOnly, useUi } from "./ui-provider";
+
+import { ActivityRibbon } from "./workspace/activity-ribbon";
+import { ImprovementReplay } from "./workspace/improvement-replay";
+import { MissionControl } from "./workspace/mission-control";
+import { ProofLab } from "./workspace/proof-lab";
 
 type Tab = "design" | "plan" | "ship" | "log";
 
@@ -21,8 +59,30 @@ const SHIP_STAGES = ["prove", "try", "release", "learn", "done"];
  * whatever the current stop produces (design · plan · prove & release · live
  * log). The page refreshes itself while the engine works.
  */
-export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { siteId: string; initial: WorkDetail; canAsk: boolean; canApprove: boolean; canShip: boolean }) {
+export function WorkRoom({
+  siteId,
+  initial,
+  initialStudio,
+  access,
+  canAsk,
+  canApprove,
+  canShip,
+}: {
+  siteId: string;
+  initial: WorkDetail;
+  initialStudio: StudioSnapshot;
+  access: { via: AccessVia; role: Role };
+  canAsk: boolean;
+  canApprove: boolean;
+  canShip: boolean;
+}) {
   const [d, setD] = useState(initial);
+  const [studio, setStudio] = useState(initialStudio);
+  const [lens, setLens] = useState<WorkspaceLens>("studio");
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [motionPaused, setMotionPaused] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
+  const refreshing = useRef(false);
   const [tab, setTab] = useState<Tab>(defaultTab(initial));
   const [busy, setBusy] = useState(false);
   const { toast } = useUi();
@@ -30,13 +90,28 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
   const api = browserApi();
 
   const job = d.jobs[0];
-  const working = !!job && (job.status === "queued" || job.status === "running");
+  const working =
+    !!job && (job.status === "queued" || job.status === "running");
 
   const refresh = useCallback(async () => {
+    if (
+      refreshing.current ||
+      document.hidden ||
+      initialStudio.source === "sample"
+    )
+      return;
+    refreshing.current = true;
     try {
-      setD(await browserApi().work.get(siteId, n));
-    } catch {}
-  }, [siteId, n]);
+      const result = await browserApi().work.studio(siteId, n);
+      setD(result.detail);
+      setStudio(result.studio);
+      setRefreshError(false);
+    } catch {
+      setRefreshError(true);
+    } finally {
+      refreshing.current = false;
+    }
+  }, [siteId, n, initialStudio.source]);
 
   useEffect(() => {
     const t = setInterval(refresh, working ? 2500 : 12000);
@@ -44,15 +119,40 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
   }, [refresh, working]);
 
   // Follow the rail: when a new design or plan lands, show it.
-  const seen = useRef({ designs: d.designs.length, steps: d.steps.length, job: job?.id, active: working });
+  const seen = useRef({
+    designs: d.designs.length,
+    steps: d.steps.length,
+    job: job?.id,
+    active: working,
+  });
   useEffect(() => {
     if (d.designs.length > seen.current.designs) setTab("design");
-    else if (d.steps.length !== seen.current.steps && d.steps.length) setTab("plan");
+    else if (d.steps.length !== seen.current.steps && d.steps.length)
+      setTab("plan");
     const active = job && (job.status === "queued" || job.status === "running");
-    if (job?.id !== seen.current.job && active && (job.kind === "build_step" || job.kind === "prove" || job.kind === "release")) setTab("log");
+    if (
+      job?.id !== seen.current.job &&
+      active &&
+      (job.kind === "build_step" ||
+        job.kind === "prove" ||
+        job.kind === "release")
+    )
+      setTab("log");
     // When Prove or Release finishes, show what it found.
-    if (job && !active && job.id === seen.current.job && seen.current.active && (job.kind === "prove" || job.kind === "release")) setTab("ship");
-    seen.current = { designs: d.designs.length, steps: d.steps.length, job: job?.id, active: !!active };
+    if (
+      job &&
+      !active &&
+      job.id === seen.current.job &&
+      seen.current.active &&
+      (job.kind === "prove" || job.kind === "release")
+    )
+      setTab("ship");
+    seen.current = {
+      designs: d.designs.length,
+      steps: d.steps.length,
+      job: job?.id,
+      active: !!active,
+    };
   }, [d, job]);
 
   async function act(fn: () => Promise<unknown>, done?: string) {
@@ -72,16 +172,44 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
   const latest = d.designs.at(-1);
   const next = a.nextStep != null ? (d.steps[a.nextStep] ?? null) : null;
   const install = d.work.kind === "install";
+  const gate = a.approveDesign
+    ? "design"
+    : a.approvePlan
+      ? "plan"
+      : a.approveTry
+        ? "try"
+        : a.release
+          ? "release"
+          : a.runNextStep || a.prove || a.close
+            ? "execute"
+            : null;
+  const decisionNotice =
+    gate && studio.source !== "sample"
+      ? decisionAccessReason({ ...access, risk: d.work.risk, gate })
+      : null;
+  const mayApproveTry = !decisionAccessReason({
+    ...access,
+    risk: d.work.risk,
+    gate: "try",
+  });
 
   return (
     <>
-      <PageHeader title={`#${n} ${d.work.title}`} sub={d.work.branch ? `Branch ${d.work.branch}` : undefined}>
+      <PageHeader
+        title={`#${n} ${d.work.title}`}
+        sub="Delivery Studio · business intent, expert work and proof"
+      >
         <RunnerBadge online={d.runnerOnline} />
         {canApprove && (
           <select
             aria-label="How often the engine stops to ask"
             value={d.work.cadence}
-            onChange={(e) => act(() => api.work.cadence(siteId, n, e.target.value as Cadence), "Cadence saved.")}
+            onChange={(e) =>
+              act(
+                () => api.work.cadence(siteId, n, e.target.value as Cadence),
+                "Cadence saved.",
+              )
+            }
             className="rounded-lg border border-line-2 bg-panel px-2.5 py-1.5 text-[12.5px] text-fog"
           >
             {(Object.keys(CADENCE_LABEL) as Cadence[]).map((c) => (
@@ -97,8 +225,15 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
             className={button("ghost", "text-xs")}
             disabled={busy}
             onClick={() => {
-              if (window.confirm(`Close #${n} without building it? The conversation and any design stay in its history.`)) {
-                void act(() => api.work.ship(siteId, n, "cancel"), `#${n} closed without building.`);
+              if (
+                window.confirm(
+                  `Close #${n} without building it? The conversation and any design stay in its history.`,
+                )
+              ) {
+                void act(
+                  () => api.work.ship(siteId, n, "cancel"),
+                  `#${n} closed without building.`,
+                );
               }
             }}
           >
@@ -108,47 +243,205 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
       </PageHeader>
 
       <div className="flex flex-col gap-4 px-6 pb-16 pt-5 lg:px-8">
-        {install ? (
-          <p className="text-[13px] text-fog">The installation conversation: ask the engine about anything on the Setup page. It sees the checklist, the checkout log and which keys are set (never their values), and can read the code.</p>
-        ) : (
-          <Rail stage={d.work.stage} />
+        {studio.source === "sample" && (
+          <p
+            role="status"
+            className="rounded-xl border border-warn/40 bg-warn/5 p-3 text-sm text-warn"
+          >
+            Illustrative workspace · synthetic conversation, jobs, models and
+            checks. No site was changed. Execution and approval controls are
+            disabled.
+          </p>
         )}
-
-        <NeedsYou d={d} working={working} canApprove={canApprove} canShip={canShip} busy={busy} onTab={setTab} act={act} siteId={siteId} />
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-          <Thread d={d} working={working} canAsk={canAsk} busy={busy} onSend={(body) => act(() => api.work.say(siteId, n, body))} />
-
-          <Card className="flex min-h-[520px] flex-col">
-            <nav className="flex gap-1 border-b border-line px-3 pt-3" aria-label="Work item documents">
-              {(
-                [
-                  ["design", `Design${latest ? ` v${latest.version}` : ""}`, FileText],
-                  ["plan", `Plan${d.steps.length ? ` · ${d.steps.filter((s) => s.status === "done").length}/${d.steps.length}` : ""}`, ListChecks],
-                  ["ship", "Prove & release", Rocket],
-                  ["log", "Live log", ScrollText],
-                ] as const
-              ).filter(([id]) => !install || id === "log").map(([id, label, Icon]) => (
+        {refreshError && (
+          <p
+            role="alert"
+            className="rounded-xl border border-warn/30 p-3 text-sm text-warn"
+          >
+            Updates could not be loaded. Showing the last received records;
+            current state is unknown. Automatic refresh will retry.
+          </p>
+        )}
+        <section className="rounded-2xl border border-violet/30 bg-gradient-to-r from-violet/10 via-panel to-cyan/5 p-5">
+          <Eyebrow>What you intended. What you approved. Delivered.</Eyebrow>
+          <p className="mt-3 max-w-4xl text-lg leading-relaxed">
+            {studio.summary}
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <nav
+              className="flex flex-wrap gap-1 rounded-xl border border-line bg-bg/40 p-1"
+              aria-label="Workspace lens"
+            >
+              {WORKSPACE_LENSES.map((l) => (
                 <button
-                  key={id}
+                  key={l.id}
                   type="button"
-                  onClick={() => setTab(id)}
-                  aria-pressed={tab === id}
-                  className={cx("-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px]", tab === id ? "border-gold text-ink" : "border-transparent text-fog hover:text-ink")}
+                  aria-pressed={lens === l.id}
+                  title={l.description}
+                  onClick={() => setLens(l.id)}
+                  className={button(lens === l.id ? "gold" : "ghost")}
                 >
-                  <Icon className="size-4" /> {label}
+                  {l.title}
                 </button>
               ))}
             </nav>
-            <div className="flex-1 overflow-y-auto p-4">
-              {tab === "design" && (
-                <DesignPanel d={d} canAsk={canAsk} canApprove={canApprove} busy={busy || working} siteId={siteId} act={act} />
-              )}
-              {tab === "plan" && <PlanPanel d={d} canAsk={canAsk} canApprove={canApprove} busy={busy || working} siteId={siteId} act={act} next={next} />}
-              {tab === "ship" && <ShipPanel d={d} />}
-              {tab === "log" && <LogPanel d={d} />}
-            </div>
-          </Card>
+            <button
+              type="button"
+              className={button("plain")}
+              onClick={() => setReplayOpen(true)}
+            >
+              <Play className="size-4" /> Replay this improvement
+            </button>
+            <button
+              type="button"
+              className={button("ghost")}
+              aria-pressed={motionPaused}
+              onClick={() => setMotionPaused((p) => !p)}
+            >
+              {motionPaused ? "Resume visual motion" : "Pause visual motion"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-mist">
+            Last received {timestamp(studio.observedAt)} · switching lenses
+            changes presentation, never permissions.
+          </p>
+        </section>
+        {decisionNotice && (
+          <section
+            role="status"
+            aria-label="Decision access"
+            className="rounded-xl border border-warn/40 bg-warn/5 p-4"
+          >
+            <h2 className="font-semibold text-warn">
+              Awaiting an authorized client decision
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-fog">
+              {decisionNotice}
+            </p>
+            <p className="mt-2 text-xs text-mist">
+              Current account access: {access.via} · {access.role}. Changing
+              workspace lenses does not change authority.
+            </p>
+          </section>
+        )}
+        <ActivityRibbon studio={studio} paused={motionPaused} />
+        {replayOpen && (
+          <ImprovementReplay
+            studio={studio}
+            close={() => setReplayOpen(false)}
+          />
+        )}
+        {lens === "mission" && (
+          <MissionControl
+            studio={studio}
+            inspect={(target) => {
+              setTab(target);
+              setLens("studio");
+            }}
+          />
+        )}
+        {lens === "proof" && <ProofLab studio={studio} />}
+        <div hidden={lens !== "studio"}>
+          {install ? (
+            <p className="text-[13px] text-fog">
+              The installation conversation: ask the engine about anything on
+              the Setup page. It sees the checklist, the checkout log and which
+              keys are set (never their values), and can read the code.
+            </p>
+          ) : (
+            <Rail stage={d.work.stage} />
+          )}
+
+          {studio.source !== "sample" && (
+            <NeedsYou
+              d={d}
+              canAsk={canAsk}
+              working={working}
+              canApprove={canApprove}
+              canShip={canShip}
+              mayApproveTry={mayApproveTry}
+              busy={busy}
+              onTab={setTab}
+              act={act}
+              siteId={siteId}
+            />
+          )}
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]">
+            <Thread
+              d={d}
+              working={working}
+              canAsk={canAsk}
+              busy={busy}
+              onSend={(body) => act(() => api.work.say(siteId, n, body))}
+            />
+
+            <Card className="flex min-h-[520px] flex-col">
+              <nav
+                aria-label="Work item documents"
+                className="flex flex-wrap gap-1 border-b border-line px-3 pt-3"
+              >
+                {(
+                  [
+                    [
+                      "design",
+                      `Design${latest ? ` v${latest.version}` : ""}`,
+                      FileText,
+                    ],
+                    [
+                      "plan",
+                      `Plan${d.steps.length ? ` · ${d.steps.filter((s) => s.status === "done").length}/${d.steps.length}` : ""}`,
+                      ListChecks,
+                    ],
+                    ["ship", "Prove & release", Rocket],
+                    ["log", "Live log", ScrollText],
+                  ] as const
+                )
+                  .filter(([id]) => !install || id === "log")
+                  .map(([id, label, Icon]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setTab(id)}
+                      aria-pressed={tab === id}
+                      className={cx(
+                        "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px]",
+                        tab === id
+                          ? "border-gold text-ink"
+                          : "border-transparent text-fog hover:text-ink",
+                      )}
+                    >
+                      <Icon className="size-4" /> {label}
+                    </button>
+                  ))}
+              </nav>
+              <div className="flex-1 overflow-y-auto p-4">
+                {tab === "design" && (
+                  <DesignPanel
+                    d={d}
+                    canAsk={canAsk}
+                    canApprove={canApprove}
+                    busy={busy || working}
+                    siteId={siteId}
+                    act={act}
+                  />
+                )}
+                {tab === "plan" && (
+                  <PlanPanel
+                    d={d}
+                    canAsk={canAsk}
+                    canApprove={canApprove}
+                    busy={busy || working}
+                    siteId={siteId}
+                    act={act}
+                    next={next}
+                  />
+                )}
+                {tab === "ship" && <ShipPanel d={d} />}
+                {tab === "log" && <LogPanel d={d} />}
+              </div>
+            </Card>
+          </div>
         </div>
       </div>
     </>
@@ -158,9 +451,23 @@ export function WorkRoom({ siteId, initial, canAsk, canApprove, canShip }: { sit
 function defaultTab(d: WorkDetail): Tab {
   if (d.work.kind === "install") return "log";
   const j = d.jobs[0];
-  if (j && (j.kind === "build_step" || j.kind === "prove" || j.kind === "release") && (j.status === "queued" || j.status === "running")) return "log";
-  if (SHIP_STAGES.includes(d.work.stage) && (d.work.proof || d.work.stage !== "prove")) return "ship";
-  if (d.work.stage === "plan" || d.work.stage === "build" || d.work.stage === "prove") return "plan";
+  if (
+    j &&
+    (j.kind === "build_step" || j.kind === "prove" || j.kind === "release") &&
+    (j.status === "queued" || j.status === "running")
+  )
+    return "log";
+  if (
+    SHIP_STAGES.includes(d.work.stage) &&
+    (d.work.proof || d.work.stage !== "prove")
+  )
+    return "ship";
+  if (
+    d.work.stage === "plan" ||
+    d.work.stage === "build" ||
+    d.work.stage === "prove"
+  )
+    return "plan";
   return "design";
 }
 
@@ -187,8 +494,28 @@ const JOB_DOING: Record<string, string> = {
 };
 
 function NeedsYou({
-  d, working, canApprove, canShip, busy, onTab, act, siteId,
-}: { d: WorkDetail; working: boolean; canApprove: boolean; canShip: boolean; busy: boolean; onTab: (t: Tab) => void; act: Act; siteId: string }) {
+  d,
+  canAsk,
+  working,
+  canApprove,
+  canShip,
+  mayApproveTry,
+  busy,
+  onTab,
+  act,
+  siteId,
+}: {
+  d: WorkDetail;
+  canAsk: boolean;
+  working: boolean;
+  canApprove: boolean;
+  canShip: boolean;
+  mayApproveTry: boolean;
+  busy: boolean;
+  onTab: (t: Tab) => void;
+  act: Act;
+  siteId: string;
+}) {
   const a = d.actions;
   const api = browserApi();
   const n = d.work.number;
@@ -203,22 +530,53 @@ function NeedsYou({
     text = `The engine is working: ${JOB_DOING[job!.kind] ?? `writing the ${job!.kind}`} (${modelLabel(job!.provider, job!.model)}).`;
     action = <Loader2 className="size-4 animate-spin text-gold-2" />;
   } else if (!d.runnerOnline) {
-    text = "The engine is offline. Start the runner and it will pick up where things are.";
+    text =
+      "The engine is offline. Start the runner and it will pick up where things are.";
   } else if (d.work.kind === "install") {
     return null;
   } else if (a.approveDesign && latest) {
     text = `Design v${latest.version} is ready. Read it, edit it, or ask for changes in the conversation.`;
     action = canApprove ? (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.design(siteId, n, { action: "approve", version: latest.version }), "Design approved.")}>
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () =>
+              api.work.design(siteId, n, {
+                action: "approve",
+                version: latest.version,
+              }),
+            "Design approved.",
+          )
+        }
+      >
         <CircleCheck className="size-4" /> Approve design v{latest.version}
       </button>
     ) : (
-      <button type="button" className={button("plain")} onClick={() => onTab("design")}>Read the design</button>
+      <button
+        type="button"
+        className={button("plain")}
+        onClick={() => onTab("design")}
+      >
+        Read the design
+      </button>
     );
   } else if (a.approvePlan) {
     text = `The plan has ${d.steps.length} steps. Approve it and the engine builds step 1.`;
     action = canApprove ? (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.plan(siteId, n, { action: "approve" }), "Plan approved.")}>
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () => api.work.plan(siteId, n, { action: "approve" }),
+            "Plan approved.",
+          )
+        }
+      >
         <CircleCheck className="size-4" /> Approve plan
       </button>
     ) : null;
@@ -230,8 +588,18 @@ function NeedsYou({
         ? `Step ${doneCount} of ${d.steps.length} is done and checked. Proceed to step ${step.position}?`
         : `Ready to build step 1: ${step.title}.`;
     action = canApprove ? (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.next(siteId, n), `Building step ${step.position}.`)}>
-        <Play className="size-4" /> {blocked ? `Run step ${step.position} again` : `Build step ${step.position}`}
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(() => api.work.next(siteId, n), `Building step ${step.position}.`)
+        }
+      >
+        <Play className="size-4" />{" "}
+        {blocked
+          ? `Run step ${step.position} again`
+          : `Build step ${step.position}`}
       </button>
     ) : null;
   } else if (a.prove) {
@@ -240,30 +608,68 @@ function NeedsYou({
       ? `Prove didn't pass: ${failed.reasons[0] ?? "see the evidence"} Ask the engine to fix it, then prove again.`
       : `All ${d.steps.length} steps are built and checked. Prove it: the engine runs every check, pushes the branch and opens a preview.`;
     action = canApprove ? (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "prove"), "Proving: checks, push, preview.")}>
-        <Rocket className="size-4" /> {failed ? "Prove again" : "Prove and preview"}
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () => api.work.ship(siteId, n, "prove"),
+            "Proving: checks, push, preview.",
+          )
+        }
+      >
+        <Rocket className="size-4" />{" "}
+        {failed ? "Prove again" : "Prove and preview"}
       </button>
     ) : null;
   } else if (a.approveTry) {
-    text = "The preview is up. Try it with real clicks, then approve it for release, or tell the engine what to change.";
+    text =
+      "The preview is up. Try it with real clicks, then approve it for release, or tell the engine what to change.";
     action = (
       <>
-        {d.work.previewUrl && (
-          <a href={d.work.previewUrl} target="_blank" rel="noreferrer" className={button("plain")}>
+        {safeWebUrl(d.work.previewUrl) && (
+          <a
+            href={safeWebUrl(d.work.previewUrl)!}
+            target="_blank"
+            rel="noreferrer"
+            className={button("plain")}
+          >
             <ExternalLink className="size-4" /> Open preview
           </a>
         )}
-        {canApprove && (
-          <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "approve"), "Approved for release.")}>
+        {canApprove && mayApproveTry && (
+          <button
+            type="button"
+            className={button("gold")}
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => api.work.ship(siteId, n, "approve"),
+                "Approved for release.",
+              )
+            }
+          >
             <CircleCheck className="size-4" /> Approve for release
           </button>
         )}
       </>
     );
   } else if (a.release) {
-    text = "Approved. Go live merges this into stage and main, waits for production, and checks the live site.";
+    text =
+      "Approved. Go live merges this into stage and main, waits for production, and checks the live site.";
     action = canShip ? (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "release"), "Releasing to production.")}>
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () => api.work.ship(siteId, n, "release"),
+            "Releasing to production.",
+          )
+        }
+      >
         <Rocket className="size-4" /> Go live
       </button>
     ) : null;
@@ -273,21 +679,49 @@ function NeedsYou({
       ? `Live: ${r.liveUrl} answers ${r.liveStatus}. Note anything you learned in the conversation, then close #${n}.`
       : `Released to main, but the live check needs a look: ${r?.reasons[0] ?? "see the evidence"}`;
     action = canApprove ? (
-      <button type="button" className={button("plain")} disabled={busy} onClick={() => act(() => api.work.ship(siteId, n, "close"), `#${n} closed.`)}>
+      <button
+        type="button"
+        className={button("plain")}
+        disabled={busy}
+        onClick={() =>
+          act(() => api.work.ship(siteId, n, "close"), `#${n} closed.`)
+        }
+      >
         <Flag className="size-4" /> Close #{n}
       </button>
     ) : null;
-  } else if (a.draftPlan) {
+  } else if (a.draftPlan && canAsk) {
     text = "The design is approved. Ask the engine for the build plan.";
     action = (
-      <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.plan(siteId, n, { action: "draft" }), "Writing the plan.")}>
+      <button
+        type="button"
+        className={button("gold")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () => api.work.plan(siteId, n, { action: "draft" }),
+            "Writing the plan.",
+          )
+        }
+      >
         <ListChecks className="size-4" /> Write the plan
       </button>
     );
-  } else if (d.work.stage === "discuss" && d.messages.length > 1) {
-    text = "When you and the engine agree on the idea, ask it to draft the design.";
+  } else if (canAsk && d.work.stage === "discuss" && d.messages.length > 1) {
+    text =
+      "When you and the engine agree on the idea, ask it to draft the design.";
     action = (
-      <button type="button" className={button("plain")} disabled={busy} onClick={() => act(() => api.work.design(siteId, n, { action: "draft" }), "Drafting the design.")}>
+      <button
+        type="button"
+        className={button("plain")}
+        disabled={busy}
+        onClick={() =>
+          act(
+            () => api.work.design(siteId, n, { action: "draft" }),
+            "Drafting the design.",
+          )
+        }
+      >
         <PenLine className="size-4" /> Draft the design
       </button>
     );
@@ -306,7 +740,19 @@ function NeedsYou({
   );
 }
 
-function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: boolean; canAsk: boolean; busy: boolean; onSend: (body: string) => Promise<void> }) {
+function Thread({
+  d,
+  working,
+  canAsk,
+  busy,
+  onSend,
+}: {
+  d: WorkDetail;
+  working: boolean;
+  canAsk: boolean;
+  busy: boolean;
+  onSend: (body: string) => Promise<void>;
+}) {
   const [draft, setDraft] = useState("");
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -325,24 +771,59 @@ function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: 
     <Card className="flex max-h-[78vh] min-h-[520px] flex-col">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <Eyebrow>Conversation</Eyebrow>
-        <span className="text-[12px] text-mist">Consult: {modelLabel(d.models.consult.provider, d.models.consult.model)}</span>
+        <span className="text-[12px] text-mist">
+          Consult:{" "}
+          {modelLabel(d.models.consult.provider, d.models.consult.model)}
+        </span>
       </div>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
         {d.messages.map((m) =>
           m.authorKind === "system" ? (
-            <p key={m.id} className="self-center rounded-full bg-panel-2 px-3 py-1 text-center text-[12px] text-mist">
+            <p
+              key={m.id}
+              className="self-center rounded-full bg-panel-2 px-3 py-1 text-center text-[12px] text-mist"
+            >
               {m.body}
             </p>
           ) : (
-            <div key={m.id} className={cx("flex gap-2.5", m.authorKind === "person" && "flex-row-reverse")}>
-              <span className={cx("grid size-7 shrink-0 place-items-center rounded-full", m.authorKind === "person" ? "bg-violet/20 text-violet" : "bg-gold/15 text-gold-2")}>
-                {m.authorKind === "person" ? <User className="size-3.5" /> : <Bot className="size-3.5" />}
+            <div
+              key={m.id}
+              className={cx(
+                "flex gap-2.5",
+                m.authorKind === "person" && "flex-row-reverse",
+              )}
+            >
+              <span
+                className={cx(
+                  "grid size-7 shrink-0 place-items-center rounded-full",
+                  m.authorKind === "person"
+                    ? "bg-violet/20 text-violet"
+                    : "bg-gold/15 text-gold-2",
+                )}
+              >
+                {m.authorKind === "person" ? (
+                  <User className="size-3.5" />
+                ) : (
+                  <Bot className="size-3.5" />
+                )}
               </span>
-              <div className={cx("max-w-[88%] rounded-2xl px-3.5 py-2.5", m.authorKind === "person" ? "rounded-tr-md bg-violet/12" : "rounded-tl-md bg-panel-2")}>
+              <div
+                className={cx(
+                  "max-w-[88%] rounded-2xl px-3.5 py-2.5",
+                  m.authorKind === "person"
+                    ? "rounded-tr-md bg-violet/12"
+                    : "rounded-tl-md bg-panel-2",
+                )}
+              >
                 <p className="mb-1 text-[11.5px] text-mist">
-                  {m.authorLabel} · {RAIL_LABEL[m.stage as keyof typeof RAIL_LABEL] ?? m.stage}
+                  {m.authorLabel} ·{" "}
+                  {RAIL_LABEL[m.stage as keyof typeof RAIL_LABEL] ?? m.stage}
                 </p>
-                {m.authorKind === "model" ? <Markdown>{m.body}</Markdown> : <p className="whitespace-pre-wrap text-[13.5px]">{m.body}</p>}
+                {m.authorKind === "model" ? (
+                  <Markdown>{m.body}</Markdown>
+                ) : (
+                  <p className="whitespace-pre-wrap text-[13.5px]">{m.body}</p>
+                )}
               </div>
             </div>
           ),
@@ -355,7 +836,10 @@ function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: 
         <div ref={end} />
       </div>
       {canAsk && (
-        <form onSubmit={send} className="flex items-end gap-2 border-t border-line p-3">
+        <form
+          onSubmit={send}
+          className="flex items-end gap-2 border-t border-line p-3"
+        >
           <label htmlFor="say" className="sr-only">
             Message
           </label>
@@ -370,10 +854,19 @@ function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: 
               }
             }}
             rows={2}
-            placeholder={working ? "The engine is working; you can still add a note." : "Observe, question, decide… (Enter to send)"}
+            placeholder={
+              working
+                ? "The engine is working; you can still add a note."
+                : "Observe, question, decide… (Enter to send)"
+            }
             className={`${inputClass} max-h-40 resize-y`}
           />
-          <button type="submit" disabled={busy || !draft.trim() || working} aria-label="Send" className={button("gold", "size-10 shrink-0 p-0")}>
+          <button
+            type="submit"
+            disabled={busy || !draft.trim() || working}
+            aria-label="Send"
+            className={button("gold", "size-10 shrink-0 p-0")}
+          >
             <ArrowUp className="size-4" />
           </button>
         </form>
@@ -382,7 +875,21 @@ function Thread({ d, working, canAsk, busy, onSend }: { d: WorkDetail; working: 
   );
 }
 
-function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDetail; canAsk: boolean; canApprove: boolean; busy: boolean; siteId: string; act: Act }) {
+function DesignPanel({
+  d,
+  canAsk,
+  canApprove,
+  busy,
+  siteId,
+  act,
+}: {
+  d: WorkDetail;
+  canAsk: boolean;
+  canApprove: boolean;
+  busy: boolean;
+  siteId: string;
+  act: Act;
+}) {
   const api = browserApi();
   const n = d.work.number;
   const [version, setVersion] = useState<number | null>(null);
@@ -395,9 +902,22 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
         <FileText className="size-8 text-mist" />
-        <p className="max-w-sm text-[13.5px] text-fog">No design yet. Talk it through first; when you agree, the engine writes design.md for you to read, edit and approve.</p>
+        <p className="max-w-sm text-[13.5px] text-fog">
+          No design yet. Talk it through first; when you agree, the engine
+          writes design.md for you to read, edit and approve.
+        </p>
         {canAsk && (
-          <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.design(siteId, n, { action: "draft" }), "Drafting the design.")}>
+          <button
+            type="button"
+            className={button("gold")}
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => api.work.design(siteId, n, { action: "draft" }),
+                "Drafting the design.",
+              )
+            }
+          >
             <PenLine className="size-4" /> Draft the design
           </button>
         )}
@@ -424,7 +944,11 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
             </option>
           ))}
         </select>
-        {doc.approvedAt ? <Chip tone="good">Approved</Chip> : <Chip tone="warn">Awaiting approval</Chip>}
+        {doc.approvedAt ? (
+          <Chip tone="good">Approved</Chip>
+        ) : (
+          <Chip tone="warn">Awaiting approval</Chip>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
           {canAsk && isLatest && !editing && (
             <button
@@ -439,12 +963,36 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
             </button>
           )}
           {canAsk && isLatest && !editing && (
-            <button type="button" className={button("plain", "text-xs")} disabled={busy} onClick={() => act(() => api.work.design(siteId, n, { action: "draft" }), "Revising the design from the conversation.")}>
+            <button
+              type="button"
+              className={button("plain", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () => api.work.design(siteId, n, { action: "draft" }),
+                  "Revising the design from the conversation.",
+                )
+              }
+            >
               <Sparkles className="size-3.5" /> Revise from the conversation
             </button>
           )}
           {canApprove && isLatest && !doc.approvedAt && !editing && (
-            <button type="button" className={button("gold", "text-xs")} disabled={busy} onClick={() => act(() => api.work.design(siteId, n, { action: "approve", version: doc.version }), "Design approved.")}>
+            <button
+              type="button"
+              className={button("gold", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () =>
+                    api.work.design(siteId, n, {
+                      action: "approve",
+                      version: doc.version,
+                    }),
+                  "Design approved.",
+                )
+              }
+            >
               <CircleCheck className="size-3.5" /> Approve v{doc.version}
             </button>
           )}
@@ -454,7 +1002,14 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
       {editing ? (
         <div className="flex flex-col gap-2">
           <div className="grid gap-3 lg:grid-cols-2">
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={28} spellCheck className={`${inputClass} font-mono text-[12.5px] leading-relaxed`} aria-label="design.md" />
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={28}
+              spellCheck
+              className={`${inputClass} font-mono text-[12.5px] leading-relaxed`}
+              aria-label="design.md"
+            />
             <div className="hidden max-h-[640px] overflow-y-auto rounded-xl border border-line p-3 lg:block">
               <Markdown>{text}</Markdown>
             </div>
@@ -466,7 +1021,10 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
               disabled={busy || text.trim() === doc.body.trim()}
               onClick={() =>
                 act(async () => {
-                  await api.work.design(siteId, n, { action: "save", body: text });
+                  await api.work.design(siteId, n, {
+                    action: "save",
+                    body: text,
+                  });
                   setEditing(false);
                   setVersion(null);
                 }, "Saved as a new version.")
@@ -474,7 +1032,11 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
             >
               Save as v{(d.designs.at(-1)?.version ?? 0) + 1}
             </button>
-            <button type="button" className={button("ghost")} onClick={() => setEditing(false)}>
+            <button
+              type="button"
+              className={button("ghost")}
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </button>
           </div>
@@ -488,7 +1050,23 @@ function DesignPanel({ d, canAsk, canApprove, busy, siteId, act }: { d: WorkDeta
   );
 }
 
-function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: WorkDetail; canAsk: boolean; canApprove: boolean; busy: boolean; siteId: string; act: Act; next: WorkStep | null }) {
+function PlanPanel({
+  d,
+  canAsk,
+  canApprove,
+  busy,
+  siteId,
+  act,
+  next,
+}: {
+  d: WorkDetail;
+  canAsk: boolean;
+  canApprove: boolean;
+  busy: boolean;
+  siteId: string;
+  act: Act;
+  next: WorkStep | null;
+}) {
   const api = browserApi();
   const n = d.work.number;
   const a = d.actions;
@@ -496,9 +1074,22 @@ function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: Work
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
         <ListChecks className="size-8 text-mist" />
-        <p className="max-w-sm text-[13.5px] text-fog">The plan comes after the design is approved: small, numbered steps, each with the tests that prove it.</p>
+        <p className="max-w-sm text-[13.5px] text-fog">
+          The plan comes after the design is approved: small, numbered steps,
+          each with the tests that prove it.
+        </p>
         {canAsk && a.draftPlan && (
-          <button type="button" className={button("gold")} disabled={busy} onClick={() => act(() => api.work.plan(siteId, n, { action: "draft" }), "Writing the plan.")}>
+          <button
+            type="button"
+            className={button("gold")}
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => api.work.plan(siteId, n, { action: "draft" }),
+                "Writing the plan.",
+              )
+            }
+          >
             <ListChecks className="size-4" /> Write the plan
           </button>
         )}
@@ -508,20 +1099,54 @@ function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: Work
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {d.work.planApproved ? <Chip tone="good">Plan approved</Chip> : <Chip tone="warn">Awaiting approval</Chip>}
+        {d.work.planApproved ? (
+          <Chip tone="good">Plan approved</Chip>
+        ) : (
+          <Chip tone="warn">Awaiting approval</Chip>
+        )}
         <div className="ml-auto flex flex-wrap gap-2">
           {canAsk && !d.work.planApproved && (
-            <button type="button" className={button("plain", "text-xs")} disabled={busy} onClick={() => act(() => api.work.plan(siteId, n, { action: "draft" }), "Revising the plan from the conversation.")}>
+            <button
+              type="button"
+              className={button("plain", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () => api.work.plan(siteId, n, { action: "draft" }),
+                  "Revising the plan from the conversation.",
+                )
+              }
+            >
               <Sparkles className="size-3.5" /> Revise from the conversation
             </button>
           )}
           {canApprove && a.approvePlan && (
-            <button type="button" className={button("gold", "text-xs")} disabled={busy} onClick={() => act(() => api.work.plan(siteId, n, { action: "approve" }), "Plan approved.")}>
+            <button
+              type="button"
+              className={button("gold", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () => api.work.plan(siteId, n, { action: "approve" }),
+                  "Plan approved.",
+                )
+              }
+            >
               <CircleCheck className="size-3.5" /> Approve plan
             </button>
           )}
           {canApprove && a.runNextStep && next && (
-            <button type="button" className={button("gold", "text-xs")} disabled={busy} onClick={() => act(() => api.work.next(siteId, n), `Building step ${next.position}.`)}>
+            <button
+              type="button"
+              className={button("gold", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () => api.work.next(siteId, n),
+                  `Building step ${next.position}.`,
+                )
+              }
+            >
               <Play className="size-3.5" /> Build step {next.position}
             </button>
           )}
@@ -529,27 +1154,58 @@ function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: Work
       </div>
       <ol className="flex flex-col gap-2">
         {d.steps.map((s) => (
-          <li key={s.id} className={cx("rounded-xl border px-3.5 py-3", s.status === "blocked" ? "border-bad/40 bg-bad/5" : s.status === "running" ? "border-gold/40 bg-gold/5" : "border-line")}>
+          <li
+            key={s.id}
+            className={cx(
+              "rounded-xl border px-3.5 py-3",
+              s.status === "blocked"
+                ? "border-bad/40 bg-bad/5"
+                : s.status === "running"
+                  ? "border-gold/40 bg-gold/5"
+                  : "border-line",
+            )}
+          >
             <div className="flex items-start gap-2.5">
               <StepIcon status={s.status} />
               <div className="min-w-0 flex-1">
                 <p className="text-[13.5px] font-medium">
                   {s.position}. {s.title}
                 </p>
-                {s.detail && <p className="mt-0.5 whitespace-pre-wrap text-[12.5px] text-fog">{s.detail}</p>}
+                {s.detail && (
+                  <p className="mt-0.5 whitespace-pre-wrap text-[12.5px] text-fog">
+                    {s.detail}
+                  </p>
+                )}
                 {s.evidence.checks && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Chip tone={s.evidence.checks.typecheck ? "good" : "bad"}>Typecheck {s.evidence.checks.typecheck ? "clean" : "failed"}</Chip>
+                    <Chip tone={s.evidence.checks.typecheck ? "good" : "bad"}>
+                      Typecheck{" "}
+                      {s.evidence.checks.typecheck ? "clean" : "failed"}
+                    </Chip>
                     {s.evidence.checks.tests ? (
-                      <Chip tone={s.evidence.checks.tests.failed ? "bad" : "good"}>
-                        {s.evidence.checks.tests.passed}/{s.evidence.checks.tests.total} tests
-                        {s.evidence.checks.testsBefore != null && ` (was ${s.evidence.checks.testsBefore})`}
+                      <Chip
+                        tone={s.evidence.checks.tests.failed ? "bad" : "good"}
+                      >
+                        {s.evidence.checks.tests.passed}/
+                        {s.evidence.checks.tests.total} tests
+                        {s.evidence.checks.testsBefore != null &&
+                          ` (was ${s.evidence.checks.testsBefore})`}
                       </Chip>
                     ) : (
                       <Chip tone="bad">Tests didn&apos;t run</Chip>
                     )}
-                    <Chip tone={s.evidence.checks.touchedTests ? "good" : "warn"}>{s.evidence.checks.touchedTests ? "Tests added/updated" : "No test changes"}</Chip>
-                    <EngineerOnly>{s.evidence.commit && <Chip>commit {s.evidence.commit.slice(0, 8)}</Chip>}</EngineerOnly>
+                    <Chip
+                      tone={s.evidence.checks.touchedTests ? "good" : "warn"}
+                    >
+                      {s.evidence.checks.touchedTests
+                        ? "Tests added/updated"
+                        : "No test changes"}
+                    </Chip>
+                    <EngineerOnly>
+                      {s.evidence.commit && (
+                        <Chip>commit {s.evidence.commit.slice(0, 8)}</Chip>
+                      )}
+                    </EngineerOnly>
                   </div>
                 )}
                 {!!s.evidence.reasons?.length && (
@@ -560,7 +1216,11 @@ function PlanPanel({ d, canAsk, canApprove, busy, siteId, act, next }: { d: Work
                   </ul>
                 )}
                 <EngineerOnly>
-                  {!!s.evidence.files?.length && <p className="mt-2 font-mono text-[11.5px] text-mist">{s.evidence.files.join(" · ")}</p>}
+                  {!!s.evidence.files?.length && (
+                    <p className="mt-2 font-mono text-[11.5px] text-mist">
+                      {s.evidence.files.join(" · ")}
+                    </p>
+                  )}
                 </EngineerOnly>
               </div>
             </div>
@@ -579,7 +1239,9 @@ function ShipPanel({ d }: { d: WorkDetail }) {
       <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
         <Rocket className="size-8 text-mist" />
         <p className="max-w-sm text-[13.5px] text-fog">
-          Once every step is built, Prove runs every check, pushes the branch and opens a preview for you to try. Then Go live releases it and checks the live site.
+          Once every step is built, Prove runs every check, pushes the branch
+          and opens a preview for you to try. Then Go live releases it and
+          checks the live site.
         </p>
       </div>
     );
@@ -591,11 +1253,17 @@ function ShipPanel({ d }: { d: WorkDetail }) {
         <section className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Eyebrow>Prove</Eyebrow>
-            <Chip tone={proof.ok ? "good" : "bad"}>{proof.ok ? "Passed" : "Didn't pass"}</Chip>
-            <span className="text-[12px] text-mist">{new Date(proof.at).toLocaleString()}</span>
+            <Chip tone={proof.ok ? "good" : "bad"}>
+              {proof.ok ? "Passed" : "Didn't pass"}
+            </Chip>
+            <span className="text-[12px] text-mist">
+              {new Date(proof.at).toLocaleString()}
+            </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <Chip tone={proof.typecheck ? "good" : "bad"}>Typecheck {proof.typecheck ? "clean" : "failed"}</Chip>
+            <Chip tone={proof.typecheck ? "good" : "bad"}>
+              Typecheck {proof.typecheck ? "clean" : "failed"}
+            </Chip>
             {proof.tests ? (
               <Chip tone={proof.tests.failed ? "bad" : "good"}>
                 {proof.tests.passed}/{proof.tests.total} tests
@@ -603,9 +1271,29 @@ function ShipPanel({ d }: { d: WorkDetail }) {
             ) : (
               <Chip tone="bad">Tests didn&apos;t run</Chip>
             )}
-            {proof.build != null && <Chip tone={proof.build ? "good" : "bad"}>Build {proof.build ? "ok" : "failed"}</Chip>}
-            <Chip tone={proof.previewState === "success" ? "good" : proof.previewState === "skipped" ? "warn" : "bad"}>Preview {proof.previewState}</Chip>
-            <EngineerOnly>{proof.commit && <Chip>{proof.branch} @ {proof.commit.slice(0, 8)}</Chip>}</EngineerOnly>
+            {proof.build != null && (
+              <Chip tone={proof.build ? "good" : "bad"}>
+                Build {proof.build ? "ok" : "failed"}
+              </Chip>
+            )}
+            <Chip
+              tone={
+                proof.previewState === "success"
+                  ? "good"
+                  : proof.previewState === "skipped"
+                    ? "warn"
+                    : "bad"
+              }
+            >
+              Preview {proof.previewState}
+            </Chip>
+            <EngineerOnly>
+              {proof.commit && (
+                <Chip>
+                  {proof.branch} @ {proof.commit.slice(0, 8)}
+                </Chip>
+              )}
+            </EngineerOnly>
           </div>
           {!!proof.reasons.length && (
             <ul className="list-disc pl-5 text-[12.5px] text-bad">
@@ -621,13 +1309,29 @@ function ShipPanel({ d }: { d: WorkDetail }) {
         <section className="flex flex-col gap-2 rounded-xl border border-line p-3.5">
           <div className="flex flex-wrap items-center gap-2">
             <Eyebrow>Try</Eyebrow>
-            <Chip tone={tryApproved ? "good" : "warn"}>{tryApproved ? "Approved for release" : "Waiting for you"}</Chip>
+            <Chip tone={tryApproved ? "good" : "warn"}>
+              {tryApproved ? "Approved for release" : "Waiting for you"}
+            </Chip>
           </div>
-          <a href={previewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 break-all text-[13px] text-cyan hover:underline">
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 break-all text-[13px] text-cyan hover:underline"
+          >
             <ExternalLink className="size-3.5 shrink-0" /> {previewUrl}
           </a>
-          {guarded && <p className="text-[12.5px] text-fog">The preview is behind Vercel&apos;s protection: sign in to Vercel in this browser to open it.</p>}
-          <p className="text-[12.5px] text-fog">Try what the design promised, the way a customer would. If something&apos;s off, say so in the conversation instead of approving.</p>
+          {guarded && (
+            <p className="text-[12.5px] text-fog">
+              The preview is behind Vercel&apos;s protection: sign in to Vercel
+              in this browser to open it.
+            </p>
+          )}
+          <p className="text-[12.5px] text-fog">
+            Try what the design promised, the way a customer would. If
+            something&apos;s off, say so in the conversation instead of
+            approving.
+          </p>
         </section>
       )}
 
@@ -635,18 +1339,47 @@ function ShipPanel({ d }: { d: WorkDetail }) {
         <section className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Eyebrow>Release</Eyebrow>
-            <Chip tone={release.ok ? "good" : release.mainCommit ? "warn" : "bad"}>{release.ok ? "Live and checked" : release.mainCommit ? "Released; check needed" : "Not released"}</Chip>
-            <span className="text-[12px] text-mist">{new Date(release.at).toLocaleString()}</span>
+            <Chip
+              tone={release.ok ? "good" : release.mainCommit ? "warn" : "bad"}
+            >
+              {release.ok
+                ? "Live and checked"
+                : release.mainCommit
+                  ? "Released; check needed"
+                  : "Not released"}
+            </Chip>
+            <span className="text-[12px] text-mist">
+              {new Date(release.at).toLocaleString()}
+            </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <Chip tone={release.productionState === "success" ? "good" : "bad"}>Production {release.productionState}</Chip>
-            <Chip tone={release.liveStatus != null && release.liveStatus < 400 ? "good" : "bad"}>Live site {release.liveStatus ?? "unreachable"}</Chip>
+            <Chip tone={release.productionState === "success" ? "good" : "bad"}>
+              Production {release.productionState}
+            </Chip>
+            <Chip
+              tone={
+                release.liveStatus != null && release.liveStatus < 400
+                  ? "good"
+                  : "bad"
+              }
+            >
+              Live site {release.liveStatus ?? "unreachable"}
+            </Chip>
             <EngineerOnly>
-              {release.stageCommit && <Chip>stage @ {release.stageCommit.slice(0, 8)}</Chip>}
-              {release.mainCommit && <Chip>main @ {release.mainCommit.slice(0, 8)}</Chip>}
+              {release.stageCommit && (
+                <Chip>stage @ {release.stageCommit.slice(0, 8)}</Chip>
+              )}
+              {release.mainCommit && (
+                <Chip>main @ {release.mainCommit.slice(0, 8)}</Chip>
+              )}
             </EngineerOnly>
           </div>
-          <a href={release.liveUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-[13px] text-cyan hover:underline">
+          <a
+            href={release.liveUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1.5 text-[13px] text-cyan hover:underline"
+          >
             <ExternalLink className="size-3.5" /> {release.liveUrl}
           </a>
           {!!release.reasons.length && (
@@ -662,7 +1395,12 @@ function ShipPanel({ d }: { d: WorkDetail }) {
   );
 }
 
-const EVENT_CLS = { log: "text-ink", tool: "text-cyan", check: "text-gold-2", status: "text-mist" } as const;
+const EVENT_CLS = {
+  log: "text-ink",
+  tool: "text-cyan",
+  check: "text-gold-2",
+  status: "text-mist",
+} as const;
 
 function LogPanel({ d }: { d: WorkDetail }) {
   const job = d.jobs[0];
@@ -670,11 +1408,25 @@ function LogPanel({ d }: { d: WorkDetail }) {
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
   }, [d.events.length]);
-  if (!job) return <p className="py-16 text-center text-[13.5px] text-mist">Nothing has run yet.</p>;
+  if (!job)
+    return (
+      <p className="py-16 text-center text-[13.5px] text-mist">
+        Nothing has run yet.
+      </p>
+    );
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
-        <Chip tone={job.status === "done" ? "good" : job.status === "failed" ? "bad" : "gold"} className="capitalize">
+        <Chip
+          tone={
+            job.status === "done"
+              ? "good"
+              : job.status === "failed"
+                ? "bad"
+                : "gold"
+          }
+          className="capitalize"
+        >
           {job.status}
         </Chip>
         <span className="text-fog">
@@ -683,10 +1435,21 @@ function LogPanel({ d }: { d: WorkDetail }) {
         {job.error && <span className="text-bad">{job.error}</span>}
       </div>
       <div className="rounded-xl border border-line bg-bg/60 p-3 font-mono text-[12px] leading-relaxed">
-        {d.events.length === 0 && <p className="text-mist">Waiting for the engine…</p>}
+        {d.events.length === 0 && (
+          <p className="text-mist">Waiting for the engine…</p>
+        )}
         {d.events.map((e) => (
-          <p key={e.id} className={cx("whitespace-pre-wrap break-words", EVENT_CLS[e.kind])}>
-            <span className="mr-2 text-mist">{new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+          <p
+            key={e.id}
+            className={cx("whitespace-pre-wrap break-words", EVENT_CLS[e.kind])}
+          >
+            <span className="mr-2 text-mist">
+              {new Date(e.at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </span>
             {e.text}
           </p>
         ))}

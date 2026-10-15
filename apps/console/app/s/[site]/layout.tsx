@@ -13,7 +13,7 @@ export default async function SiteLayout({ children, params }: { children: React
   const groups: NavGroup[] = [
     {
       items: [
-        { href: base, label: "Bridge", icon: "activity", badge: bridge.needsYou.length, exact: true },
+        { href: base, label: "Overview", icon: "activity", exact: true },
         { href: `${base}/work`, label: "Work", icon: "work" },
       ],
     },
