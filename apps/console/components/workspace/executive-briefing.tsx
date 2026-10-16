@@ -10,7 +10,11 @@ import {
   RefreshCw,
   CircleHelp,
 } from "lucide-react";
-import { RAIL_LABEL, type BriefingResponse } from "@accelerator/domain";
+import {
+  WORK_TERMINAL_LABEL,
+  RAIL_LABEL,
+  type BriefingResponse,
+} from "@accelerator/domain";
 import { browserApi } from "@/lib/browser-api";
 import { button, Card, Chip, Eyebrow, Page, PageHeader } from "../ui";
 
@@ -231,7 +235,9 @@ export function ExecutiveBriefing({
                   >
                     {w.stage in RAIL_LABEL
                       ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL]
-                      : w.stage}
+                      : (WORK_TERMINAL_LABEL[
+                          w.stage as keyof typeof WORK_TERMINAL_LABEL
+                        ] ?? w.stage)}
                   </Chip>
                   <ArrowUpRight className="mt-1 size-4 shrink-0 text-mist" />
                 </Link>
@@ -249,8 +255,8 @@ export function ExecutiveBriefing({
                 existing server-enforced gates.
               </p>
               <p className="mt-3 text-xs text-mist">
-                {b.cancelled} cancelled work records are excluded from delivery
-                counts.
+                {b.cancelled} closed-without-release work records are excluded
+                from delivery counts.
               </p>
             </Card>
             <Card className="p-5">

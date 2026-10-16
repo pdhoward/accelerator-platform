@@ -1,4 +1,5 @@
 import {
+  workClosureCopy,
   agreementText,
   canApprove,
   isRisky,
@@ -252,20 +253,32 @@ export async function installConversation(site: Site, identity: Identity, name: 
   throw new Error("Couldn't open the installation conversation.");
 }
 
+/** Terminal records remain inspectable; new scope starts a separate governed Work item. */
+function assertOpen(w: Row) {
+  if (w.stage === "done" || w.stage === "cancelled") throw new CodeError("This work item is closed. Start another improvement for new design work.");
+}
+function assertDesignOpen(w: Row) {
+  assertOpen(w);
+  if (w.released_at) throw new CodeError("This work has a recorded release. Start another improvement for new design work.");
+}
+
 export async function postMessage(site: Site, identity: Identity, name: string, number: number, body: string) {
   const w = await workRow(site.id, number);
+  assertOpen(w);
   await say(w, { kind: "person", label: personLabel(identity, name), userId: identity.userId, body: body.trim() });
   await enqueue(site, w, "discuss", "consult", identity.userId);
 }
 
 export async function draftDesign(site: Site, identity: Identity, number: number, note?: string) {
   const w = await workRow(site.id, number);
+  assertDesignOpen(w);
   await enqueue(site, w, "design", "design", identity.userId, note ? { note } : {});
 }
 
 /** The Navigator edits design.md: a new version, authored by them (unapproved). */
 export async function saveDesign(site: Site, identity: Identity, name: string, number: number, body: string) {
   const w = await workRow(site.id, number);
+  assertDesignOpen(w);
   const [top] = await rows(db().from("acc_work_docs").select("version").eq("work_id", w.id as string).order("version", { ascending: false }).limit(1));
   const version = ((top?.version as number) ?? 0) + 1;
   const { error } = await db().from("acc_work_docs").insert({ org_id: w.org_id, work_id: w.id, version, body, author_label: personLabel(identity, name) });
@@ -346,20 +359,22 @@ export async function releaseWork(site: Site, identity: Identity, name: string, 
 export async function closeWork(site: Site, identity: Identity, name: string, number: number) {
   const { w, a } = await actionsFor(site, number);
   if (!a.close) throw new CodeError("Close a work item once it's live.");
-  await db().from("acc_work").update({ stage: "done", updated_at: now() }).eq("id", w.id as string);
-  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} closed #${number}.` });
+  const { error } = await db().from("acc_work").update({ stage: "done", updated_at: now() }).eq("id", w.id as string);
+  if (error) throw new Error(error.message);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} ${workClosureCopy({ number, released: true }).receipt}` });
 }
 
 /**
- * Not going ahead: file it as cancelled (any stop before release). Its branch and history stay.
+ * Close tracking without a recorded platform release (internal status: cancelled). Code, branch and history stay.
  * The account's own people can close any item; partner staff only the items they started.
  */
 export async function cancelWork(site: Site, identity: Identity, name: string, number: number, member: boolean) {
   const { w, a } = await actionsFor(site, number);
   if (!member && w.created_by !== identity.userId) throw new CodeError("Only the account's own people can close an item someone else started.");
   if (!a.cancel) throw new CodeError(toWork(w).released ? "This is already live; close it instead." : "Wait for the engine to finish, then close it.");
-  await db().from("acc_work").update({ stage: "cancelled", updated_at: now() }).eq("id", w.id as string);
-  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} closed #${number} without building it.` });
+  const { error } = await db().from("acc_work").update({ stage: "cancelled", updated_at: now() }).eq("id", w.id as string);
+  if (error) throw new Error(error.message);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} ${workClosureCopy({ number, released: false }).receipt}` });
 }
 
 export async function setCadence(site: Site, number: number, cadence: WorkItem["cadence"]) {

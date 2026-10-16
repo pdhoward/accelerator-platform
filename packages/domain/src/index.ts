@@ -9,3 +9,5 @@ export * from "./tenancy";
 export * from "./studio";
 
 export * from "./decision-access";
+
+export * from "./work-closure";

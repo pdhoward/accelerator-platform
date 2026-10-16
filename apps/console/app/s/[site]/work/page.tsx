@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { RAIL_LABEL } from "@accelerator/domain";
+import { RAIL_LABEL, WORK_TERMINAL_LABEL } from "@accelerator/domain";
 
 import { Rail } from "@/components/flywheel";
 import { NewWork } from "@/components/new-work";
@@ -76,7 +76,9 @@ export default async function WorkPage({
                         <Chip tone={w.stage === "done" ? "good" : "gold"}>
                           {w.stage in RAIL_LABEL
                             ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL]
-                            : w.stage}
+                            : (WORK_TERMINAL_LABEL[
+                                w.stage as keyof typeof WORK_TERMINAL_LABEL
+                              ] ?? w.stage)}
                         </Chip>
                       </>
                     )}

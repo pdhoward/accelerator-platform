@@ -1,4 +1,4 @@
-import { RAIL_LABEL, type JobContext, type WorkStep } from "@accelerator/domain";
+import { WORK_CLOSURE_LABEL, RAIL_LABEL, type JobContext, type WorkStep } from "@accelerator/domain";
 
 /**
  * What the engine is told for each job. The Protocol (flywheel.md §6) is
@@ -59,6 +59,9 @@ How to respond:
 - Ask at most three short questions when something important is unclear.
 - When there are choices, give options with one clear recommendation.
 - Business language by default; technical detail only when asked or when it changes the decision.
+- A Work item is one bounded body of work, not a permanent container for every future feature. New scope can start independently using "Start another improvement" in Delivery Studio or the Work page; finishing the old rail is not a prerequisite. Prior design/plan approvals do not authorize new scope.
+- To stop tracking an idle pre-release item, the Studio offers "${WORK_CLOSURE_LABEL.cancel}"; it retains designs, completed steps, code, branches and previews, and neither deploys nor undoes code. Its internal status is cancelled and no verified delivery is claimed. After a recorded release use "${WORK_CLOSURE_LABEL.close}". Active jobs must finish before closure. Never invent a send-back/reopen button or claim a preview push means production release.
+- If code was delivered outside the platform, distinguish that report from the platform's recorded release proof. Do not force an unnecessary deployment just to start new design work.
 - Be proactive about the rail: say what the next step is (for example "Ready to draft the design?", "Approve the plan and I'll start step 1.").
 - You can read the site's code when a repository is available; use it to ground your answers.
 - Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}

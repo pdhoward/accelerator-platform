@@ -40,3 +40,11 @@ Browser QA starts isolated keyless servers on ports 4100/4101 with `.next-qa` ou
 ## Contextual access correction
 
 The Studio now explains unavailable decisions at the current gate and shows the resolved access route/account role across all lenses. Partner/support access, read-only account roles, protected preview approval and release permission limits have separate messages. Direct client members retain existing authority; platform administrator status is not a client approval bypass. Ten domain cases exercise these explanations. No memberships or live account roles were changed.
+
+## Independent Work closure and next improvements (2026-10-16)
+
+Delivery Studio exposes Start another improvement independently of the current lifecycle. Idle pre-release Work can be closed using Close without platform release; recorded released Work uses Close completed work. The former retains the existing internal `cancelled` status and is not counted as verified delivery. It does not deploy, revert, delete branches or erase completed steps/proof. This corrects the former misleading Close without building label and audit wording. Historical messages are retained unchanged.
+
+The current task is never closed automatically by this implementation. Closing still needs the existing authorized API action and explicit user confirmation; active jobs must finish first. Failed database updates no longer produce a successful closure response/message. Terminal records are read-only for new conversations/design changes, and released designs cannot silently reopen under old approvals. Start a fresh Work item for new scope; it receives its own design/plan approvals. Consultant instructions now explain these exact paths rather than guessing a send-back button or requiring an unnecessary release.
+
+Local release status is not inferred from an agent's chat or from manual Git activity. If code reached main outside the platform, closing tracking does not manufacture a platform release receipt. The separate release-reconciliation feature remains future work.

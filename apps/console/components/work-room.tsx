@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { timestamp } from "@/lib/format";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  workClosureCopy,
   decisionAccessReason,
   type AccessVia,
   type Role,
@@ -172,6 +174,8 @@ export function WorkRoom({
   const latest = d.designs.at(-1);
   const next = a.nextStep != null ? (d.steps[a.nextStep] ?? null) : null;
   const install = d.work.kind === "install";
+  const closed = d.work.stage === "done" || d.work.stage === "cancelled";
+  const closure = workClosureCopy(d.work);
   const gate = a.approveDesign
     ? "design"
     : a.approvePlan
@@ -200,7 +204,7 @@ export function WorkRoom({
         sub="Delivery Studio · business intent, expert work and proof"
       >
         <RunnerBadge online={d.runnerOnline} />
-        {canApprove && (
+        {canApprove && !closed && (
           <select
             aria-label="How often the engine stops to ask"
             value={d.work.cadence}
@@ -219,26 +223,30 @@ export function WorkRoom({
             ))}
           </select>
         )}
-        {canAsk && d.actions.cancel && d.work.kind === "change" && (
-          <button
-            type="button"
-            className={button("ghost", "text-xs")}
-            disabled={busy}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Close #${n} without building it? The conversation and any design stay in its history.`,
-                )
-              ) {
-                void act(
-                  () => api.work.ship(siteId, n, "cancel"),
-                  `#${n} closed without building.`,
-                );
-              }
-            }}
+        {d.work.kind === "change" &&
+          ((canAsk && d.actions.cancel) || (canApprove && d.actions.close)) && (
+            <button
+              type="button"
+              className={button("ghost", "text-xs")}
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm(closure.confirmation))
+                  void act(
+                    () => api.work.ship(siteId, n, closure.action),
+                    closure.success,
+                  );
+              }}
+            >
+              <XCircle className="size-3.5" /> {closure.label}
+            </button>
+          )}
+        {canAsk && (
+          <Link
+            href={`/s/${encodeURIComponent(siteId)}/work`}
+            className={button("plain")}
           >
-            <XCircle className="size-3.5" /> Close without building
-          </button>
+            Start another improvement
+          </Link>
         )}
       </PageHeader>
 
@@ -324,6 +332,20 @@ export function WorkRoom({
             </p>
           </section>
         )}
+        {closed && (
+          <section
+            role="status"
+            className="rounded-xl border border-line-2 bg-panel p-4"
+          >
+            <h2 className="font-semibold">This body of work is closed</h2>
+            <p className="mt-2 text-sm text-fog">
+              {d.work.stage === "cancelled"
+                ? "Closed without a recorded platform release. Existing code and previews have not been undone. This is not counted as a verified platform delivery."
+                : "Its recorded release evidence remains in the history."}{" "}
+              Start another improvement for new scope and approvals.
+            </p>
+          </section>
+        )}
         <ActivityRibbon studio={studio} paused={motionPaused} />
         {replayOpen && (
           <ImprovementReplay
@@ -355,9 +377,9 @@ export function WorkRoom({
           {studio.source !== "sample" && (
             <NeedsYou
               d={d}
-              canAsk={canAsk}
+              canAsk={canAsk && !closed}
               working={working}
-              canApprove={canApprove}
+              canApprove={canApprove && !closed}
               canShip={canShip}
               mayApproveTry={mayApproveTry}
               busy={busy}
@@ -371,7 +393,7 @@ export function WorkRoom({
             <Thread
               d={d}
               working={working}
-              canAsk={canAsk}
+              canAsk={canAsk && !closed}
               busy={busy}
               onSend={(body) => act(() => api.work.say(siteId, n, body))}
             />
@@ -419,8 +441,8 @@ export function WorkRoom({
                 {tab === "design" && (
                   <DesignPanel
                     d={d}
-                    canAsk={canAsk}
-                    canApprove={canApprove}
+                    canAsk={canAsk && !closed && d.actions.draftDesign}
+                    canApprove={canApprove && !closed}
                     busy={busy || working}
                     siteId={siteId}
                     act={act}
@@ -429,8 +451,8 @@ export function WorkRoom({
                 {tab === "plan" && (
                   <PlanPanel
                     d={d}
-                    canAsk={canAsk}
-                    canApprove={canApprove}
+                    canAsk={canAsk && !closed}
+                    canApprove={canApprove && !closed}
                     busy={busy || working}
                     siteId={siteId}
                     act={act}

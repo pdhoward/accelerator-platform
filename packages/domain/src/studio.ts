@@ -1,3 +1,4 @@
+import { WORK_TERMINAL_LABEL } from "./work-closure";
 import {
   MODEL_ROLES,
   RAIL_LABEL,
@@ -154,7 +155,7 @@ const stageLabel = (w: WorkItem) =>
     ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL]
     : w.stage === "done"
       ? "Closed"
-      : "Cancelled";
+      : WORK_TERMINAL_LABEL.cancelled;
 /** Summarize current change records without conflating cancellation, release and health. */
 export function buildBriefing(items: WorkItem[]): Briefing {
   const changes = items.filter((w) => w.kind === "change");
@@ -407,7 +408,7 @@ export function buildStudio(
   ];
   const next =
     w.stage === "cancelled"
-      ? "Closed without delivery."
+      ? "Closed without a recorded platform release; existing code and history remain."
       : w.stage === "done"
         ? "Inspect release evidence and remaining operational unknowns."
         : d.jobs.some((j) => ["running", "queued"].includes(j.status))
