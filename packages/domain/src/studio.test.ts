@@ -21,8 +21,13 @@ function detail(): WorkDetail {
     kind: "change",
     title: "Protect quote requests",
     stage: "discuss",
-    cadence: "every_step",
     risk: [],
+    complexity: "medium",
+    recommendedComplexity: null,
+    complexityReason: null,
+    complexitySetBy: "platform",
+    ready: false,
+    autoShip: false,
     branch: null,
     planApproved: false,
     previewUrl: null,
@@ -48,7 +53,9 @@ function detail(): WorkDetail {
       latestDesign: null,
       steps: [],
       proven: false,
+      proofFailed: false,
     }),
+    crewNext: null,
   };
 }
 describe("studio evidence and truthful activity", () => {

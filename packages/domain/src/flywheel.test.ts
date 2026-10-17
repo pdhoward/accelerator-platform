@@ -9,19 +9,25 @@ import {
   resolveModels,
   stageFor,
   validateModels,
+  autoAction,
   workActions,
   type ProveFacts,
   type WorkFacts,
 } from "./flywheel";
 
+/** High complexity unless a test says otherwise: the full gates. */
 const facts = (f: Partial<WorkFacts>): WorkFacts => ({
   stage: "discuss",
   risk: [],
+  complexity: "high",
+  ready: false,
+  autoShip: false,
   jobRunning: false,
   latestDesign: null,
   planApproved: false,
   steps: [],
   proven: false,
+  proofFailed: false,
   tryApproved: false,
   released: false,
   ...f,
@@ -40,7 +46,10 @@ describe("workActions: the three gates", () => {
   it("can't build before the plan is approved", () => {
     const f = facts({ latestDesign: { version: 2, approved: true }, steps: [{ status: "todo" }] });
     expect(workActions(f)).toMatchObject({ approvePlan: true, runNextStep: false });
-    expect(workActions({ ...f, planApproved: true })).toMatchObject({ runNextStep: true, nextStep: 0 });
+    expect(autoAction(f)).toBeNull(); // High: the plan is the client's decision
+    // Approved: the crew builds the steps itself; the button is only for a blocked step.
+    expect(workActions({ ...f, planApproved: true })).toMatchObject({ runNextStep: false, nextStep: 0 });
+    expect(autoAction({ ...f, planApproved: true })).toBe("build_step");
   });
   it("does nothing while a job runs, or once closed", () => {
     const f = facts({ latestDesign: { version: 1, approved: true }, planApproved: true, steps: [{ status: "todo" }] });
@@ -54,7 +63,7 @@ describe("workActions: the three gates", () => {
 });
 
 describe("stageFor: the rail reflects what exists", () => {
-  const none = { proven: false, tryApproved: false, released: false };
+  const none = { proven: false, proofFailed: false, tryApproved: false, released: false, complexity: "high" as const, ready: false, autoShip: false };
   it("walks discuss → design → plan → build → prove", () => {
     expect(stageFor({ ...none, risk: [], latestDesign: null, planApproved: false, steps: [] })).toBe("discuss");
     expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: false }, planApproved: false, steps: [] })).toBe("design");
@@ -73,8 +82,11 @@ describe("stageFor: the rail reflects what exists", () => {
 });
 
 describe("workActions: prove, try, release, close", () => {
-  it("offers Prove once every step is built, and again after a failed Prove", () => {
-    expect(workActions(built)).toMatchObject({ prove: true, approveTry: false, release: false });
+  it("proves on its own once every step is built, and offers Prove again only after a failed Prove", () => {
+    expect(workActions(built)).toMatchObject({ prove: false, approveTry: false, release: false });
+    expect(autoAction(built)).toBe("prove");
+    expect(workActions({ ...built, proofFailed: true }).prove).toBe(true);
+    expect(autoAction({ ...built, proofFailed: true })).toBeNull();
     expect(workActions(facts({ ...built, steps: [{ status: "done" }, { status: "todo" }] })).prove).toBe(false);
   });
   it("needs a passed Prove before Try, and an approved Try before Release (gate 3)", () => {
@@ -86,7 +98,8 @@ describe("workActions: prove, try, release, close", () => {
     expect(workActions(live)).toMatchObject({ close: true, release: false, draftDesign: false, draftPlan: false });
   });
   it("does nothing while a job runs", () => {
-    expect(workActions({ ...built, jobRunning: true }).prove).toBe(false);
+    expect(workActions({ ...built, proofFailed: true, jobRunning: true }).prove).toBe(false);
+    expect(autoAction({ ...built, jobRunning: true })).toBeNull();
   });
   it("can cancel at any stop before release, never after, and not while a job runs", () => {
     expect(workActions(facts({})).cancel).toBe(true); // still discussing

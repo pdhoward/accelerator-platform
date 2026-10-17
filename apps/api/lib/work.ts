@@ -1,8 +1,16 @@
 import {
   workClosureCopy,
   agreementText,
+  autoAction,
   canApprove,
-  isRisky,
+  canSetComplexity,
+  COMPLEXITY_LABEL,
+  complexityFloor,
+  effectiveComplexity,
+  escalation,
+  higherOf,
+  isComplexity,
+  isDomain,
   protocolVerdict,
   proveVerdict,
   releaseVerdict,
@@ -13,6 +21,9 @@ import {
   validateModels,
   workActions,
   modelLabel,
+  type Assessment,
+  type Complexity,
+  type Domain,
   type Identity,
   type Job,
   type JobContext,
@@ -55,8 +66,13 @@ const toWork = (r: Row): WorkItem => ({
   kind: ((r.kind as string) ?? "change") as WorkItem["kind"],
   title: r.title as string,
   stage: r.stage as WorkItem["stage"],
-  cadence: r.cadence as WorkItem["cadence"],
   risk: (r.risk as RiskClass[]) ?? [],
+  complexity: effectiveComplexity(isComplexity(r.complexity) ? r.complexity : "medium", (r.risk as RiskClass[]) ?? []),
+  recommendedComplexity: isComplexity(r.recommended_complexity) ? r.recommended_complexity : null,
+  complexityReason: (r.complexity_reason as string) ?? null,
+  complexitySetBy: r.complexity_set_by === "person" ? "person" : "platform",
+  ready: !!r.ready_at,
+  autoShip: !!r.auto_ship,
   branch: (r.branch as string) ?? null,
   planApproved: !!r.plan_approved_at,
   previewUrl: (r.preview_url as string) ?? null,
@@ -146,11 +162,15 @@ const facts = (w: WorkItem, p: Awaited<ReturnType<typeof parts>>) => {
   return {
     stage: w.stage,
     risk: w.risk,
+    complexity: w.complexity,
+    ready: w.ready,
+    autoShip: w.autoShip,
     jobRunning: p.jobs.some((j) => j.status === "queued" || j.status === "running"),
     latestDesign: latest ? { version: latest.version, approved: !!latest.approvedAt } : null,
     planApproved: w.planApproved,
     steps: p.steps,
     proven: w.proof?.ok === true,
+    proofFailed: !!w.proof && !w.proof.ok,
     tryApproved: w.tryApproved,
     released: w.released,
   };
@@ -172,7 +192,8 @@ export async function workDetail(site: Site, number: number): Promise<WorkDetail
     siteModels(site.id),
     runnerOnline(),
   ]);
-  return { work, ...p, events: events as unknown as JobEvent[], actions: workActions(facts(work, p)), models, runnerOnline: online };
+  const f = facts(work, p);
+  return { work, ...p, events: events as unknown as JobEvent[], actions: workActions(f), crewNext: work.kind === "change" ? autoAction(f) : null, models, runnerOnline: online };
 }
 
 // ── Writes by people ─────────────────────────────────────────────────────────
@@ -216,6 +237,7 @@ export async function createWork(site: Site, identity: Identity, name: string, i
       .from("acc_work")
       .insert({
         org_id: site.orgId, site_id: site.id, number, title: input.title.trim(), risk: input.risk,
+        complexity: higherOf("medium", complexityFloor(input.risk)),
         branch: `work/${number}-${slug(input.title)}`, navigator_id: identity.userId, created_by: identity.userId,
       })
       .select("*")
@@ -266,6 +288,8 @@ export async function postMessage(site: Site, identity: Identity, name: string, 
   const w = await workRow(site.id, number);
   assertOpen(w);
   await say(w, { kind: "person", label: personLabel(identity, name), userId: identity.userId, body: body.trim() });
+  // While the crew is working, the message waits: drive() has the lead answer it before the crew goes on.
+  if (await busy(w.id as string)) return;
   await enqueue(site, w, "discuss", "consult", identity.userId);
 }
 
@@ -294,8 +318,10 @@ export async function approveDesign(site: Site, identity: Identity, name: string
   const [top] = await rows(db().from("acc_work_docs").select("id, version").eq("work_id", w.id as string).order("version", { ascending: false }).limit(1));
   if (!top || top.version !== version) throw new CodeError("There's a newer version of the design. Review that one first.");
   await db().from("acc_work_docs").update({ approved_by: identity.userId, approved_at: now() }).eq("id", top.id as string);
-  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} approved design v${version}.` });
+  const what = toWork(w).complexity === "medium" ? "the Brief" : "design";
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} approved ${what} v${version}.` });
   await restage(w.id as string);
+  await drive(site, w.id as string, identity.userId);
 }
 
 export async function draftPlan(site: Site, identity: Identity, number: number, note?: string) {
@@ -310,15 +336,17 @@ export async function approvePlan(site: Site, identity: Identity, name: string, 
   const p = await parts(w.id as string);
   if (!workActions(facts(toWork(w), p)).approvePlan) throw new CodeError("There's no plan ready to approve.");
   await db().from("acc_work").update({ plan_approved_at: now(), plan_approved_by: identity.userId }).eq("id", w.id as string);
-  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} approved the plan (${p.steps.length} steps).` });
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} approved the plan (${p.steps.length} steps). The crew builds it now.` });
   await restage(w.id as string);
+  await drive(site, w.id as string, identity.userId);
 }
 
+/** Retry a step the Protocol blocked. Steps otherwise run on their own. */
 export async function runNextStep(site: Site, identity: Identity, number: number) {
   const w = await workRow(site.id, number);
   const p = await parts(w.id as string);
   const a = workActions(facts(toWork(w), p));
-  if (!a.runNextStep || a.nextStep == null) throw new CodeError("There's no approved step to run.");
+  if (!a.runNextStep || a.nextStep == null) throw new CodeError("There's no blocked step to run again.");
   const step = p.steps[a.nextStep]!;
   await enqueue(site, w, "build_step", "build", identity.userId, { stepId: step.id });
 }
@@ -333,7 +361,7 @@ async function actionsFor(site: Site, number: number) {
 /** Every step is built: run the full checks, push the branch, find its preview. */
 export async function proveWork(site: Site, identity: Identity, number: number) {
   const { w, a } = await actionsFor(site, number);
-  if (!a.prove) throw new CodeError("Prove runs once every step is built and checked.");
+  if (!a.prove) throw new CodeError("Prove runs on its own once every step is built; this retries a failed Prove.");
   await enqueue(site, w, "prove", "build", identity.userId);
 }
 
@@ -377,9 +405,115 @@ export async function cancelWork(site: Site, identity: Identity, name: string, n
   await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} ${workClosureCopy({ number, released: false }).receipt}` });
 }
 
-export async function setCadence(site: Site, number: number, cadence: WorkItem["cadence"]) {
+// ── Complexity tiers (gen2-crew.md §17) ──────────────────────────────────────
+/** Medium's one release decision, "Ship it": approves the proven preview and releases it. */
+export async function shipWork(site: Site, identity: Identity, name: string, role: Role, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.ship) throw new CodeError("There's no proven preview to ship yet.");
+  if (!canApprove(role, (w.risk as RiskClass[]) ?? [])) throw new CodeError("This touches money, data, auth or security, so the site Owner approves it.");
+  await db().from("acc_work").update({ try_approved_at: now(), try_approved_by: identity.userId }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} tried the preview and shipped it.` });
+  await restage(w.id as string);
+  await enqueue(site, w, "release", "build", identity.userId);
+}
+
+/** Low: start building now, without waiting for the lead to say it's ready. */
+export async function beginWork(site: Site, identity: Identity, name: string, number: number) {
+  const { w, a } = await actionsFor(site, number);
+  if (!a.begin) throw new CodeError("This item can't start building from here.");
+  await db().from("acc_work").update({ ready_at: now(), updated_at: now() }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} asked the crew to start.` });
+  await drive(site, w.id as string, identity.userId);
+}
+
+/** A person sets the tier: anything at or above the risk floor. */
+export async function setComplexity(site: Site, identity: Identity, name: string, number: number, complexity: Complexity) {
   const w = await workRow(site.id, number);
-  await db().from("acc_work").update({ cadence, updated_at: now() }).eq("id", w.id as string);
+  assertOpen(w);
+  if (w.released_at) throw new CodeError("This work is already released.");
+  const risk = (w.risk as RiskClass[]) ?? [];
+  if (!canSetComplexity(complexity, risk)) throw new CodeError(`This touches ${risk.join(", ")}, so it stays ${COMPLEXITY_LABEL[complexityFloor(risk)]} complexity.`);
+  await db()
+    .from("acc_work")
+    .update({ complexity, complexity_set_by: "person", ...(complexity !== "medium" && { auto_ship: false }), updated_at: now() })
+    .eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} set the complexity to ${COMPLEXITY_LABEL[complexity]}.` });
+  await drive(site, w.id as string, identity.userId);
+}
+
+/** Medium: ship automatically when proof is green (D44). */
+export async function setAutoShip(site: Site, identity: Identity, name: string, number: number, on: boolean) {
+  const w = await workRow(site.id, number);
+  assertOpen(w);
+  if (on && toWork(w).complexity !== "medium") throw new CodeError("Automatic shipping is only for Medium complexity.");
+  await db().from("acc_work").update({ auto_ship: on, updated_at: now() }).eq("id", w.id as string);
+  await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} ${on ? "chose to ship automatically when proof is green" : "turned off automatic shipping"}.` });
+  await drive(site, w.id as string, identity.userId);
+}
+
+const busy = async (workId: string) =>
+  (await rows(db().from("acc_jobs").select("id").eq("work_id", workId).in("status", ["queued", "running"]).limit(1))).length > 0;
+
+/**
+ * The crew's own next move (autoAction), taken until it reaches a job to run
+ * or a decision the tier keeps for a person. A person's unanswered message is
+ * answered first, so the conversation never waits behind the build.
+ */
+async function drive(site: Pick<Site, "id" | "orgId">, workId: string, actorId: string) {
+  for (let turn = 0; turn < 4; turn++) {
+    const [w] = await rows(db().from("acc_work").select("*").eq("id", workId));
+    if (!w || w.kind === "install" || w.stage === "done" || w.stage === "cancelled") return;
+    const p = await parts(workId);
+    const f = facts(toWork(w), p);
+    if (f.jobRunning) return;
+    // Unanswered: the person spoke after the lead's last reply was queued (build summaries don't count as replies).
+    const asked = p.messages.filter((m) => m.authorKind === "person").at(-1);
+    const replied = p.jobs.find((j) => j.kind === "discuss"); // newest first
+    if (asked && (!replied || asked.createdAt > replied.createdAt)) return void (await enqueue(site, w, "discuss", "consult", actorId));
+    const next = autoAction(f);
+    if (!next) return;
+    switch (next) {
+      case "begin":
+        await db().from("acc_work_steps").insert({
+          org_id: w.org_id, work_id: w.id, position: 1, title: (w.title as string).slice(0, 200),
+          detail: "Make the change agreed in the conversation, exactly as agreed. Add or update tests that prove it.",
+        });
+        await db().from("acc_work").update({ plan_approved_at: now(), plan_approved_by: null }).eq("id", workId);
+        await say(w, { kind: "system", label: "Crew", body: "Low complexity: building it now. It ships on its own once every check passes." });
+        await restage(workId);
+        continue;
+      case "approve_plan":
+        await db().from("acc_work").update({ plan_approved_at: now(), plan_approved_by: null }).eq("id", workId);
+        await say(w, { kind: "system", label: "Crew", body: `The crew's plan has ${p.steps.filter((s) => s.status !== "done").length} steps. Building now; you'll see the preview when it's proven.` });
+        await restage(workId);
+        continue;
+      case "design":
+        return void (await enqueue(site, w, "design", "design", actorId));
+      case "plan":
+        return void (await enqueue(site, w, "plan", "plan", actorId));
+      case "build_step":
+        return void (await enqueue(site, w, "build_step", "build", actorId, { stepId: p.steps.find((s) => s.status === "todo")!.id }));
+      case "prove":
+        return void (await enqueue(site, w, "prove", "build", actorId));
+      case "ship":
+        await db().from("acc_work").update({ try_approved_at: now(), try_approved_by: null }).eq("id", workId);
+        await say(w, {
+          kind: "system", label: "Crew",
+          body: `${toWork(w).complexity === "low" ? "Low complexity" : "Standing approval"}: every check in the TDD plane passed, so this ships now.`,
+        });
+        await restage(workId);
+        return void (await enqueue(site, w, "release", "build", actorId));
+    }
+  }
+}
+
+/** The lead's assessment sets the recommendation, and the tier unless a person chose one. */
+async function applyAssessment(w: Row, a: Assessment) {
+  const risk = (w.risk as RiskClass[]) ?? [];
+  const update: Row = { recommended_complexity: a.complexity, complexity_reason: a.reason || null, updated_at: now() };
+  if (w.complexity_set_by !== "person" && !w.plan_approved_at) update.complexity = effectiveComplexity(a.complexity, risk);
+  if (a.ready && !w.ready_at) update.ready_at = now();
+  await db().from("acc_work").update(update).eq("id", w.id as string);
 }
 
 // ── Setup: Install · Checkout · Agreement ────────────────────────────────────
@@ -392,7 +526,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   const [items, [agreement], [s], online] = await Promise.all([
     rows(db().from("acc_setup_items").select("*").eq("site_id", site.id)),
     rows(db().from("acc_agreements").select("*").eq("site_id", site.id).order("version", { ascending: false }).limit(1)),
-    rows(db().from("acc_sites").select("repo, repo_path, base_branch, stage_url, baseline_tests").eq("id", site.id)),
+    rows(db().from("acc_sites").select("repo, repo_path, base_branch, stage_url, baseline_tests, domain").eq("id", site.id)),
     runnerOnline(),
   ]);
   const order = (code: string) => SETUP_TEMPLATE.findIndex((t) => t.code === code);
@@ -406,7 +540,10 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   return {
     items: list,
     agreement: agreement ? { version: agreement.version as number, body: agreement.body as string, signedAt: (agreement.signed_at as string) ?? null } : { version: 0, body: agreementText(site.name), signedAt: null },
-    settings: { repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null },
+    settings: {
+      repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null,
+      baselineTests: (s?.baseline_tests as number) ?? null, domain: isDomain(s?.domain) ? s.domain : null,
+    },
     runnerOnline: online,
     ready: setupDone(list) && signed,
   };
@@ -422,7 +559,7 @@ export async function setSetupItem(site: Site, identity: Identity, code: string,
   if (!count) throw new CodeError("Unknown checklist item.");
 }
 
-export async function saveSiteSettings(site: Site, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null }) {
+export async function saveSiteSettings(site: Site, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null }) {
   const { error } = await db()
     .from("acc_sites")
     .update({
@@ -430,6 +567,7 @@ export async function saveSiteSettings(site: Site, input: { repo?: string | null
       ...(input.repoPath !== undefined && { repo_path: input.repoPath?.trim() || null }),
       ...(input.baseBranch && { base_branch: input.baseBranch.trim() }),
       ...(input.stageUrl !== undefined && { stage_url: input.stageUrl?.trim() || null }),
+      ...(input.domain !== undefined && { domain: input.domain }),
     })
     .eq("id", site.id);
   if (error) throw new Error(error.message);
@@ -507,7 +645,7 @@ async function context(job: Row): Promise<JobContext> {
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
-      repo: (s!.repo as string) || null,
+      repo: (s!.repo as string) || null, domain: isDomain(s!.domain) ? s!.domain : null,
     },
     work,
     setup,
@@ -521,7 +659,7 @@ export async function addEvents(jobId: string, events: { kind: JobEvent["kind"];
 }
 
 export type JobResult =
-  | { kind: "discuss"; reply: string }
+  | { kind: "discuss"; reply: string; assessment?: Assessment }
   | { kind: "design"; body: string }
   | { kind: "plan"; steps: { title: string; detail: string }[]; summary?: string }
   | { kind: "build_step"; stepId: string; summary: string; checks: Omit<StepChecks, "baseline">; commit?: string; files?: string[] }
@@ -552,9 +690,9 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   }
 
   const r = outcome.result;
-  let next: "build_step" | null = null;
   if (w && r.kind === "discuss") {
     await say(w, { kind: "model", label, model, body: r.reply });
+    if (r.assessment && w.kind === "change") await applyAssessment(w, r.assessment);
   } else if (w && r.kind === "design") {
     const [top] = await rows(db().from("acc_work_docs").select("version").eq("work_id", w.id as string).order("version", { ascending: false }).limit(1));
     const version = ((top?.version as number) ?? 0) + 1;
@@ -576,6 +714,15 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       .update({ status: verdict.ok ? "done" : "blocked", evidence: { summary: r.summary, reasons: verdict.reasons, checks, commit: r.commit, files: r.files }, updated_at: now() })
       .eq("id", r.stepId);
     if (r.commit) await db().from("acc_work").update(UNPROVEN).eq("id", w.id as string); // new code: prove it again
+    // Escalation only goes up: a build that reached a protected area needs the full review (gen2-crew.md §17.2).
+    const up = escalation(toWork(w).complexity, r.files ?? []);
+    if (up) {
+      await db()
+        .from("acc_work")
+        .update({ complexity: up.complexity, complexity_set_by: "platform", complexity_reason: up.reason, auto_ship: false, plan_approved_at: null, plan_approved_by: null })
+        .eq("id", w.id as string);
+      await say(w, { kind: "system", label: "Crew", body: `Raised to High complexity. ${up.reason} The crew has stopped; the design and plan come to you for approval before it goes on.` });
+    }
     const t = checks.tests;
     const tests = t ? `${t.passed}/${t.total} tests passing${checks.testsBefore != null ? ` (was ${checks.testsBefore})` : ""}` : "tests didn't run";
     await say(w, {
@@ -584,7 +731,6 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
         ? `${r.summary}\n\nProtocol checks passed: typecheck clean, ${tests}.`
         : `${r.summary}\n\nThis step is blocked by the Protocol:\n${verdict.reasons.map((x) => `- ${x}`).join("\n")}\nAsk me to fix it, or run the step again.`,
     });
-    if (verdict.ok && (w.cadence === "run" || (w.cadence === "at_risk" && !isRisky((w.risk as RiskClass[]) ?? [])))) next = "build_step";
   } else if (w && r.kind === "prove") {
     const [site] = await rows(db().from("acc_sites").select("baseline_tests").eq("id", job.site_id as string));
     const f: ProveFacts = { ...r.facts, baseline: (site?.baseline_tests as number) ?? null };
@@ -641,17 +787,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   await db().from("acc_jobs").update({ status: "done", result: r, finished_at: now() }).eq("id", jobId);
   if (w) {
     await restage(w.id as string);
-    if (next) {
-      // Cadence lets the engine keep going: the next step, or Prove once every step is built. Never past a gate.
-      const [fresh] = await rows(db().from("acc_work").select("*").eq("id", w.id as string));
-      const p = await parts(w.id as string);
-      const a = workActions(facts(toWork(fresh!), p));
-      const siteRef = { id: job.site_id as string, orgId: job.org_id as string };
-      if (a.runNextStep && a.nextStep != null) {
-        await enqueue(siteRef, w, "build_step", "build", job.created_by as string, { stepId: p.steps[a.nextStep]!.id });
-      } else if (a.prove) {
-        await enqueue(siteRef, w, "prove", "build", job.created_by as string);
-      }
-    }
+    // The crew goes on by itself until the next decision the tier keeps for a person (gen2-crew.md §17).
+    await drive({ id: job.site_id as string, orgId: job.org_id as string }, w.id as string, job.created_by as string);
   }
 }

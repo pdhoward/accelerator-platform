@@ -92,7 +92,7 @@ Platform → **Partner** → Organization (company) → Sites → Members (Owner
 - **Comment the why.** Give each exported function, component and route a short doc comment saying
   what it is for. Comment non-obvious decisions, invariants and gotchas inline. Don't narrate
   obvious code. Match the comment style already in the file.
-- **Fail clearly.** Return actionable errors (`fail("Pick a cadence.", 400)`), not bare 500s. Never
+- **Fail clearly.** Return actionable errors (`fail("Pick Low, Medium or High.", 400)`), not bare 500s. Never
   swallow an error silently.
 - **Types are the contract.** Shared types live in `packages/domain` and are imported by the API,
   the api-client and the clients. No `any` across a package boundary.

@@ -5,7 +5,7 @@ import { runNextStep } from "@/lib/work";
 
 type P = { siteId: string; number: string };
 
-/** Build the next step of the approved plan (the "Proceed?" answer). */
+/** Run a step the Protocol blocked again. Steps otherwise run on their own. */
 export const POST = workRoute<P>(async ({ identity, caller, site, params }) => {
   if (!holdsGates(caller)) return fail(`The Navigator decides when to build; ${caller.partnerName ?? "partner"} staff can discuss and draft.`, 403);
   await runNextStep(site, identity, Number(params.number));

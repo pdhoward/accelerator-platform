@@ -60,7 +60,7 @@ beforeEach(() => {
     stage: "try",
     title: "Voice",
     risk: [],
-    cadence: "every_step",
+    complexity: "medium",
     branch: "work/3-voice",
     proof: { ok: true },
     created_by: "owner-a",

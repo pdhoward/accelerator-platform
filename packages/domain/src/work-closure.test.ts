@@ -4,11 +4,15 @@ import { workActions, type WorkFacts } from "./flywheel";
 const built: WorkFacts = {
   stage: "try",
   risk: ["data"],
+  complexity: "high",
+  ready: true,
+  autoShip: false,
   jobRunning: false,
   latestDesign: { version: 1, approved: true },
   planApproved: true,
   steps: [{ status: "done" }],
   proven: true,
+  proofFailed: false,
   tryApproved: false,
   released: false,
 };

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JobContext } from "@accelerator/domain";
+import { readAssessment, type JobContext } from "@accelerator/domain";
 
 import { secrets, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
@@ -51,9 +51,12 @@ async function think(ctx: JobContext, log: Log, system: string, instruction: str
   return chat(provider as Parameters<typeof chat>[0], model, system, turns);
 }
 
+/** The lead's reply, with its complexity assessment split off (gen2-crew.md §17.2). */
 export async function discuss(ctx: JobContext, log: Log) {
-  const reply = await think(ctx, log, consultSystem(ctx), "Reply to the Navigator's latest message.");
-  return { kind: "discuss", reply };
+  const raw = await think(ctx, log, consultSystem(ctx), "Reply to the Navigator's latest message, then add the assessment lines.");
+  const { reply, assessment } = readAssessment(raw);
+  if (assessment) log.status(`Assessed: ${assessment.complexity} complexity, ${assessment.ready ? "ready to start" : "not ready yet"}.`);
+  return { kind: "discuss", reply: reply || raw, ...(assessment && { assessment }) };
 }
 
 export async function design(ctx: JobContext, log: Log) {

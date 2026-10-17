@@ -28,7 +28,8 @@ import type {
   SiteRequest,
   Skill,
   SupportGrant,
-  Cadence,
+  Complexity,
+  Domain,
   JobEvent,
   RiskClass,
   SetupStatus,
@@ -222,14 +223,18 @@ export function createApiClient({
       ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/plan`, action),
       next: (siteId: string, n: number) =>
         post<{ ok: true }>(`${site(siteId)}/work/${n}/steps/next`, {}),
-      /** Prove · approve the Try · release (Go live) · close · cancel (close without building). */
+      /** Begin (Low) · prove again · approve the Try (High) · ship it (Medium) · release (Go live) · close · cancel. */
       ship: (
         siteId: string,
         n: number,
-        action: "prove" | "approve" | "release" | "close" | "cancel",
+        action: "begin" | "prove" | "approve" | "ship" | "release" | "close" | "cancel",
       ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
-      cadence: (siteId: string, n: number, cadence: Cadence) =>
-        post<{ ok: true }>(`${site(siteId)}/work/${n}`, { cadence }, "PATCH"),
+      /** The complexity tier (gen2-crew.md §17). */
+      complexity: (siteId: string, n: number, complexity: Complexity) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}`, { complexity }, "PATCH"),
+      /** Medium: ship automatically when proof is green. */
+      autoShip: (siteId: string, n: number, autoShip: boolean) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}`, { autoShip }, "PATCH"),
     },
     models: {
       get: (siteId: string) =>
@@ -253,6 +258,7 @@ export function createApiClient({
           repoPath?: string | null;
           baseBranch?: string;
           stageUrl?: string | null;
+          domain?: Domain | null;
         },
       ) => post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
       item: (

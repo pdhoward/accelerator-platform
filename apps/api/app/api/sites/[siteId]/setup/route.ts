@@ -11,6 +11,8 @@ const schema = z.object({
   repoPath: z.string().max(400).nullable().optional(),
   baseBranch: z.string().trim().min(1).max(80).optional(),
   stageUrl: z.union([z.url(), z.literal("")]).nullable().optional(),
+  /** The domain pack the crew is configured for (gen2-crew.md §20). */
+  domain: z.enum(["commerce", "hospitality"]).nullable().optional(),
 });
 
 export const PATCH = workRoute(async ({ request, site }) => {

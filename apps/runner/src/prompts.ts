@@ -1,11 +1,11 @@
-import { WORK_CLOSURE_LABEL, RAIL_LABEL, type JobContext, type WorkStep } from "@accelerator/domain";
+import { COMPLEXITY_LABEL, COMPLEXITY_PROMISE, COMPLEXITY_RUBRIC, domainGuidance, WORK_CLOSURE_LABEL, RAIL_LABEL, type JobContext, type WorkStep } from "@accelerator/domain";
 
 /**
  * What the engine is told for each job. The Protocol (flywheel.md §6) is
  * the same for every model; the runner enforces it afterwards regardless.
  */
 export const PROTOCOL = `The Protocol (standing orders; the runner checks them after every step):
-- Design before code. Work only from the approved design and the approved plan.
+- Work only from what was agreed: the approved Brief or design and its plan, or for a Low-complexity change the conversation itself.
 - One plan step per run. Keep changes to what the step says.
 - Every step adds or updates tests that prove the new behavior. Never delete, skip or weaken existing tests.
 - Typecheck and the full test suite must pass before a step is done. Run them yourself before you finish.
@@ -20,6 +20,7 @@ export function brief(ctx: JobContext): string {
   const lines = [
     `Site: ${ctx.site.name} (${ctx.site.url})${ctx.site.stack ? `, stack: ${ctx.site.stack}` : ""}.`,
     w && `Work item #${w.number}: "${w.title}". Stage: ${w.stage in RAIL_LABEL ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL] : w.stage}. Risk: ${w.risk.length ? w.risk.join(", ") : "not classified"}.`,
+    w && w.kind === "change" && `Complexity: ${COMPLEXITY_LABEL[w.complexity]} (${w.complexitySetBy === "person" ? "set by the Navigator" : "the platform's rating"}). ${COMPLEXITY_PROMISE[w.complexity]}`,
     w?.design && `Design: v${w.design.version}, ${w.design.approvedAt ? "approved" : "awaiting approval"}.`,
     w?.steps.length && `Plan: ${w.steps.length} steps (${w.steps.filter((s) => s.status === "done").length} done), ${w.planApproved ? "approved" : "awaiting approval"}.`,
   ];
@@ -62,13 +63,24 @@ How to respond:
 - A Work item is one bounded body of work, not a permanent container for every future feature. New scope can start independently using "Start another improvement" in Delivery Studio or the Work page; finishing the old rail is not a prerequisite. Prior design/plan approvals do not authorize new scope.
 - To stop tracking an idle pre-release item, the Studio offers "${WORK_CLOSURE_LABEL.cancel}"; it retains designs, completed steps, code, branches and previews, and neither deploys nor undoes code. Its internal status is cancelled and no verified delivery is claimed. After a recorded release use "${WORK_CLOSURE_LABEL.close}". Active jobs must finish before closure. Never invent a send-back/reopen button or claim a preview push means production release.
 - If code was delivered outside the platform, distinguish that report from the platform's recorded release proof. Do not force an unnecessary deployment just to start new design work.
-- Be proactive about the rail: say what the next step is (for example "Ready to draft the design?", "Approve the plan and I'll start step 1.").
+- You lead the work; the crew acts on its own within the complexity tier. Say plainly what happens next ("Low: I'll fix it, prove it and ship it.", "Medium: I'll write a short Brief for you to approve."). Never ask the Navigator to press buttons for steps the crew takes itself.
 - You can read the site's code when a repository is available; use it to ground your answers.
-- Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}
+- Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}${ctx.work?.kind === "change" ? assessmentRules(ctx) : ""}
 
 ${PROTOCOL}`;
 
-export const designSystem = (ctx: JobContext) => `You write design documents for the Accelerator's Control Room. The Navigator (a business person) reviews, edits and approves them before any code changes.
+/** How the lead rates complexity: a fixed rubric, so ratings are consistent (gen2-crew.md §17.2). */
+const assessmentRules = (ctx: JobContext) => `
+
+COMPLEXITY ASSESSMENT
+${COMPLEXITY_RUBRIC}
+${domainGuidance(ctx.site.domain)}
+State the tier and why in a few plain words in your reply. Ready means you understand the request well enough to start without more questions. Then end with exactly these three lines (they are read by the platform and hidden from the Navigator):
+COMPLEXITY: low|medium|high
+READY: yes|no
+REASON: <one short sentence>`;
+
+export const designSystem = (ctx: JobContext) => ctx.work?.complexity === "medium" ? briefSystem(ctx) : `You write design documents for the Accelerator's Control Room. The Navigator (a business person) reviews, edits and approves them before any code changes.
 
 ${brief(ctx)}
 
@@ -83,6 +95,23 @@ Write design.md in Markdown with exactly these sections:
 ## Risks and open questions
 
 Precise, not wordy. Ground it in the actual code when a repository is available. Return only the document.
+
+${PROTOCOL}`;
+
+/** Medium complexity: one short Brief is the client's only approval before Ship it (gen2-crew.md §17.2). */
+const briefSystem = (ctx: JobContext) => `You write the Brief for a Medium-complexity change in the Accelerator's Control Room. The Navigator (a business person) approves it once; after that the crew plans, builds and proves on its own, and the Navigator only decides to ship.
+
+${brief(ctx)}
+
+Write the Brief in Markdown, short enough to read in a minute, with exactly these sections:
+# <title>
+## Summary (two sentences: what changes for the business, and why)
+## What changes (a short list, plain words)
+## What stays protected (behavior that must not change)
+## How we'll prove it (the tests, in one line each)
+## Risks and open questions (or "None")
+
+Ground it in the actual code when a repository is available. Return only the document.
 
 ${PROTOCOL}`;
 
@@ -114,8 +143,7 @@ THE STEP
 ${step.title}
 ${step.detail}
 
-THE APPROVED DESIGN
-${w.design?.body ?? "(none)"}
+${w.design ? `THE APPROVED ${w.complexity === "medium" ? "BRIEF" : "DESIGN"}\n${w.design.body}` : `THE CONVERSATION (a Low-complexity change: no design; build exactly what was agreed)\n${transcript(w)}`}
 
 THE WHOLE PLAN
 ${planText(w.steps)}

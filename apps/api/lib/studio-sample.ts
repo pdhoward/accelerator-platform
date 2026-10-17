@@ -15,8 +15,13 @@ export function studioSample(): WorkDetail {
     kind: "change",
     title: "Make mobile quote requests easier to complete",
     stage: "try",
-    cadence: "every_step",
     risk: ["data"],
+    complexity: "high",
+    recommendedComplexity: "high",
+    complexityReason: "Quote requests store customer contact details.",
+    complexitySetBy: "platform",
+    ready: true,
+    autoShip: false,
     branch: "work/sample-quote",
     planApproved: true,
     previewUrl: null,
@@ -134,6 +139,8 @@ export function studioSample(): WorkDetail {
       latestDesign: { version: 1, approved: true },
       steps: [{ status: "done" }],
       proven: true,
+      proofFailed: false,
     }),
+    crewNext: null,
   };
 }

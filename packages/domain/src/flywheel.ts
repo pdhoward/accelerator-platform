@@ -1,8 +1,11 @@
+import type { Complexity } from "./complexity";
+import type { Domain } from "./domains";
 import type { RiskClass } from "./types";
 
 /**
  * The Flywheel (work/flywheel.md v0.3). Pure rules: the rail, what the
- * Navigator can do next, the Protocol verdict the runner must pass, the
+ * Navigator can do next, what the crew does next on its own (by complexity
+ * tier, gen2-crew.md §17), the Protocol verdict the runner must pass, the
  * model catalog, and the Setup checklist. The API enforces these; the
  * console only displays them.
  */
@@ -21,13 +24,6 @@ export const RAIL_LABEL: Record<RailStop, string> = {
   try: "Try",
   release: "Release",
   learn: "Learn",
-};
-
-export type Cadence = "every_step" | "at_risk" | "run";
-export const CADENCE_LABEL: Record<Cadence, string> = {
-  every_step: "Ask after every step",
-  at_risk: "Ask only at risky steps",
-  run: "Run to the end",
 };
 
 export type StepStatus = "todo" | "running" | "done" | "blocked" | "skipped";
@@ -101,12 +97,20 @@ export function validateModels(models: SiteModel[]): string[] {
 export type WorkFacts = {
   stage: WorkStage;
   risk: RiskClass[];
+  /** The tier in force (never below the risk floor). */
+  complexity: Complexity;
+  /** The Team Lead says the request is understood well enough to start. */
+  ready: boolean;
+  /** Medium only: ship automatically when proof is green (D44). */
+  autoShip: boolean;
   jobRunning: boolean;
   latestDesign: { version: number; approved: boolean } | null;
   planApproved: boolean;
   steps: { status: StepStatus }[];
   /** The last Prove passed: checks green, branch pushed, preview found. */
   proven: boolean;
+  /** The last Prove ran and failed: a person or the lead decides what's next. */
+  proofFailed: boolean;
   /** The Navigator tried the preview and approved it (gate 3). */
   tryApproved: boolean;
   /** Merged to main and the live site checked. */
@@ -120,46 +124,100 @@ export const isRisky = (risk: RiskClass[]) => risk.some((r) => RISKY.includes(r)
 
 export type WorkActions = {
   ask: boolean;
+  /** Low: start building now, without waiting for the lead to say it's ready. */
+  begin: boolean;
+  /** Medium and High: draft the Brief (Medium) or design (High) now. */
   draftDesign: boolean;
+  /** Medium: approve the Brief. High: approve the design. */
   approveDesign: boolean;
+  /** High only: the plan is a client decision; on Medium it's the crew's. */
   draftPlan: boolean;
   approvePlan: boolean;
+  /** Retry a step the Protocol blocked. Steps otherwise run on their own. */
   runNextStep: boolean;
   nextStep: number | null; // index into steps
-  /** Every step built: run the full checks, push the branch, open a preview. */
+  /** Prove again after a failed Prove. The first Prove runs on its own. */
   prove: boolean;
-  /** The preview is up: try it and approve it for release (gate 3). */
+  /** High: the preview is up; try it and approve it for release (gate 3). */
   approveTry: boolean;
-  /** Approved: merge to stage, then main, and check the live site. */
+  /** Approved: merge to stage, then main, and check the live site. High's Go live, or a retry after a failed release. */
   release: boolean;
+  /** Medium: the one release decision, "Ship it": approves the preview and releases it. */
+  ship: boolean;
   /** Live: record what was learned and close the item. */
   close: boolean;
   /** Not going ahead: file the item as cancelled, at any stop before release. */
   cancel: boolean;
 };
 
-/** The three gates (F4): design, plan, release. Money/data/auth never skip. */
+/**
+ * What a person can do now, by tier (gen2-crew.md §17). Low has no decisions;
+ * Medium has the Brief and Ship it; High keeps design, plan, Try and release.
+ * Money/data/auth/security are always High (complexityFloor), so they never
+ * skip a gate.
+ */
 export function workActions(f: WorkFacts): WorkActions {
   const closed = f.stage === "done" || f.stage === "cancelled";
   const idle = !f.jobRunning && !closed;
   const designApproved = !!f.latestDesign?.approved;
   const next = f.steps.findIndex((s) => s.status === "todo" || s.status === "blocked");
+  const blocked = f.steps.some((s) => s.status === "blocked");
   const running = f.steps.some((s) => s.status === "running");
   const built = f.planApproved && allStepsDone(f.steps);
+  const low = f.complexity === "low";
+  const high = f.complexity === "high";
   return {
     ask: idle,
-    draftDesign: idle && !f.released,
-    approveDesign: idle && !!f.latestDesign && !designApproved,
-    draftPlan: idle && designApproved && !f.released,
-    approvePlan: idle && designApproved && f.steps.length > 0 && !f.planApproved,
-    runNextStep: idle && f.planApproved && next >= 0 && !running,
+    begin: idle && low && !f.planApproved && f.steps.length === 0 && !f.released,
+    draftDesign: idle && !low && !f.released,
+    approveDesign: idle && !low && !!f.latestDesign && !designApproved,
+    draftPlan: idle && high && designApproved && !f.released,
+    approvePlan: idle && high && designApproved && f.steps.length > 0 && !f.planApproved,
+    runNextStep: idle && f.planApproved && blocked && next >= 0 && !running,
     nextStep: next >= 0 ? next : null,
-    prove: idle && built && !f.tryApproved && !f.released,
-    approveTry: idle && built && f.proven && !f.tryApproved,
+    prove: idle && built && f.proofFailed && !f.tryApproved && !f.released,
+    approveTry: idle && high && built && f.proven && !f.tryApproved,
     release: idle && built && f.proven && f.tryApproved && !f.released,
+    ship: idle && f.complexity === "medium" && built && f.proven && !f.tryApproved && !f.released,
     close: idle && f.released,
     cancel: idle && !f.released,
   };
+}
+
+/**
+ * What the crew does next on its own, without a person pressing anything:
+ * - begin: Low and ready: one step from the conversation, then build.
+ * - design: Medium/High and ready: draft the Brief or design.
+ * - plan: the Brief or design is approved: write the plan.
+ * - approve_plan: Medium: the plan is the crew's, so it's accepted as written.
+ * - build_step: the next approved step.
+ * - prove: every step built: run the TDD plane's full checks and open a preview.
+ * - ship: Low, or Medium with standing approval: release the proven preview.
+ * Never past a decision the tier keeps for a person, never after a failure
+ * (a blocked step or failed Prove waits for a person or the lead), and never
+ * a second release attempt.
+ */
+export type AutoAction = "begin" | "design" | "plan" | "approve_plan" | "build_step" | "prove" | "ship";
+
+export function autoAction(f: WorkFacts): AutoAction | null {
+  const closed = f.stage === "done" || f.stage === "cancelled";
+  if (f.jobRunning || closed || f.released) return null;
+  if (f.steps.some((s) => s.status === "blocked" || s.status === "running")) return null;
+  const low = f.complexity === "low";
+  if (!f.planApproved) {
+    if (low) return f.ready && f.steps.length === 0 ? "begin" : null;
+    if (!f.latestDesign) return f.ready ? "design" : null;
+    if (!f.latestDesign.approved) return null;
+    const drafted = f.steps.some((s) => s.status !== "done");
+    if (!drafted) return "plan";
+    return f.complexity === "medium" ? "approve_plan" : null;
+  }
+  if (f.steps.some((s) => s.status === "todo")) return "build_step";
+  if (!allStepsDone(f.steps)) return null;
+  if (!f.proven) return f.proofFailed ? null : "prove";
+  if (f.tryApproved) return null; // released by a person, or a failed release waiting for a retry
+  if (low || (f.complexity === "medium" && f.autoShip)) return "ship";
+  return null;
 }
 
 /** The stage a Work item is at, from what exists (the rail never lies). */
@@ -330,8 +388,18 @@ export type WorkItem = {
   kind: "change" | "install";
   title: string;
   stage: WorkStage;
-  cadence: Cadence;
   risk: RiskClass[];
+  /** The tier in force (gen2-crew.md §17). */
+  complexity: Complexity;
+  /** The Team Lead's recommendation and its reason, once it has assessed. */
+  recommendedComplexity: Complexity | null;
+  complexityReason: string | null;
+  /** Who set the tier in force: the platform (from the recommendation) or a person. */
+  complexitySetBy: "platform" | "person";
+  /** The lead said the request is understood well enough to start. */
+  ready: boolean;
+  /** Medium: ship automatically when proof is green (D44). */
+  autoShip: boolean;
   branch: string | null;
   planApproved: boolean;
   /** The preview of the proven branch (Try). */
@@ -388,6 +456,8 @@ export type WorkDetail = {
   jobs: Job[];
   events: JobEvent[];
   actions: WorkActions;
+  /** What the crew will do next on its own, if anything (gen2-crew.md §17). */
+  crewNext: AutoAction | null;
   models: Record<ModelRole, SiteModel>;
   runnerOnline: boolean;
 };
@@ -397,7 +467,7 @@ export type SetupItem = { code: string; phase: "install" | "checkout"; title: st
 export type SiteSetup = {
   items: SetupItem[];
   agreement: { version: number; body: string; signedAt: string | null } | null;
-  settings: { repo: string | null; repoPath: string | null; baseBranch: string; stageUrl: string | null; baselineTests: number | null };
+  settings: { repo: string | null; repoPath: string | null; baseBranch: string; stageUrl: string | null; baselineTests: number | null; domain: Domain | null };
   runnerOnline: boolean;
   ready: boolean;
 };
@@ -405,7 +475,7 @@ export type SiteSetup = {
 /** What the runner receives with a job. */
 export type JobContext = {
   job: Job & { role: ModelRole; input: Record<string, unknown> };
-  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null };
+  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null };
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[] }) | null;
   /** Installation conversations only: what the engine needs to diagnose setup (never key values). */
   setup?: {

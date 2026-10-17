@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleCheck, CircleDashed, Clock, Loader2, MessagesSquare, OctagonAlert, Play, Wifi, WifiOff } from "lucide-react";
-import { SETUP_OWNER_LABEL, type Job, type JobEvent, type SetupItem, type SetupStatus, type SiteSetup } from "@accelerator/domain";
+import { DOMAIN_PACKS, DOMAINS, isDomain, SETUP_OWNER_LABEL, type Job, type JobEvent, type SetupItem, type SetupStatus, type SiteSetup } from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
 
@@ -106,11 +106,17 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               void act(
-                () => api.setup.settings(siteId, { repo: String(f.get("repo") ?? ""), repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? "") }),
+                () => {
+                  const domain = f.get("domain");
+                  return api.setup.settings(siteId, {
+                    repo: String(f.get("repo") ?? ""), repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? ""),
+                    domain: isDomain(domain) ? domain : null,
+                  });
+                },
                 "Saved.",
               );
             }}
-            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1.6fr_0.7fr_1.4fr_auto] xl:items-end"
+            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1.6fr_0.7fr_1.4fr_1fr_auto] xl:items-end"
           >
             <Field label="GitHub repository (owner/name)">
               <input name="repo" defaultValue={s.settings.repo ?? ""} disabled={!canManage} placeholder="pdhoward/machineshop" className={inputClass} />
@@ -123,6 +129,16 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
             </Field>
             <Field label="Staging URL">
               <input name="stageUrl" type="url" defaultValue={s.settings.stageUrl ?? ""} disabled={!canManage} placeholder="https://stage.example.com" className={inputClass} />
+            </Field>
+            <Field label="Business domain (the crew's expertise)">
+              <select name="domain" defaultValue={s.settings.domain ?? ""} disabled={!canManage} className={inputClass} title={s.settings.domain ? DOMAIN_PACKS[s.settings.domain].summary : "Pick the industry the crew should speak."}>
+                <option value="">Not chosen yet</option>
+                {DOMAINS.map((d) => (
+                  <option key={d} value={d}>
+                    {DOMAIN_PACKS[d].label}
+                  </option>
+                ))}
+              </select>
             </Field>
             {canManage && (
               <button type="submit" className={button("plain")} disabled={busy}>

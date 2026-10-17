@@ -31,10 +31,14 @@ import {
   WORKSPACE_LENSES,
   type WorkspaceLens,
   type StudioSnapshot,
-  CADENCE_LABEL,
+  type AutoAction,
+  canSetComplexity,
+  COMPLEXITIES,
+  COMPLEXITY_LABEL,
+  COMPLEXITY_PROMISE,
+  complexityFloor,
   modelLabel,
   RAIL_LABEL,
-  type Cadence,
   type WorkDetail,
   type WorkStep,
 } from "@accelerator/domain";
@@ -204,25 +208,6 @@ export function WorkRoom({
         sub="Delivery Studio · business intent, expert work and proof"
       >
         <RunnerBadge online={d.runnerOnline} />
-        {canApprove && !closed && (
-          <select
-            aria-label="How often the engine stops to ask"
-            value={d.work.cadence}
-            onChange={(e) =>
-              act(
-                () => api.work.cadence(siteId, n, e.target.value as Cadence),
-                "Cadence saved.",
-              )
-            }
-            className="rounded-lg border border-line-2 bg-panel px-2.5 py-1.5 text-[12.5px] text-fog"
-          >
-            {(Object.keys(CADENCE_LABEL) as Cadence[]).map((c) => (
-              <option key={c} value={c}>
-                {CADENCE_LABEL[c]}
-              </option>
-            ))}
-          </select>
-        )}
         {d.work.kind === "change" &&
           ((canAsk && d.actions.cancel) || (canApprove && d.actions.close)) && (
             <button
@@ -374,6 +359,12 @@ export function WorkRoom({
             <Rail stage={d.work.stage} />
           )}
 
+          {d.work.kind === "change" && !closed && (
+            <div className="mb-3">
+              <ComplexityControl d={d} canSet={canApprove && studio.source !== "sample" && !d.work.released} busy={busy} act={act} siteId={siteId} />
+            </div>
+          )}
+
           {studio.source !== "sample" && (
             <NeedsYou
               d={d}
@@ -507,14 +498,32 @@ function RunnerBadge({ online }: { online: boolean }) {
 
 type Act = (fn: () => Promise<unknown>, done?: string) => Promise<void>;
 
-/** The one next decision, in plain words (F9: the engine asks, visibly). */
+/** What the engine is doing, in plain words. */
 const JOB_DOING: Record<string, string> = {
-  build_step: "building a step",
+  build_step: "building a step, with its tests",
   discuss: "replying",
+  design: "writing it up",
+  plan: "planning the steps",
   prove: "proving it: every check, then the push and the preview",
   release: "releasing: stage, main, production, then the live check",
 };
 
+/** What the crew does next on its own (gen2-crew.md §17), for when it's waiting to start. */
+const CREW_NEXT: Record<AutoAction, string> = {
+  begin: "start building",
+  design: "draft it up for you",
+  plan: "plan the steps",
+  approve_plan: "take its plan and start building",
+  build_step: "build the next step",
+  prove: "prove it and open a preview",
+  ship: "ship it, now that every check passed",
+};
+
+/**
+ * The one thing that needs a person, if anything (gen2-crew.md §17). Low has
+ * no decisions; Medium has the Brief and Ship it; High keeps design, plan, Try
+ * and Go live. Everything else the crew does on its own.
+ */
 function NeedsYou({
   d,
   canAsk,
@@ -541,223 +550,161 @@ function NeedsYou({
   const a = d.actions;
   const api = browserApi();
   const n = d.work.number;
+  const tier = d.work.complexity;
   const latest = d.designs.at(-1);
   const blocked = d.steps.find((s) => s.status === "blocked");
   const doneCount = d.steps.filter((s) => s.status === "done").length;
   const job = d.jobs[0];
+  const brief = tier === "medium" ? "Brief" : "design";
+
+  const go = (label: string, run: () => Promise<unknown>, done: string, Icon = CircleCheck, tone: "gold" | "plain" = "gold") => (
+    <button type="button" className={button(tone)} disabled={busy} onClick={() => act(run, done)}>
+      <Icon className="size-4" /> {label}
+    </button>
+  );
+  const preview = safeWebUrl(d.work.previewUrl) && (
+    <a href={safeWebUrl(d.work.previewUrl)!} target="_blank" rel="noreferrer" className={button("plain")}>
+      <ExternalLink className="size-4" /> Open preview
+    </a>
+  );
 
   let text: string | null = null;
   let action: React.ReactNode = null;
+  let needsYou = true;
   if (working) {
-    text = `The engine is working: ${JOB_DOING[job!.kind] ?? `writing the ${job!.kind}`} (${modelLabel(job!.provider, job!.model)}).`;
+    needsYou = false;
+    const steps = job!.kind === "build_step" && d.steps.length > 1 ? ` (step ${Math.min(doneCount + 1, d.steps.length)} of ${d.steps.length})` : "";
+    text = `The crew is ${JOB_DOING[job!.kind] ?? `writing the ${job!.kind}`}${steps} · ${modelLabel(job!.provider, job!.model)}.`;
     action = <Loader2 className="size-4 animate-spin text-gold-2" />;
   } else if (!d.runnerOnline) {
-    text =
-      "The engine is offline. Start the runner and it will pick up where things are.";
+    text = "The engine is offline. Start the runner and the crew picks up where things are.";
   } else if (d.work.kind === "install") {
     return null;
   } else if (a.approveDesign && latest) {
-    text = `Design v${latest.version} is ready. Read it, edit it, or ask for changes in the conversation.`;
-    action = canApprove ? (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () =>
-              api.work.design(siteId, n, {
-                action: "approve",
-                version: latest.version,
-              }),
-            "Design approved.",
-          )
-        }
-      >
-        <CircleCheck className="size-4" /> Approve design v{latest.version}
-      </button>
-    ) : (
-      <button
-        type="button"
-        className={button("plain")}
-        onClick={() => onTab("design")}
-      >
-        Read the design
-      </button>
-    );
-  } else if (a.approvePlan) {
-    text = `The plan has ${d.steps.length} steps. Approve it and the engine builds step 1.`;
-    action = canApprove ? (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () => api.work.plan(siteId, n, { action: "approve" }),
-            "Plan approved.",
-          )
-        }
-      >
-        <CircleCheck className="size-4" /> Approve plan
-      </button>
-    ) : null;
-  } else if (a.runNextStep && a.nextStep != null) {
-    const step = d.steps[a.nextStep]!;
-    text = blocked
-      ? `Step ${blocked.position} is blocked by the Protocol. Ask the engine to fix it in the conversation, or run it again.`
-      : doneCount
-        ? `Step ${doneCount} of ${d.steps.length} is done and checked. Proceed to step ${step.position}?`
-        : `Ready to build step 1: ${step.title}.`;
-    action = canApprove ? (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(() => api.work.next(siteId, n), `Building step ${step.position}.`)
-        }
-      >
-        <Play className="size-4" />{" "}
-        {blocked
-          ? `Run step ${step.position} again`
-          : `Build step ${step.position}`}
-      </button>
-    ) : null;
-  } else if (a.prove) {
-    const failed = d.work.proof && !d.work.proof.ok ? d.work.proof : null;
-    text = failed
-      ? `Prove didn't pass: ${failed.reasons[0] ?? "see the evidence"} Ask the engine to fix it, then prove again.`
-      : `All ${d.steps.length} steps are built and checked. Prove it: the engine runs every check, pushes the branch and opens a preview.`;
-    action = canApprove ? (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () => api.work.ship(siteId, n, "prove"),
-            "Proving: checks, push, preview.",
-          )
-        }
-      >
-        <Rocket className="size-4" />{" "}
-        {failed ? "Prove again" : "Prove and preview"}
-      </button>
-    ) : null;
-  } else if (a.approveTry) {
     text =
-      "The preview is up. Try it with real clicks, then approve it for release, or tell the engine what to change.";
+      tier === "medium"
+        ? `The Brief (v${latest.version}) is ready. Approve it and the crew plans, builds and proves it on its own; you'll only decide to ship.`
+        : `Design v${latest.version} is ready. Read it, edit it, or ask for changes in the conversation.`;
+    action = canApprove
+      ? go(`Approve the ${brief}`, () => api.work.design(siteId, n, { action: "approve", version: latest.version }), `${tier === "medium" ? "Brief" : "Design"} approved.`)
+      : (
+        <button type="button" className={button("plain")} onClick={() => onTab("design")}>
+          Read the {brief}
+        </button>
+      );
+  } else if (a.approvePlan) {
+    text = `The plan has ${d.steps.length} steps. Approve it and the crew builds them on its own.`;
+    action = canApprove ? go("Approve plan", () => api.work.plan(siteId, n, { action: "approve" }), "Plan approved.") : null;
+  } else if (a.runNextStep && blocked) {
+    text = `Step ${blocked.position} is blocked by the Protocol. Ask the lead to fix it in the conversation, or run it again.`;
+    action = canApprove ? go(`Run step ${blocked.position} again`, () => api.work.next(siteId, n), `Running step ${blocked.position} again.`, Play) : null;
+  } else if (a.prove) {
+    text = `Prove didn't pass: ${d.work.proof?.reasons[0] ?? "see the evidence"} Ask the lead to fix it, then prove again.`;
+    action = canApprove ? go("Prove again", () => api.work.ship(siteId, n, "prove"), "Proving: checks, push, preview.", Rocket) : null;
+  } else if (a.ship) {
+    text = "Every check passed and the preview is up. Try it, then Ship it, or tell the lead what to change.";
     action = (
       <>
-        {safeWebUrl(d.work.previewUrl) && (
-          <a
-            href={safeWebUrl(d.work.previewUrl)!}
-            target="_blank"
-            rel="noreferrer"
-            className={button("plain")}
-          >
-            <ExternalLink className="size-4" /> Open preview
-          </a>
-        )}
-        {canApprove && mayApproveTry && (
-          <button
-            type="button"
-            className={button("gold")}
-            disabled={busy}
-            onClick={() =>
-              act(
-                () => api.work.ship(siteId, n, "approve"),
-                "Approved for release.",
-              )
-            }
-          >
-            <CircleCheck className="size-4" /> Approve for release
-          </button>
-        )}
+        {preview}
+        {canApprove && canShip && mayApproveTry && go("Ship it", () => api.work.ship(siteId, n, "ship"), "Shipping: stage, main, production, live check.", Rocket)}
+      </>
+    );
+  } else if (a.approveTry) {
+    text = "The preview is up. Try it with real clicks, then approve it for release, or tell the lead what to change.";
+    action = (
+      <>
+        {preview}
+        {canApprove && mayApproveTry && go("Approve for release", () => api.work.ship(siteId, n, "approve"), "Approved for release.")}
       </>
     );
   } else if (a.release) {
-    text =
-      "Approved. Go live merges this into stage and main, waits for production, and checks the live site.";
-    action = canShip ? (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () => api.work.ship(siteId, n, "release"),
-            "Releasing to production.",
-          )
-        }
-      >
-        <Rocket className="size-4" /> Go live
-      </button>
-    ) : null;
+    const failed = d.work.release && !d.work.release.ok && !d.work.released;
+    text = failed
+      ? `The release didn't finish: ${d.work.release!.reasons[0] ?? "see the evidence"} Try again when it's fixed.`
+      : "Approved. Go live merges this into stage and main, waits for production, and checks the live site.";
+    action = canShip ? go(failed ? "Release again" : "Go live", () => api.work.ship(siteId, n, "release"), "Releasing to production.", Rocket) : null;
   } else if (a.close) {
     const r = d.work.release;
     text = r?.ok
       ? `Live: ${r.liveUrl} answers ${r.liveStatus}. Note anything you learned in the conversation, then close #${n}.`
       : `Released to main, but the live check needs a look: ${r?.reasons[0] ?? "see the evidence"}`;
-    action = canApprove ? (
-      <button
-        type="button"
-        className={button("plain")}
-        disabled={busy}
-        onClick={() =>
-          act(() => api.work.ship(siteId, n, "close"), `#${n} closed.`)
-        }
-      >
-        <Flag className="size-4" /> Close #{n}
-      </button>
-    ) : null;
-  } else if (a.draftPlan && canAsk) {
-    text = "The design is approved. Ask the engine for the build plan.";
-    action = (
-      <button
-        type="button"
-        className={button("gold")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () => api.work.plan(siteId, n, { action: "draft" }),
-            "Writing the plan.",
-          )
-        }
-      >
-        <ListChecks className="size-4" /> Write the plan
-      </button>
-    );
-  } else if (canAsk && d.work.stage === "discuss" && d.messages.length > 1) {
-    text =
-      "When you and the engine agree on the idea, ask it to draft the design.";
-    action = (
-      <button
-        type="button"
-        className={button("plain")}
-        disabled={busy}
-        onClick={() =>
-          act(
-            () => api.work.design(siteId, n, { action: "draft" }),
-            "Drafting the design.",
-          )
-        }
-      >
-        <PenLine className="size-4" /> Draft the design
-      </button>
-    );
+    action = canApprove ? go(`Close #${n}`, () => api.work.ship(siteId, n, "close"), `#${n} closed.`, Flag, "plain") : null;
+  } else if (d.crewNext) {
+    needsYou = false;
+    text = `Next, the crew will ${CREW_NEXT[d.crewNext]}.`;
+  } else if (a.begin && canAsk) {
+    text = "Low complexity: the crew builds, proves and ships this on its own once the lead has what it needs. Start now?";
+    action = go("Start now", () => api.work.ship(siteId, n, "begin"), "The crew is starting.", Play, "plain");
+  } else if (a.draftDesign && canAsk && d.work.stage === "discuss" && d.messages.length > 1) {
+    text = `When you and the lead agree, the crew drafts the ${brief}. It starts on its own once the lead says it's ready.`;
+    action = go(`Draft the ${brief} now`, () => api.work.design(siteId, n, { action: "draft" }), `Drafting the ${brief}.`, PenLine, "plain");
   }
 
   if (!text) return null;
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gold/35 bg-gold/[0.07] px-4 py-3">
-      <Sparkles className="size-4 shrink-0 text-gold-2" />
+    <div
+      className={cx(
+        "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3",
+        needsYou ? "border-gold/35 bg-gold/[0.07]" : "border-line bg-panel",
+      )}
+    >
+      <Sparkles className={cx("size-4 shrink-0", needsYou ? "text-gold-2" : "text-mist")} />
       <p className="min-w-0 flex-1 text-[13.5px]">
-        <span className="font-semibold text-gold-2">Needs you · </span>
+        <span className={cx("font-semibold", needsYou ? "text-gold-2" : "text-fog")}>{needsYou ? "Needs you · " : "Crew · "}</span>
         {text}
       </p>
       {action}
+    </div>
+  );
+}
+
+/** The complexity tier: the platform's recommendation, and the person's choice at or above the floor. */
+function ComplexityControl({ d, canSet, busy, act, siteId }: { d: WorkDetail; canSet: boolean; busy: boolean; act: Act; siteId: string }) {
+  const api = browserApi();
+  const w = d.work;
+  const floor = complexityFloor(w.risk);
+  const rec = w.recommendedComplexity;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div role="radiogroup" aria-label="Complexity" className="flex rounded-lg border border-line-2 bg-panel p-0.5 text-[12.5px]">
+        {COMPLEXITIES.map((c) => {
+          const allowed = canSet && canSetComplexity(c, w.risk);
+          return (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={w.complexity === c}
+              disabled={!allowed || busy || w.complexity === c}
+              title={`${COMPLEXITY_LABEL[c]}: ${COMPLEXITY_PROMISE[c]}${!canSetComplexity(c, w.risk) ? ` Not available: this touches ${w.risk.join(", ")}.` : ""}`}
+              onClick={() => act(() => api.work.complexity(siteId, w.number, c), `Complexity set to ${COMPLEXITY_LABEL[c]}.`)}
+              className={cx(
+                "rounded-md px-2.5 py-1",
+                w.complexity === c ? "bg-gold/15 font-semibold text-ink" : "text-fog enabled:hover:text-ink disabled:opacity-40",
+              )}
+            >
+              {COMPLEXITY_LABEL[c]}
+              {rec === c && <span className="ml-1 text-[10.5px] text-mist">rec.</span>}
+            </button>
+          );
+        })}
+      </div>
+      {w.complexity === "medium" && canSet && (
+        <label className="flex items-center gap-1.5 text-[12.5px] text-fog" title="Off by default. Never available on High.">
+          <input
+            type="checkbox"
+            checked={w.autoShip}
+            disabled={busy}
+            onChange={(e) => act(() => api.work.autoShip(siteId, w.number, e.target.checked), e.target.checked ? "Ships automatically when green." : "Automatic shipping off.")}
+          />
+          Ship automatically when green
+        </label>
+      )}
+      <span className="text-[12px] text-mist">
+        {COMPLEXITY_PROMISE[w.complexity]}
+        {w.complexityReason ? ` ${w.complexityReason}` : ""}
+        {floor === "high" ? " Protected risk keeps it High." : ""}
+      </span>
     </div>
   );
 }
@@ -1097,8 +1044,9 @@ function PlanPanel({
       <div className="flex h-full flex-col items-center justify-center gap-3 py-16 text-center">
         <ListChecks className="size-8 text-mist" />
         <p className="max-w-sm text-[13.5px] text-fog">
-          The plan comes after the design is approved: small, numbered steps,
-          each with the tests that prove it.
+          {d.work.complexity === "low"
+            ? "Low complexity: one step, built straight from the conversation, with the tests that prove it."
+            : "The plan comes after the Brief or design is approved: small, numbered steps, each with the tests that prove it."}
         </p>
         {canAsk && a.draftPlan && (
           <button
@@ -1121,13 +1069,15 @@ function PlanPanel({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {d.work.planApproved ? (
+        {d.work.complexity !== "high" ? (
+          <Chip tone="good">The crew&apos;s plan</Chip>
+        ) : d.work.planApproved ? (
           <Chip tone="good">Plan approved</Chip>
         ) : (
           <Chip tone="warn">Awaiting approval</Chip>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
-          {canAsk && !d.work.planApproved && (
+          {canAsk && a.draftPlan && !d.work.planApproved && (
             <button
               type="button"
               className={button("plain", "text-xs")}
@@ -1165,11 +1115,11 @@ function PlanPanel({
               onClick={() =>
                 act(
                   () => api.work.next(siteId, n),
-                  `Building step ${next.position}.`,
+                  `Running step ${next.position} again.`,
                 )
               }
             >
-              <Play className="size-3.5" /> Build step {next.position}
+              <Play className="size-3.5" /> Run step {next.position} again
             </button>
           )}
         </div>
