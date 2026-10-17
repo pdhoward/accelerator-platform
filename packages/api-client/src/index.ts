@@ -206,8 +206,9 @@ export function createApiClient({
       ) => post<{ number: number }>(`${site(siteId)}/work`, input),
       get: (siteId: string, n: number) =>
         call<WorkDetail>(`${site(siteId)}/work/${n}`),
-      say: (siteId: string, n: number, body: string) =>
-        post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body }),
+      /** `shown`: the key of the decision card on screen, so a typed "approve" binds to it (gen2-crew.md §17.4). */
+      say: (siteId: string, n: number, body: string, shown?: string) =>
+        post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body, ...(shown && { shown }) }),
       design: (
         siteId: string,
         n: number,
@@ -227,7 +228,7 @@ export function createApiClient({
       ship: (
         siteId: string,
         n: number,
-        action: "begin" | "prove" | "approve" | "ship" | "release" | "close" | "cancel",
+        action: "begin" | "pause" | "resume" | "prove" | "approve" | "ship" | "release" | "close" | "cancel",
       ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
       /** The complexity tier (gen2-crew.md §17). */
       complexity: (siteId: string, n: number, complexity: Complexity) =>

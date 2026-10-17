@@ -1,4 +1,5 @@
 import type { Complexity } from "./complexity";
+import { MAX_PROOF_REPAIRS, MAX_STEP_REPAIRS, type PendingDecision } from "./decisions";
 import type { Domain } from "./domains";
 import type { RiskClass } from "./types";
 
@@ -103,10 +104,15 @@ export type WorkFacts = {
   ready: boolean;
   /** Medium only: ship automatically when proof is green (D44). */
   autoShip: boolean;
+  /** A person said "stop": nothing new starts until they resume. */
+  paused: boolean;
+  /** Automatic fix-and-prove-again rounds used after failed Proves. */
+  proofRepairs: number;
   jobRunning: boolean;
   latestDesign: { version: number; approved: boolean } | null;
   planApproved: boolean;
-  steps: { status: StepStatus }[];
+  /** attempts: how many times the step has run (repairs are bounded by MAX_STEP_REPAIRS). */
+  steps: { status: StepStatus; attempts?: number }[];
   /** The last Prove passed: checks green, branch pushed, preview found. */
   proven: boolean;
   /** The last Prove ran and failed: a person or the lead decides what's next. */
@@ -191,18 +197,23 @@ export function workActions(f: WorkFacts): WorkActions {
  * - plan: the Brief or design is approved: write the plan.
  * - approve_plan: Medium: the plan is the crew's, so it's accepted as written.
  * - build_step: the next approved step.
+ * - repair_step: re-run a step the Protocol blocked, with what failed (bounded).
  * - prove: every step built: run the TDD plane's full checks and open a preview.
+ * - repair_proof: add a step that fixes what a failed Prove found (bounded).
  * - ship: Low, or Medium with standing approval: release the proven preview.
- * Never past a decision the tier keeps for a person, never after a failure
- * (a blocked step or failed Prove waits for a person or the lead), and never
- * a second release attempt.
+ * Never past a decision the tier keeps for a person, never while paused, never
+ * beyond the repair budget (then a blocked step or failed Prove waits for a
+ * person), and never a second release attempt.
  */
-export type AutoAction = "begin" | "design" | "plan" | "approve_plan" | "build_step" | "prove" | "ship";
+export type AutoAction = "begin" | "design" | "plan" | "approve_plan" | "build_step" | "repair_step" | "prove" | "repair_proof" | "ship";
 
 export function autoAction(f: WorkFacts): AutoAction | null {
   const closed = f.stage === "done" || f.stage === "cancelled";
-  if (f.jobRunning || closed || f.released) return null;
-  if (f.steps.some((s) => s.status === "blocked" || s.status === "running")) return null;
+  if (f.jobRunning || closed || f.released || f.paused) return null;
+  if (f.steps.some((s) => s.status === "running")) return null;
+  // A step the Protocol blocked: the crew repairs it itself, within budget, then it comes to a person.
+  const blocked = f.steps.find((s) => s.status === "blocked");
+  if (blocked) return (blocked.attempts ?? 1) <= MAX_STEP_REPAIRS ? "repair_step" : null;
   const low = f.complexity === "low";
   if (!f.planApproved) {
     if (low) return f.ready && f.steps.length === 0 ? "begin" : null;
@@ -214,7 +225,7 @@ export function autoAction(f: WorkFacts): AutoAction | null {
   }
   if (f.steps.some((s) => s.status === "todo")) return "build_step";
   if (!allStepsDone(f.steps)) return null;
-  if (!f.proven) return f.proofFailed ? null : "prove";
+  if (!f.proven) return !f.proofFailed ? "prove" : f.proofRepairs < MAX_PROOF_REPAIRS ? "repair_proof" : null;
   if (f.tryApproved) return null; // released by a person, or a failed release waiting for a retry
   if (low || (f.complexity === "medium" && f.autoShip)) return "ship";
   return null;
@@ -400,6 +411,10 @@ export type WorkItem = {
   ready: boolean;
   /** Medium: ship automatically when proof is green (D44). */
   autoShip: boolean;
+  /** A person said "stop": nothing new starts until they resume. */
+  paused: boolean;
+  /** Automatic fix-and-prove-again rounds used after failed Proves. */
+  proofRepairs: number;
   branch: string | null;
   planApproved: boolean;
   /** The preview of the proven branch (Try). */
@@ -431,6 +446,8 @@ export type WorkStep = {
   title: string;
   detail: string;
   status: StepStatus;
+  /** How many times the step has run. */
+  attempts: number;
   evidence: { summary?: string; reasons?: string[]; checks?: StepChecks; commit?: string; files?: string[] };
 };
 
@@ -458,6 +475,8 @@ export type WorkDetail = {
   actions: WorkActions;
   /** What the crew will do next on its own, if anything (gen2-crew.md §17). */
   crewNext: AutoAction | null;
+  /** The one decision a person must take now, shown as a card in the conversation (§17.4). */
+  decision: PendingDecision | null;
   models: Record<ModelRole, SiteModel>;
   runnerOnline: boolean;
 };

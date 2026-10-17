@@ -22,6 +22,8 @@ const facts = (f: Partial<WorkFacts>): WorkFacts => ({
   complexity: "high",
   ready: false,
   autoShip: false,
+  paused: false,
+  proofRepairs: 0,
   jobRunning: false,
   latestDesign: null,
   planApproved: false,
@@ -63,7 +65,7 @@ describe("workActions: the three gates", () => {
 });
 
 describe("stageFor: the rail reflects what exists", () => {
-  const none = { proven: false, proofFailed: false, tryApproved: false, released: false, complexity: "high" as const, ready: false, autoShip: false };
+  const none = { proven: false, proofFailed: false, tryApproved: false, released: false, complexity: "high" as const, ready: false, autoShip: false, paused: false, proofRepairs: 0 };
   it("walks discuss → design → plan → build → prove", () => {
     expect(stageFor({ ...none, risk: [], latestDesign: null, planApproved: false, steps: [] })).toBe("discuss");
     expect(stageFor({ ...none, risk: [], latestDesign: { version: 1, approved: false }, planApproved: false, steps: [] })).toBe("design");
@@ -86,7 +88,9 @@ describe("workActions: prove, try, release, close", () => {
     expect(workActions(built)).toMatchObject({ prove: false, approveTry: false, release: false });
     expect(autoAction(built)).toBe("prove");
     expect(workActions({ ...built, proofFailed: true }).prove).toBe(true);
-    expect(autoAction({ ...built, proofFailed: true })).toBeNull();
+    // A failed Prove gets one automatic fix round, then waits for a person.
+    expect(autoAction({ ...built, proofFailed: true })).toBe("repair_proof");
+    expect(autoAction({ ...built, proofFailed: true, proofRepairs: 1 })).toBeNull();
     expect(workActions(facts({ ...built, steps: [{ status: "done" }, { status: "todo" }] })).prove).toBe(false);
   });
   it("needs a passed Prove before Try, and an approved Try before Release (gate 3)", () => {

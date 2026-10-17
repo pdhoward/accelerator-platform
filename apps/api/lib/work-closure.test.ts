@@ -75,7 +75,7 @@ describe("Work closure preserves delivery truth", () => {
     for (const stage of ["done", "cancelled"]) {
       state.work.stage = stage;
       await expect(
-        postMessage(site, identity, "Owner", 3, "new scope"),
+        postMessage(site, identity, { name: "Owner", role: "owner", member: true }, 3, "new scope"),
       ).rejects.toThrow("Start another improvement");
       await expect(draftDesign(site, identity, 3)).rejects.toThrow(
         "Start another improvement",

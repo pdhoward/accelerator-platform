@@ -136,7 +136,7 @@ ${PROTOCOL}
 
 Runner rules: don't commit, push, switch branches or touch .env files; the runner does git. When you finish, reply with a short summary for the Navigator: what changed, which tests you added, and the test result. If this step genuinely needs no new tests, end with a line "NO_TESTS_REASON: <why>".`;
 
-export function buildPrompt(w: Work, step: WorkStep): string {
+export function buildPrompt(w: Work, step: WorkStep, repair: string[] = []): string {
   return `Build step ${step.position} of the approved plan for work item #${w.number}.
 
 THE STEP
@@ -148,5 +148,13 @@ ${w.design ? `THE APPROVED ${w.complexity === "medium" ? "BRIEF" : "DESIGN"}\n${
 THE WHOLE PLAN
 ${planText(w.steps)}
 
-Do only this step. Add or update tests that prove it. Run the typecheck and the tests before you finish.`;
+Do only this step. Add or update tests that prove it. Run the typecheck and the tests before you finish.${
+  repair.length
+    ? `
+
+THIS IS A REPAIR. The last run of this step failed the runner's checks:
+${repair.map((r) => `- ${r}`).join("\n")}
+Find and fix the cause within this step's scope. Never weaken, skip or delete tests to make them pass, and never shrink the suite.`
+    : ""
+}`;
 }

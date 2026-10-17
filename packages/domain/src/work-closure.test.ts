@@ -7,6 +7,8 @@ const built: WorkFacts = {
   complexity: "high",
   ready: true,
   autoShip: false,
+  paused: false,
+  proofRepairs: 0,
   jobRunning: false,
   latestDesign: { version: 1, approved: true },
   planApproved: true,

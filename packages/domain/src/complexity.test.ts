@@ -10,6 +10,8 @@ const facts = (f: Partial<WorkFacts>): WorkFacts => ({
   complexity: "low",
   ready: false,
   autoShip: false,
+  paused: false,
+  proofRepairs: 0,
   jobRunning: false,
   latestDesign: null,
   planApproved: false,
@@ -84,9 +86,20 @@ describe("Low: no decisions, ships through the TDD plane", () => {
     expect(autoAction(built)).toBe("prove");
     expect(autoAction({ ...built, proven: true })).toBe("ship");
   });
-  it("stops on any failure: a blocked step or a failed Prove waits for a person or the lead", () => {
-    expect(autoAction(facts({ ready: true, planApproved: true, steps: [{ status: "blocked" }] }))).toBeNull();
-    expect(autoAction(facts({ ready: true, planApproved: true, steps: [{ status: "done" }], proofFailed: true }))).toBeNull();
+  it("repairs a blocked step or a failed Prove itself, within budget, then waits for a person", () => {
+    const blocked = (attempts: number) => facts({ ready: true, planApproved: true, steps: [{ status: "blocked", attempts }] });
+    expect(autoAction(blocked(1))).toBe("repair_step");
+    expect(autoAction(blocked(2))).toBe("repair_step");
+    expect(autoAction(blocked(3))).toBeNull(); // two repairs used: a person decides
+    const failed = facts({ ready: true, planApproved: true, steps: [{ status: "done" }], proofFailed: true });
+    expect(autoAction(failed)).toBe("repair_proof");
+    expect(autoAction({ ...failed, proofRepairs: 1 })).toBeNull();
+  });
+  it("starts nothing while paused, and picks up where it was on resume", () => {
+    const step = facts({ ready: true, planApproved: true, steps: [{ status: "todo" }] });
+    expect(autoAction({ ...step, paused: true })).toBeNull();
+    expect(autoAction(step)).toBe("build_step");
+    expect(autoAction({ ...facts({ ready: true }), paused: true })).toBeNull();
   });
   it("never releases twice: after a failed release a person retries", () => {
     const tried = facts({ ready: true, planApproved: true, steps: [{ status: "done" }], proven: true, tryApproved: true });

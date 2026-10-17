@@ -100,7 +100,10 @@ export async function buildStep(ctx: JobContext, log: Log) {
   log.check(`Before: ${testsBefore ?? "no"} tests`);
   const from = await headSha(dir);
 
-  const r = await agent({ cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step) });
+  // A repair run: the crew re-runs a step the Protocol blocked, told exactly what failed (gen2-crew.md §17.4).
+  const repair = Array.isArray(ctx.job.input.repairReasons) ? (ctx.job.input.repairReasons as unknown[]).map(String) : [];
+  if (repair.length) log.status(`Repairing: ${repair.join(" ")}`);
+  const r = await agent({ cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step, repair) });
   if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
 
   // After: the runner's own checks decide the verdict, not the model's report.

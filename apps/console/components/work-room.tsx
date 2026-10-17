@@ -12,6 +12,7 @@ import {
   Flag,
   ListChecks,
   Loader2,
+  Pause,
   PenLine,
   Play,
   Rocket,
@@ -365,28 +366,30 @@ export function WorkRoom({
             </div>
           )}
 
-          {studio.source !== "sample" && (
-            <NeedsYou
-              d={d}
-              canAsk={canAsk && !closed}
-              working={working}
-              canApprove={canApprove && !closed}
-              canShip={canShip}
-              mayApproveTry={mayApproveTry}
-              busy={busy}
-              onTab={setTab}
-              act={act}
-              siteId={siteId}
-            />
-          )}
-
           <div className="grid gap-4 xl:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]">
             <Thread
               d={d}
               working={working}
               canAsk={canAsk && !closed}
               busy={busy}
-              onSend={(body) => act(() => api.work.say(siteId, n, body))}
+              onSend={(body) => act(() => api.work.say(siteId, n, body, d.decision?.key))}
+              onPause={!closed && d.work.kind === "change" && canAsk ? () => act(() => api.work.ship(siteId, n, d.work.paused ? "resume" : "pause"), d.work.paused ? "The crew resumed." : "The crew is paused.") : undefined}
+              card={
+                studio.source !== "sample" && (
+                  <NeedsYou
+                    d={d}
+                    canAsk={canAsk && !closed}
+                    working={working}
+                    canApprove={canApprove && !closed}
+                    canShip={canShip}
+                    mayApproveTry={mayApproveTry}
+                    busy={busy}
+                    onTab={setTab}
+                    act={act}
+                    siteId={siteId}
+                  />
+                )
+              }
             />
 
             <Card className="flex min-h-[520px] flex-col">
@@ -515,7 +518,9 @@ const CREW_NEXT: Record<AutoAction, string> = {
   plan: "plan the steps",
   approve_plan: "take its plan and start building",
   build_step: "build the next step",
+  repair_step: "fix the step that didn't pass its checks",
   prove: "prove it and open a preview",
+  repair_proof: "fix what Prove found and prove again",
   ship: "ship it, now that every check passed",
 };
 
@@ -557,8 +562,18 @@ function NeedsYou({
   const job = d.jobs[0];
   const brief = tier === "medium" ? "Brief" : "design";
 
+  // Owner-gated decisions: the button plus a confirmation that names the risk (gen2-crew.md §17.4).
+  const confirmRisk = d.decision?.ownerOnly ? `${d.decision.title}: this touches ${d.work.risk.join(", ")}. Go ahead?` : null;
   const go = (label: string, run: () => Promise<unknown>, done: string, Icon = CircleCheck, tone: "gold" | "plain" = "gold") => (
-    <button type="button" className={button(tone)} disabled={busy} onClick={() => act(run, done)}>
+    <button
+      type="button"
+      className={button(tone)}
+      disabled={busy}
+      onClick={() => {
+        if (tone === "gold" && confirmRisk && !window.confirm(confirmRisk)) return;
+        void act(run, done);
+      }}
+    >
       <Icon className="size-4" /> {label}
     </button>
   );
@@ -580,6 +595,11 @@ function NeedsYou({
     text = "The engine is offline. Start the runner and the crew picks up where things are.";
   } else if (d.work.kind === "install") {
     return null;
+  } else if (d.work.paused) {
+    text = "The crew is paused. Nothing new starts until you resume (or type resume).";
+  } else if (d.crewNext) {
+    needsYou = false;
+    text = `Next, the crew will ${CREW_NEXT[d.crewNext]}.`;
   } else if (a.approveDesign && latest) {
     text =
       tier === "medium"
@@ -596,10 +616,10 @@ function NeedsYou({
     text = `The plan has ${d.steps.length} steps. Approve it and the crew builds them on its own.`;
     action = canApprove ? go("Approve plan", () => api.work.plan(siteId, n, { action: "approve" }), "Plan approved.") : null;
   } else if (a.runNextStep && blocked) {
-    text = `Step ${blocked.position} is blocked by the Protocol. Ask the lead to fix it in the conversation, or run it again.`;
+    text = `Step ${blocked.position} still doesn't pass its checks after ${blocked.attempts} runs: ${blocked.evidence.reasons?.join(" ") || "see the live log"} Tell the lead what you want, or run it again.`;
     action = canApprove ? go(`Run step ${blocked.position} again`, () => api.work.next(siteId, n), `Running step ${blocked.position} again.`, Play) : null;
   } else if (a.prove) {
-    text = `Prove didn't pass: ${d.work.proof?.reasons[0] ?? "see the evidence"} Ask the lead to fix it, then prove again.`;
+    text = `Prove still doesn't pass after the crew's fix: ${d.work.proof?.reasons[0] ?? "see the evidence"} Tell the lead what you want, or prove again.`;
     action = canApprove ? go("Prove again", () => api.work.ship(siteId, n, "prove"), "Proving: checks, push, preview.", Rocket) : null;
   } else if (a.ship) {
     text = "Every check passed and the preview is up. Try it, then Ship it, or tell the lead what to change.";
@@ -629,9 +649,6 @@ function NeedsYou({
       ? `Live: ${r.liveUrl} answers ${r.liveStatus}. Note anything you learned in the conversation, then close #${n}.`
       : `Released to main, but the live check needs a look: ${r?.reasons[0] ?? "see the evidence"}`;
     action = canApprove ? go(`Close #${n}`, () => api.work.ship(siteId, n, "close"), `#${n} closed.`, Flag, "plain") : null;
-  } else if (d.crewNext) {
-    needsYou = false;
-    text = `Next, the crew will ${CREW_NEXT[d.crewNext]}.`;
   } else if (a.begin && canAsk) {
     text = "Low complexity: the crew builds, proves and ships this on its own once the lead has what it needs. Start now?";
     action = go("Start now", () => api.work.ship(siteId, n, "begin"), "The crew is starting.", Play, "plain");
@@ -641,19 +658,33 @@ function NeedsYou({
   }
 
   if (!text) return null;
+  const pd = needsYou ? d.decision : null;
   return (
     <div
+      role={needsYou ? "group" : "status"}
+      aria-label={needsYou ? (pd?.title ?? "Needs you") : "What the crew is doing"}
       className={cx(
-        "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3",
-        needsYou ? "border-gold/35 bg-gold/[0.07]" : "border-line bg-panel",
+        "flex flex-col gap-2.5 rounded-2xl border px-4 py-3",
+        needsYou ? "border-gold/35 bg-gold/[0.07]" : "border-line bg-panel-2/60",
       )}
     >
-      <Sparkles className={cx("size-4 shrink-0", needsYou ? "text-gold-2" : "text-mist")} />
-      <p className="min-w-0 flex-1 text-[13.5px]">
-        <span className={cx("font-semibold", needsYou ? "text-gold-2" : "text-fog")}>{needsYou ? "Needs you · " : "Crew · "}</span>
-        {text}
+      <p className="flex items-start gap-2 text-[13.5px]">
+        <Sparkles className={cx("mt-0.5 size-4 shrink-0", needsYou ? "text-gold-2" : "text-mist")} />
+        <span className="min-w-0 flex-1">
+          <span className={cx("font-semibold", needsYou ? "text-gold-2" : "text-fog")}>{pd ? `${pd.title} · ` : needsYou ? "Needs you · " : "Crew · "}</span>
+          {text}
+        </span>
       </p>
-      {action}
+      {(action || pd) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {action}
+          {pd && (
+            <span className="text-[12px] text-mist">
+              {pd.ownerOnly ? "Button only: this touches money, data, sign-in or security." : `or type "${pd.kind === "ship" ? "ship it" : "approve"}"`}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -709,24 +740,33 @@ function ComplexityControl({ d, canSet, busy, act, siteId }: { d: WorkDetail; ca
   );
 }
 
+/**
+ * The conversation: every message, then the one card that needs a person (or
+ * what the crew is doing), then the composer. Decisions can be answered by
+ * their button or by typing "approve"; "stop" pauses the crew (gen2-crew.md §17.4).
+ */
 function Thread({
   d,
   working,
   canAsk,
   busy,
   onSend,
+  onPause,
+  card,
 }: {
   d: WorkDetail;
   working: boolean;
   canAsk: boolean;
   busy: boolean;
   onSend: (body: string) => Promise<void>;
+  onPause?: () => void;
+  card?: React.ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
-  }, [d.messages.length]);
+  }, [d.messages.length, d.decision?.key, d.crewNext, working]);
 
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
@@ -740,9 +780,20 @@ function Thread({
     <Card className="flex max-h-[78vh] min-h-[520px] flex-col">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <Eyebrow>Conversation</Eyebrow>
-        <span className="text-[12px] text-mist">
-          Consult:{" "}
-          {modelLabel(d.models.consult.provider, d.models.consult.model)}
+        <span className="flex items-center gap-2 text-[12px] text-mist">
+          Lead: {modelLabel(d.models.consult.provider, d.models.consult.model)}
+          {onPause && (
+            <button
+              type="button"
+              onClick={onPause}
+              disabled={busy}
+              aria-pressed={d.work.paused}
+              title={d.work.paused ? "Let the crew carry on" : "Stop the crew starting anything new (or type stop)"}
+              className={button(d.work.paused ? "gold" : "ghost", "text-xs")}
+            >
+              {d.work.paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />} {d.work.paused ? "Resume crew" : "Pause crew"}
+            </button>
+          )}
         </span>
       </div>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
@@ -797,11 +848,7 @@ function Thread({
             </div>
           ),
         )}
-        {working && (
-          <p className="flex items-center gap-2 text-[12.5px] text-mist">
-            <Loader2 className="size-3.5 animate-spin" /> The engine is working…
-          </p>
-        )}
+        {card}
         <div ref={end} />
       </div>
       {canAsk && (
@@ -824,15 +871,17 @@ function Thread({
             }}
             rows={2}
             placeholder={
-              working
-                ? "The engine is working; you can still add a note."
-                : "Observe, question, decide… (Enter to send)"
+              d.decision && !d.decision.ownerOnly
+                ? `Ask, or type "approve" for: ${d.decision.title}`
+                : working
+                  ? "The crew is working; you can still talk (or type stop)."
+                  : "Observe, question, decide… (Enter to send)"
             }
             className={`${inputClass} max-h-40 resize-y`}
           />
           <button
             type="submit"
-            disabled={busy || !draft.trim() || working}
+            disabled={busy || !draft.trim()}
             aria-label="Send"
             className={button("gold", "size-10 shrink-0 p-0")}
           >

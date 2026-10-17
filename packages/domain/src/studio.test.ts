@@ -28,6 +28,8 @@ function detail(): WorkDetail {
     complexitySetBy: "platform",
     ready: false,
     autoShip: false,
+    paused: false,
+    proofRepairs: 0,
     branch: null,
     planApproved: false,
     previewUrl: null,
@@ -56,6 +58,7 @@ function detail(): WorkDetail {
       proofFailed: false,
     }),
     crewNext: null,
+    decision: null,
   };
 }
 describe("studio evidence and truthful activity", () => {

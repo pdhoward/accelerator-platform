@@ -22,6 +22,8 @@ export function studioSample(): WorkDetail {
     complexitySetBy: "platform",
     ready: true,
     autoShip: false,
+    paused: false,
+    proofRepairs: 0,
     branch: "work/sample-quote",
     planApproved: true,
     previewUrl: null,
@@ -126,6 +128,7 @@ export function studioSample(): WorkDetail {
         detail:
           "Component layout, input validation and focused regression checks.",
         status: "done",
+        attempts: 1,
         evidence: {
           summary: "Illustrative completion",
           files: ["components/quote-form.tsx", "domain/inquiry.test.ts"],
@@ -142,5 +145,6 @@ export function studioSample(): WorkDetail {
       proofFailed: false,
     }),
     crewNext: null,
+    decision: null,
   };
 }

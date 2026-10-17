@@ -49,6 +49,7 @@ vi.mock("./supabase", () => {
       eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), q),
       neq: (c: string, v: unknown) => (filters.push((r) => r[c] !== v), q),
       in: (c: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[c])), q),
+      is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), q),
       gte: () => q,
       order: (col: string, o?: { ascending?: boolean }) => ((sort = { col, asc: o?.ascending !== false }), q),
       limit: (n: number) => ((max = n), q),
@@ -67,7 +68,7 @@ vi.mock("./supabase", () => {
   return { db: () => ({ from: query }), rows: async (q: { run: () => Row[] }) => q.run() };
 });
 
-import { finish, postMessage, setComplexity, shipWork } from "./work";
+import { finish, postMessage, setComplexity, shipWork, type Speaker } from "./work";
 
 const site = { id: "site-a", orgId: "org-a", name: "Machine Shop" } as Site;
 const owner = { userId: "owner-a", email: "owner@example.test" } as Identity;
@@ -76,6 +77,7 @@ const work = () => t("acc_work")[0]!;
 const jobs = () => t("acc_jobs");
 const lastJob = () => jobs().at(-1)!;
 const said = () => t("acc_work_messages").map((m) => String(m.body));
+const ownerSpeaks: Speaker = { name: "Owner", role: "owner", member: true };
 
 /** Finish the job the crew queued last, as the runner would. */
 async function complete(result: Row) {
@@ -117,13 +119,44 @@ describe("Low complexity: no decisions, through the TDD plane", () => {
     expect(said().some((b) => b.includes("every check in the TDD plane passed"))).toBe(true);
   });
 
-  it("stops when the Protocol blocks a step, and never ships unproven code", async () => {
+  it("repairs a step the Protocol blocked, twice at most, then stops without ever shipping unproven code", async () => {
     await complete({ kind: "discuss", reply: "On it.", assessment: { complexity: "low", ready: true, reason: "Small." } });
     const step = t("acc_work_steps")[0]!.id as string;
-    await complete({ ...green(step), checks: { typecheck: true, tests: { passed: 11, failed: 1, total: 12 }, testsBefore: 11, touchedTests: true } });
-    expect(t("acc_work_steps")[0]!.status).toBe("blocked");
+    const failing = { ...green(step), checks: { typecheck: true, tests: { passed: 11, failed: 1, total: 12 }, testsBefore: 11, touchedTests: true } };
+    for (const repair of [1, 2]) {
+      await complete(failing);
+      expect(t("acc_work_steps")[0]).toMatchObject({ status: "blocked", attempts: repair });
+      expect(lastJob()).toMatchObject({ kind: "build_step", status: "queued", input: { stepId: step, repairReasons: ["1 test failing."] } });
+      expect(said().at(-1)).toContain(`repair ${repair} of 2`);
+    }
+    await complete(failing);
+    expect(t("acc_work_steps")[0]).toMatchObject({ status: "blocked", attempts: 3 });
     expect(jobs().filter((j) => j.status === "queued")).toHaveLength(0);
     expect(jobs().some((j) => j.kind === "prove" || j.kind === "release")).toBe(false);
+    expect(t("acc_evidence").filter((e) => e.kind === "step_checks" && e.ok === false)).toHaveLength(3);
+  });
+
+  it("fixes what a failed Prove found with one extra step, then proves again", async () => {
+    await complete({ kind: "discuss", reply: "On it.", assessment: { complexity: "low", ready: true, reason: "Small." } });
+    await complete(green(t("acc_work_steps")[0]!.id as string));
+    await complete({ ...proven, facts: { ...proven.facts, build: false } });
+    expect(work().proof_repairs).toBe(1);
+    const fix = t("acc_work_steps").at(-1)!;
+    expect(fix).toMatchObject({ title: "Fix what Prove found", status: "todo" });
+    expect(String(fix.detail)).toContain("The production build failed.");
+    expect(lastJob()).toMatchObject({ kind: "build_step", input: { stepId: fix.id } });
+    await complete(green(fix.id as string));
+    expect(lastJob()).toMatchObject({ kind: "prove", status: "queued" });
+  });
+
+  it("records the policy's ship decision and the evidence behind it", async () => {
+    await complete({ kind: "discuss", reply: "On it.", assessment: { complexity: "low", ready: true, reason: "Small." } });
+    await complete(green(t("acc_work_steps")[0]!.id as string));
+    await complete(proven);
+    const ship = t("acc_decisions").find((d) => d.kind === "ship")!;
+    expect(ship).toMatchObject({ actor_kind: "policy", actor_label: "Low-complexity policy", target: "abc123", via: "policy", actor_user_id: null });
+    expect(t("acc_evidence").map((e) => [e.kind, e.ok])).toEqual([["step_checks", true], ["prove", true]]);
+    expect(t("acc_ledger").filter((l) => l.counts).map((l) => l.kind)).toEqual(["step_checks", "prove", "decision"]);
   });
 
   it("raises the item to High when the build reaches a protected area, and drafts a design instead of going on", async () => {
@@ -164,10 +197,62 @@ describe("Medium complexity: the Brief and Ship it", () => {
   });
 });
 
+describe("decisions in the conversation", () => {
+  const atShipIt = () => {
+    Object.assign(work(), { complexity: "medium", ready_at: "x", plan_approved_at: "x", stage: "try", proof: { ok: true, commit: "abc123", reasons: [] }, preview_url: "https://p" });
+    t("acc_work_docs").push({ id: "doc-1", work_id: "work-3", version: 1, body: "# Brief", approved_at: "x" });
+    t("acc_work_steps").push({ id: "step-1", work_id: "work-3", position: 1, title: "Fix", detail: "", status: "done" });
+    jobs()[0]!.status = "done";
+  };
+  it("ships on a typed 'ship it' bound to the candidate the person saw", async () => {
+    atShipIt();
+    await postMessage(site, owner, ownerSpeaks, 3, "Ship it!", "ship:abc123");
+    expect(work().try_approved_by).toBe("owner-a");
+    expect(lastJob()).toMatchObject({ kind: "release", status: "queued" });
+    expect(t("acc_decisions").at(-1)).toMatchObject({ kind: "ship", via: "typed", actor_user_id: "owner-a", target: "abc123" });
+  });
+  it("refuses a typed approval for a decision that changed since it was shown", async () => {
+    atShipIt();
+    await postMessage(site, owner, ownerSpeaks, 3, "ship it", "ship:old999");
+    expect(work().try_approved_at).toBeUndefined();
+    expect(said().at(-1)).toContain('Not applied: what\'s waiting now is "Ship it (abc123)"');
+    expect(jobs().filter((j) => j.status === "queued")).toHaveLength(0);
+  });
+  it("never accepts a typed approval for money, data, auth or security, nor from partner staff", async () => {
+    atShipIt();
+    work().risk = ["money"];
+    work().complexity = "high";
+    await postMessage(site, owner, ownerSpeaks, 3, "approve", "approve_try:abc123");
+    expect(said().at(-1)).toContain("needs the Approve for release button");
+    work().risk = [];
+    work().complexity = "medium";
+    await postMessage(site, owner, { name: "Partner", role: "operator", member: false }, 3, "ship it", "ship:abc123");
+    expect(said().at(-1)).toContain("partner staff can discuss and draft");
+    expect(work().try_approved_at).toBeUndefined();
+  });
+  it("treats a bare 'yes' as conversation for the lead, not an approval", async () => {
+    atShipIt();
+    await postMessage(site, owner, ownerSpeaks, 3, "yes", "ship:abc123");
+    expect(work().try_approved_at).toBeUndefined();
+    expect(lastJob()).toMatchObject({ kind: "discuss", status: "queued" });
+  });
+  it("pauses on 'stop', withdrawing queued work, and resumes where it was", async () => {
+    await complete({ kind: "discuss", reply: "On it.", assessment: { complexity: "low", ready: true, reason: "Small." } });
+    expect(lastJob()).toMatchObject({ kind: "build_step", status: "queued" });
+    await postMessage(site, owner, ownerSpeaks, 3, "stop");
+    expect(work().paused_at).toBeTruthy();
+    expect(lastJob()).toMatchObject({ kind: "build_step", status: "cancelled" });
+    expect(t("acc_decisions").at(-1)).toMatchObject({ kind: "pause" });
+    await postMessage(site, owner, ownerSpeaks, 3, "resume");
+    expect(work().paused_at).toBeNull();
+    expect(lastJob()).toMatchObject({ kind: "build_step", status: "queued" });
+  });
+});
+
 describe("the conversation never waits behind the build", () => {
   it("keeps a message sent while the crew works and has the lead answer it before the crew goes on", async () => {
     await complete({ kind: "discuss", reply: "On it.", assessment: { complexity: "low", ready: true, reason: "Small." } });
-    await postMessage(site, owner, "Owner", 3, "Also make it open in the same tab.");
+    await postMessage(site, owner, { name: "Owner", role: "owner", member: true }, 3, "Also make it open in the same tab.");
     expect(jobs().filter((j) => j.status === "queued")).toHaveLength(1); // only the build
     await complete(green(t("acc_work_steps")[0]!.id as string));
     expect(lastJob()).toMatchObject({ kind: "discuss", status: "queued" });

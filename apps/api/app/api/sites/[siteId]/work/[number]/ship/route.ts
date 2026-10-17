@@ -2,11 +2,11 @@ import { canSite, holdsGates } from "@accelerator/domain";
 import { z } from "zod";
 
 import { body, fail, json, workRoute } from "@/lib/http";
-import { approveTry, beginWork, cancelWork, closeWork, proveWork, releaseWork, shipWork } from "@/lib/work";
+import { approveTry, beginWork, cancelWork, closeWork, pauseWork, proveWork, releaseWork, resumeWork, shipWork } from "@/lib/work";
 
 type P = { siteId: string; number: string };
 
-const schema = z.object({ action: z.enum(["begin", "prove", "approve", "ship", "release", "close", "cancel"]) });
+const schema = z.object({ action: z.enum(["begin", "pause", "resume", "prove", "approve", "ship", "release", "close", "cancel"]) });
 
 /**
  * Starting and finishing work: Begin (Low: start building now), Prove (retry a
@@ -27,6 +27,11 @@ export const POST = workRoute<P>(async ({ request, identity, caller, site, param
   }
   if (input.action === "begin") {
     await beginWork(site, identity, caller.name, n);
+    return json({ ok: true });
+  }
+  // Anyone working the item can stop the crew; resuming restarts only what the tier already allows.
+  if (input.action === "pause" || input.action === "resume") {
+    await (input.action === "pause" ? pauseWork : resumeWork)(site, identity, caller.name, n);
     return json({ ok: true });
   }
   if (!member) return fail(`The Navigator decides; ${caller.partnerName ?? "partner"} staff can discuss and draft.`, 403);
