@@ -143,6 +143,20 @@ try {
       0,
     "sample cannot submit a model job",
   );
+  // Complexity tiers (gen2-crew.md §17): the sample touches customer data, so it is High and can't be lowered.
+  const tiers = page.getByRole("radiogroup", { name: "Complexity" });
+  check(
+    (await tiers.getByRole("radio", { name: /High/ }).getAttribute("aria-checked")) === "true",
+    "protected risk shows High complexity",
+  );
+  check(
+    (await tiers.getByRole("radio").evaluateAll((els) => els.every((e) => e.disabled))),
+    "sample cannot change complexity",
+  );
+  check(
+    (await page.getByRole("button", { name: "Ship it", exact: true }).count()) === 0,
+    "sample cannot ship",
+  );
   await page.getByRole("button", { name: "Design v1", exact: true }).click();
   await page
     .getByRole("heading", { name: "Mobile quote journey", exact: true })
