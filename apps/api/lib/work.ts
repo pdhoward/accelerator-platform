@@ -7,6 +7,7 @@ import {
   MAX_PROOF_REPAIRS,
   MAX_STEP_REPAIRS,
   pendingDecision,
+  readCensus,
   readIntent,
   canSetComplexity,
   COMPLEXITY_LABEL,
@@ -27,6 +28,7 @@ import {
   workActions,
   modelLabel,
   type Assessment,
+  type Census,
   type Complexity,
   type Domain,
   type Identity,
@@ -827,7 +829,7 @@ export type JobResult =
       baselineTests?: number;
       manifest?: { key: string; purpose: string; howToGet: string }[];
     }
-  | { kind: "prove"; facts: Omit<ProveFacts, "baseline">; branch: string; commit: string | null; previewUrl: string | null; previewStatus: number | null }
+  | { kind: "prove"; facts: Omit<ProveFacts, "baseline">; branch: string; commit: string | null; previewUrl: string | null; previewStatus: number | null; census?: Census }
   | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
@@ -919,6 +921,14 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       detail: { reasons: verdict.reasons, build: f.build, typecheck: f.typecheck, previewState: f.previewState, previewUrl: r.previewUrl },
       summary: verdict.ok ? `Proven: every check passed and the preview is up (${(r.commit ?? "").slice(0, 8)}).` : `Prove didn't pass: ${verdict.reasons.join(" ")}`,
     });
+    // The code census is a measurement of the candidate, recorded on the same commit (gen2-crew.md §19.5).
+    const counted = r.census && readCensus(r.census as unknown as Row);
+    if (counted) {
+      await evidence(w, {
+        kind: "census", ok: true, counts: false, commit: r.commit, jobId, actor: { kind: "crew", label: "Builder" }, detail: counted as unknown as Row,
+        summary: `Code census on ${(r.commit ?? "").slice(0, 8)}: ${counted.functions} functions, ${counted.components} components, ${counted.routes} routes.`,
+      });
+    }
     const t = f.tests ? `${f.tests.passed}/${f.tests.total} tests passing` : "no tests ran";
     const guarded = r.previewStatus === 401 || r.previewStatus === 403 ? " It's behind Vercel's protection, so sign in to Vercel to open it." : "";
     await say(w, {

@@ -290,7 +290,7 @@ export function CockpitDial({
       {/* The centre readout: the measure under the pointer, rolling in when it changes. */}
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
         <div key={`${shown.id}:${shown.headline}`} className="flex flex-col items-center motion-safe:animate-[dial-roll_380ms_cubic-bezier(0.2,0.9,0.3,1)]">
-          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist">{shown.label}</span>
+          <span className="max-w-[110px] truncate font-mono text-[10px] uppercase tracking-[0.14em] text-mist">{SHORT[shown.id] ?? shown.label}</span>
           <span className={cx("mt-1 font-semibold tabular-nums leading-none tracking-tight", shown.headline && shown.headline.length > 5 ? "text-3xl" : "text-[44px]")}>
             {shown.headline ?? "—"}
           </span>

@@ -62,7 +62,7 @@ describe("readInstruments", () => {
   it("scopes to one Work item and refuses one that isn't this site's", async () => {
     const r = await readInstruments(site, 1);
     expect(r.scope).toEqual({ kind: "work", number: 1 });
-    expect(r.site.map((x) => x.id)).toEqual(["integrity", "tests", "flight", "changes"]);
+    expect(r.site.map((x) => x.id)).toEqual(["integrity", "tests", "flight", "changes", "census"]);
     expect(r.site[0]).toMatchObject({ condition: "verified", headline: "2/2" });
     await expect(readInstruments(site, 3)).rejects.toThrow("doesn't exist");
     await expect(readInstruments(site, 0)).rejects.toThrow("Invalid work number");

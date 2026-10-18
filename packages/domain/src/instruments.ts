@@ -1,3 +1,4 @@
+import { readCensus } from "./census";
 import type { Complexity } from "./complexity";
 import type { WorkStage } from "./flywheel";
 
@@ -181,7 +182,7 @@ function integrity(i: InstrumentInputs, ev: InstrumentEvidence[], scoped: Instru
     {
       name: "Every step's checks",
       ok: steps.size ? stepsOk : null,
-      note: steps.size ? `${[...steps.values()].filter((e) => e.ok).length} of ${steps.size} steps green` : "no step checks recorded",
+      note: steps.size ? `${[...steps.values()].filter((e) => e.ok).length} of ${plural(steps.size, "step")} green` : "no step checks recorded",
     },
     {
       name: "Prove on the candidate",
@@ -203,7 +204,7 @@ function integrity(i: InstrumentInputs, ev: InstrumentEvidence[], scoped: Instru
     state: failed ? "Needs a look" : condition === "verified" ? "Verified" : "Incomplete",
     headline: `${passed}/${checks.length}`,
     facts: [
-      `${scoped ? "This item" : `Live: #${target.number} ${target.title}`}`.slice(0, 90),
+      `${scoped ? "" : "Live: "}#${target.number} ${target.title}`.slice(0, 90),
       ...checks.map((c) => `${c.ok === true ? "✓" : c.ok === false ? "✗" : "○"} ${c.name}: ${c.note}`),
     ].slice(0, 4),
     source: newest ? `${newest.kind.replace("_", " ")} evidence on #${target.number}` : null,
@@ -337,6 +338,46 @@ function changes(i: InstrumentInputs, ev: InstrumentEvidence[]): Reading {
   };
 }
 
+/** The code census Prove records on each candidate (F3c): size, shape and where complexity concentrates. */
+function censusReading(i: InstrumentInputs, ev: InstrumentEvidence[]): Reading {
+  const base = { id: "census", face: "site" as const, label: "Code census" };
+  const runs = ev.filter((e) => e.kind === "census").sort(byTime).flatMap((e) => {
+    const c = readCensus(e.detail);
+    return c ? [{ e, c }] : [];
+  });
+  const last = runs.at(-1);
+  if (!last) {
+    return {
+      ...base, condition: "unverified", state: "Not counted yet", headline: null, unit: "", change: null,
+      facts: ["Prove counts functions, components, routes and files on each candidate; none has run since this was connected."],
+      trend: [], source: null, observedAt: null, evidence: null,
+    };
+  }
+  const { e, c } = last;
+  const weekAgo = [...runs].filter((r) => ms(r.e.at) <= ms(i.now) - 7 * DAY).at(-1);
+  const grew = weekAgo ? c.functions - weekAgo.c.functions : null;
+  const stale = ms(i.now) - ms(e.at) > STALE_DAYS * DAY;
+  const top = c.hotspots[0];
+  return {
+    ...base,
+    condition: stale ? "unverified" : "verified",
+    state: stale ? "Stale" : "Counted",
+    headline: c.functions.toLocaleString("en-US"),
+    unit: "functions",
+    change: grew == null ? null : grew === 0 ? "no change this week" : `${grew > 0 ? "+" : ""}${grew} this week`,
+    ...(stale && { stale: true }),
+    facts: [
+      `${plural(c.components, "component")} · ${plural(c.routes, "route")} · ${plural(c.files, "source file")}`,
+      `${c.lines.toLocaleString("en-US")} lines of code · ${plural(c.tests, "test file")}`,
+      top ? `Most branching: ${top.path} (${top.branches} branch points in ${top.lines} lines)` : "No branching code found",
+    ],
+    trend: runs.slice(-12).map((r) => r.c.functions),
+    source: `Prove on ${short(e.commit) ?? "the candidate"}`,
+    observedAt: e.at,
+    evidence: e.work ? { href: "workItem", number: e.work, label: `Open #${e.work}` } : null,
+  };
+}
+
 // ── Crew face ────────────────────────────────────────────────────────────────
 export const CREW_FACE = [
   { id: "lead", label: "Team Lead", actor: "Team Lead" },
@@ -408,14 +449,14 @@ export function buildInstruments(i: InstrumentInputs): Instruments {
   const ledger = inScope(i.ledger);
 
   const site: Reading[] = scoped
-    ? [integrity(i, ev, scoped), tests(i, ev), inFlight(i, scoped), changes(i, ev)]
+    ? [integrity(i, ev, scoped), tests(i, ev), inFlight(i, scoped), changes(i, ev), censusReading(i, ev)]
     : [
         integrity(i, ev, null),
         tests(i, ev),
         inFlight(i, null),
         delivery(i, ev),
         changes(i, ev),
-        notConnected("census", "Code census", "Prove will count functions, components, routes and files on each candidate (next slice)."),
+        censusReading(i, ev),
         notConnected("lighthouse", "Lighthouse", "Performance, accessibility and SEO scores aren't connected to the cockpit yet."),
         notConnected("uptime", "Uptime", "No production monitor is connected yet."),
         notConnected("errors", "Errors", "Production error logs aren't connected yet."),

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { readAssessment, type JobContext } from "@accelerator/domain";
+import { census, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
 
 import { secrets, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
@@ -162,7 +162,8 @@ export async function prove(ctx: JobContext, log: Log) {
   log.status("Prove: typecheck, tests and the production build");
   const c = await fullChecks(dir, env, log);
   const commit = await headSha(dir);
-  const result = { kind: "prove" as const, branch, commit, previewUrl: null as string | null, previewStatus: null as number | null };
+  const counted = await codeCensus(dir, log);
+  const result = { kind: "prove" as const, branch, commit, previewUrl: null as string | null, previewStatus: null as number | null, ...(counted && { census: counted }) };
   const facts = { typecheck: c.typecheck, build: c.build, tests: c.tests, pushed: false, previewState: "skipped" };
   if (!c.ok) return { ...result, facts }; // don't publish a preview of code that fails its checks
 
@@ -177,6 +178,30 @@ export async function prove(ctx: JobContext, log: Log) {
   const previewStatus = d.url ? await probe(d.url) : null;
   log.check(d.url ? `Preview ${d.state}: ${d.url} (answers ${previewStatus ?? "nothing"})` : `No preview (${d.state})`);
   return { ...result, facts, previewUrl: d.url, previewStatus };
+}
+
+/**
+ * The code census on the candidate (gen2-crew.md §19.5): tracked source only,
+ * so dependencies and build output never count. A measurement, so a failure
+ * here is logged and never fails Prove.
+ */
+async function codeCensus(dir: string, log: Log): Promise<Census | null> {
+  try {
+    const listed = await git("ls-files", dir);
+    if (listed.code !== 0) throw new Error(tail(listed.out, 200));
+    const paths = listed.out.split(/\r?\n/).map((p) => p.trim()).filter((p) => p && isCensusSource(p)).slice(0, 20_000);
+    const files = paths.flatMap((path) => {
+      const full = join(dir, path);
+      if (!existsSync(full) || statSync(full).size > 512_000) return []; // skip giant generated files
+      return [{ path, text: readFileSync(full, "utf8") }];
+    });
+    const c = census(files);
+    log.check(`Code census: ${c.functions} functions, ${c.components} components, ${c.routes} routes, ${c.files} files, ${c.lines} lines`);
+    return c;
+  } catch (err) {
+    log.check(`Code census skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 /**

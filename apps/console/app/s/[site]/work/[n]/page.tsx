@@ -14,7 +14,10 @@ export default async function WorkItemPage({
 }) {
   const { site, n } = await params;
   const { can, staff, membership, role } = await siteAccess(site);
-  const detail = await (await serverApi()).work
+  const api = await serverApi();
+  // The item's own dial: a read that fails leaves the dial out, never the page.
+  const instruments = api.instruments(site, Number(n)).catch(() => null);
+  const detail = await api.work
     .studio(site, Number(n))
     .catch((err) => {
       if (err instanceof ApiError && (err.status === 400 || err.status === 404))
@@ -27,6 +30,7 @@ export default async function WorkItemPage({
       siteId={site}
       initial={detail.detail}
       initialStudio={detail.studio}
+      instruments={await instruments}
       access={{ via: membership.via, role }}
       canAsk={detail.studio.source !== "sample" && can("request.create")}
       canApprove={

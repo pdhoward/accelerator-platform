@@ -16,7 +16,7 @@ import { ReadingCard } from "./reading-card";
  * resting on what needs attention first, and the card for the selected
  * measure. Refreshes from records; never invents a reading.
  */
-export function CockpitPanel({ siteId, initial, number }: { siteId: string; initial: InstrumentsResponse; number?: number }) {
+export function CockpitPanel({ siteId, initial, number, compact = false }: { siteId: string; initial: InstrumentsResponse; number?: number; compact?: boolean }) {
   const [data, setData] = useState(initial);
   const [face, setFace] = useState<Face>(initial.rest.face);
   const [picked, setPicked] = useState<Record<Face, number>>(() => ({
@@ -84,7 +84,7 @@ export function CockpitPanel({ siteId, initial, number }: { siteId: string; init
             · {counts.verified} verified · {counts.missing} not connected
           </p>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className={cx("flex flex-wrap items-center gap-2", !compact && "ml-auto")}>
           <div role="radiogroup" aria-label="Dial face" className="flex rounded-lg border border-line-2 bg-panel p-0.5 text-[12.5px]">
             {(
               [
@@ -146,8 +146,8 @@ export function CockpitPanel({ siteId, initial, number }: { siteId: string; init
           </table>
         </div>
       ) : (
-        <div className="grid items-center gap-6 px-5 py-6 lg:grid-cols-[minmax(260px,340px)_1fr]">
-          <div className="flex flex-col items-center gap-3">
+        <div className={cx("grid items-center gap-6 px-5 py-6", !compact && "lg:grid-cols-[minmax(260px,340px)_1fr]")}>
+          <div className={cx("flex flex-col items-center gap-3", compact && "mx-auto w-full max-w-[280px]")}>
             <CockpitDial key={face} readings={readings} index={index} onIndex={choose} label={`${face === "site" ? "Site" : "Crew"} measures`} />
             <p className="text-center text-[11.5px] text-mist">Turn the dial: drag, arrow keys or scroll · tap a segment to jump</p>
           </div>

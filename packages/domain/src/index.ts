@@ -3,6 +3,8 @@ export * from "./gates";
 export * from "./loop";
 export * from "./metrics";
 export * from "./permissions";
+export * from "./census";
+export * from "./cockpit";
 export * from "./complexity";
 export * from "./decisions";
 export * from "./instruments";

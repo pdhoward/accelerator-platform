@@ -32,7 +32,7 @@ describe("time words", () => {
 describe("missing is never zero", () => {
   it("shows unconnected measures as not connected, with no number", () => {
     const { site } = buildInstruments(inputs({}));
-    for (const id of ["census", "lighthouse", "uptime", "errors", "budget"]) {
+    for (const id of ["lighthouse", "uptime", "errors", "budget"]) {
       expect(read(site, id)).toMatchObject({ condition: "not_connected", state: "Not connected", headline: null });
     }
   });
@@ -151,6 +151,27 @@ describe("crew face", () => {
   });
 });
 
+describe("code census", () => {
+  const counted = (hoursAgo: number, functions: number) =>
+    ev({ kind: "census", at: at(hoursAgo), commit: "c3n5u5aa", detail: { files: 40, lines: 5200, functions, components: 18, routes: 6, tests: 9, hotspots: [{ path: "lib/pricing.ts", branches: 31, lines: 120 }] } });
+  it("reads the latest census with its growth and its most branching file", () => {
+    const r = read(buildInstruments(inputs({ evidence: [counted(9 * DAY, 300), counted(2, 312)] })).site, "census");
+    expect(r).toMatchObject({ condition: "verified", state: "Counted", headline: "312", unit: "functions", change: "+12 this week", source: "Prove on c3n5u5aa" });
+    expect(r.facts).toEqual([
+      "18 components · 6 routes · 40 source files",
+      "5,200 lines of code · 9 test files",
+      "Most branching: lib/pricing.ts (31 branch points in 120 lines)",
+    ]);
+  });
+  it("says not counted yet, with no number, before the first census", () => {
+    expect(read(buildInstruments(inputs({})).site, "census")).toMatchObject({ condition: "unverified", state: "Not counted yet", headline: null });
+  });
+  it("ignores a malformed census rather than showing invented numbers", () => {
+    const bad = ev({ kind: "census", at: at(1), detail: { files: "lots" } });
+    expect(read(buildInstruments(inputs({ evidence: [bad] })).site, "census").headline).toBeNull();
+  });
+});
+
 describe("where the dial rests", () => {
   it("rests on what needs attention first", () => {
     const i = buildInstruments(inputs({ evidence: [ev({ kind: "prove", at: at(1), total: 10, passed: 8, failed: 2 })] }));
@@ -182,7 +203,7 @@ describe("a Work item's own dial", () => {
         evidence: [ev({ kind: "prove", at: at(1), total: 9, passed: 9, work: 1 }), ev({ kind: "prove", at: at(2), total: 7, passed: 7, work: 2 })],
       }),
     );
-    expect(i.site.map((r) => r.id)).toEqual(["integrity", "tests", "flight", "changes"]);
+    expect(i.site.map((r) => r.id)).toEqual(["integrity", "tests", "flight", "changes", "census"]);
     expect(read(i.site, "tests").headline).toBe("7");
   });
 });

@@ -63,11 +63,16 @@ export async function invalidate(w: Scope, kinds: string[], reason: string) {
 /** One check run, bound to the exact candidate; also a ledger entry (a contribution when it passed). */
 export async function evidence(
   w: Scope,
-  e: { kind: "step_checks" | "prove" | "release"; ok: boolean; commit?: string | null; tests?: { passed: number; failed: number; total: number } | null; jobId?: string; stepId?: string; detail?: Row; actor: Actor; summary: string },
+  e: {
+    kind: "step_checks" | "prove" | "release" | "census"; ok: boolean; commit?: string | null; tests?: { passed: number; failed: number; total: number } | null;
+    jobId?: string; stepId?: string; detail?: Row; actor: Actor; summary: string;
+    /** A contribution on the graph (§21.5); defaults to `ok`. Measurements such as the census aren't contributions. */
+    counts?: boolean;
+  },
 ) {
   const row = await write("acc_evidence", {
     org_id: w.org_id, site_id: w.site_id, work_id: w.id ?? null, job_id: e.jobId ?? null, step_id: e.stepId ?? null, kind: e.kind,
     commit_sha: e.commit ?? null, ok: e.ok, passed: e.tests?.passed ?? null, failed: e.tests?.failed ?? null, total: e.tests?.total ?? null, detail: e.detail ?? {},
   });
-  await record(w, { kind: e.kind, actor: e.actor, summary: e.summary, counts: e.ok, refs: { evidence: row?.id ?? null, commit: e.commit ?? null, job: e.jobId ?? null, step: e.stepId ?? null } });
+  await record(w, { kind: e.kind, actor: e.actor, summary: e.summary, counts: e.counts ?? e.ok, refs: { evidence: row?.id ?? null, commit: e.commit ?? null, job: e.jobId ?? null, step: e.stepId ?? null } });
 }

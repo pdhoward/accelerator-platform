@@ -249,11 +249,44 @@ try {
     (await page.getByRole("button", { name: "Ship it", exact: true }).count()) === 0,
     "sample cannot ship",
   );
-  await page.getByRole("button", { name: "Design v1", exact: true }).click();
-  await page
-    .getByRole("heading", { name: "Mobile quote journey", exact: true })
-    .waitFor();
+  // ── The Work item cockpit (gen2-crew.md §19, F3d) ────────────────────────────
+  const where = page.getByRole("list", { name: "Where we are" });
+  check(
+    (await where.getByRole("listitem").allTextContents()).map((t) => t.split(":")[0]).join(" > ") ===
+      "Understood > Design approved > Plan approved > Built and checked > Proven > Preview approved > Live",
+    "where-we-are shows the High tier's milestones in order",
+  );
+  check(
+    (await where.locator("[aria-current=step]").textContent())?.startsWith("Preview approved"),
+    "the current milestone is the preview approval",
+  );
+  const itemDial = page.getByRole("slider", { name: "Site measures" });
+  check(
+    (await itemDial.getAttribute("aria-valuetext"))?.startsWith("State integrity: 2/2 required checks"),
+    "the item's own dial reads its candidate's required checks",
+  );
+  check(
+    await page.getByRole("button", { name: "Open Proof and release" }).isVisible(),
+    "documents appear as cards",
+  );
+  await page.getByRole("button", { name: "Open Design v1", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Design v1" });
+  await drawer.getByRole("heading", { name: "Mobile quote journey", exact: true }).waitFor();
   checks++;
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(artifacts, "work-drawer.png") });
+  await page.keyboard.press("Escape");
+  await drawer.waitFor({ state: "hidden" });
+  check(
+    await page.getByRole("button", { name: "Open Design v1", exact: true }).evaluate((el) => el === document.activeElement),
+    "closing the drawer returns focus to its card",
+  );
+  await page.getByRole("complementary", { name: "Where the work stands" }).scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(artifacts, "work-cockpit.png") });
+  await itemDial.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(artifacts, "work-dial.png") });
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await page
     .getByRole("button", { name: "Mission Control", exact: true })
     .click();
@@ -287,12 +320,15 @@ try {
   await page
     .getByRole("button", { name: "Delivery Studio", exact: true })
     .click();
+  await page.getByRole("button", { name: "Open Design v1", exact: true }).click();
   check(
     await page
+      .getByRole("dialog", { name: "Design v1" })
       .getByRole("heading", { name: "Mobile quote journey", exact: true })
       .isVisible(),
-    "artifact selection survives lens switching",
+    "documents stay one click away after lens switching",
   );
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Replay this improvement", exact: true })
     .click();

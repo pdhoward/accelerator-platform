@@ -31,6 +31,9 @@ import {
   safeWebUrl,
   WORKSPACE_LENSES,
   type WorkspaceLens,
+  artifactCards,
+  progressFor,
+  type InstrumentsResponse,
   type StudioSnapshot,
   type AutoAction,
   canSetComplexity,
@@ -47,10 +50,12 @@ import {
 import { browserApi } from "@/lib/browser-api";
 
 import { inputClass } from "./action-form";
-import { Markdown, Rail, StepIcon } from "./flywheel";
+import { Markdown, StepIcon } from "./flywheel";
 import { button, Card, Chip, cx, Eyebrow, PageHeader } from "./ui";
 import { EngineerOnly, useUi } from "./ui-provider";
 
+import { CockpitPanel } from "./cockpit/cockpit-panel";
+import { DocDrawer, DocumentCards, WhereWeAre } from "./cockpit/work-sidebar";
 import { ActivityRibbon } from "./workspace/activity-ribbon";
 import { ImprovementReplay } from "./workspace/improvement-replay";
 import { MissionControl } from "./workspace/mission-control";
@@ -58,13 +63,13 @@ import { ProofLab } from "./workspace/proof-lab";
 
 type Tab = "design" | "plan" | "ship" | "log";
 
-/** Stops after Build: their artifacts live on the "Prove & release" tab. */
-const SHIP_STAGES = ["prove", "try", "release", "learn", "done"];
 
 /**
- * One Work item: the conversation (left) never goes away; the right side is
- * whatever the current stop produces (design · plan · prove & release · live
- * log). The page refreshes itself while the engine works.
+ * One Work item as a cockpit (gen2-crew.md §19, F3d): the conversation in the
+ * centre, never away; beside it, where the work stands (sized to its tier),
+ * the item's own dial and its documents as cards that open in a drawer. The
+ * lenses, replay controls and activity ribbon sit under Details. The page
+ * refreshes itself while the crew works.
  */
 export function WorkRoom({
   siteId,
@@ -74,10 +79,13 @@ export function WorkRoom({
   canAsk,
   canApprove,
   canShip,
+  instruments,
 }: {
   siteId: string;
   initial: WorkDetail;
   initialStudio: StudioSnapshot;
+  /** The item's own Cockpit Dial readings (null when they couldn't be read). */
+  instruments: InstrumentsResponse | null;
   access: { via: AccessVia; role: Role };
   canAsk: boolean;
   canApprove: boolean;
@@ -90,7 +98,8 @@ export function WorkRoom({
   const [motionPaused, setMotionPaused] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
   const refreshing = useRef(false);
-  const [tab, setTab] = useState<Tab>(defaultTab(initial));
+  const [drawer, setDrawer] = useState<Tab | null>(null);
+  const [details, setDetails] = useState(false);
   const [busy, setBusy] = useState(false);
   const { toast } = useUi();
   const n = d.work.number;
@@ -125,42 +134,6 @@ export function WorkRoom({
     return () => clearInterval(t);
   }, [refresh, working]);
 
-  // Follow the rail: when a new design or plan lands, show it.
-  const seen = useRef({
-    designs: d.designs.length,
-    steps: d.steps.length,
-    job: job?.id,
-    active: working,
-  });
-  useEffect(() => {
-    if (d.designs.length > seen.current.designs) setTab("design");
-    else if (d.steps.length !== seen.current.steps && d.steps.length)
-      setTab("plan");
-    const active = job && (job.status === "queued" || job.status === "running");
-    if (
-      job?.id !== seen.current.job &&
-      active &&
-      (job.kind === "build_step" ||
-        job.kind === "prove" ||
-        job.kind === "release")
-    )
-      setTab("log");
-    // When Prove or Release finishes, show what it found.
-    if (
-      job &&
-      !active &&
-      job.id === seen.current.job &&
-      seen.current.active &&
-      (job.kind === "prove" || job.kind === "release")
-    )
-      setTab("ship");
-    seen.current = {
-      designs: d.designs.length,
-      steps: d.steps.length,
-      job: job?.id,
-      active: !!active,
-    };
-  }, [d, job]);
 
   async function act(fn: () => Promise<unknown>, done?: string) {
     setBusy(true);
@@ -256,49 +229,48 @@ export function WorkRoom({
             current state is unknown. Automatic refresh will retry.
           </p>
         )}
-        <section className="rounded-2xl border border-violet/30 bg-gradient-to-r from-violet/10 via-panel to-cyan/5 p-5">
-          <Eyebrow>What you intended. What you approved. Delivered.</Eyebrow>
-          <p className="mt-3 max-w-4xl text-lg leading-relaxed">
-            {studio.summary}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <nav
-              className="flex flex-wrap gap-1 rounded-xl border border-line bg-bg/40 p-1"
-              aria-label="Workspace lens"
-            >
-              {WORKSPACE_LENSES.map((l) => (
-                <button
-                  key={l.id}
-                  type="button"
-                  aria-pressed={lens === l.id}
-                  title={l.description}
-                  onClick={() => setLens(l.id)}
-                  className={button(lens === l.id ? "gold" : "ghost")}
-                >
-                  {l.title}
-                </button>
-              ))}
-            </nav>
-            <button
-              type="button"
-              className={button("plain")}
-              onClick={() => setReplayOpen(true)}
-            >
-              <Play className="size-4" /> Replay this improvement
-            </button>
-            <button
-              type="button"
-              className={button("ghost")}
-              aria-pressed={motionPaused}
-              onClick={() => setMotionPaused((p) => !p)}
-            >
-              {motionPaused ? "Resume visual motion" : "Pause visual motion"}
-            </button>
+        <section className="rounded-2xl border border-violet/30 bg-gradient-to-r from-violet/10 via-panel to-cyan/5 px-5 py-4">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <Eyebrow>What you intended. What you approved. Delivered.</Eyebrow>
+              <p className="mt-2 max-w-4xl text-[15px] leading-relaxed">{studio.summary}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className={button("plain")} onClick={() => setReplayOpen(true)}>
+                <Play className="size-4" /> Replay this improvement
+              </button>
+              <button type="button" className={button("ghost")} aria-expanded={details} onClick={() => setDetails((v) => !v)}>
+                {details ? "Hide details" : "Details"}
+              </button>
+            </div>
           </div>
-          <p className="mt-3 text-xs text-mist">
-            Last received {timestamp(studio.observedAt)} · switching lenses
-            changes presentation, never permissions.
-          </p>
+          {details && (
+            <div className="mt-4 flex flex-col gap-3 border-t border-line/70 pt-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <nav className="flex flex-wrap gap-1 rounded-xl border border-line bg-bg/40 p-1" aria-label="Workspace lens">
+                  {WORKSPACE_LENSES.map((l) => (
+                    <button
+                      key={l.id}
+                      type="button"
+                      aria-pressed={lens === l.id}
+                      title={l.description}
+                      onClick={() => setLens(l.id)}
+                      className={button(lens === l.id ? "gold" : "ghost")}
+                    >
+                      {l.title}
+                    </button>
+                  ))}
+                </nav>
+                <button type="button" className={button("ghost")} aria-pressed={motionPaused} onClick={() => setMotionPaused((p) => !p)}>
+                  {motionPaused ? "Resume visual motion" : "Pause visual motion"}
+                </button>
+              </div>
+              <ActivityRibbon studio={studio} paused={motionPaused} />
+              <p className="text-xs text-mist">
+                Last received {timestamp(studio.observedAt)} · switching lenses changes presentation, never permissions.
+              </p>
+            </div>
+          )}
         </section>
         {decisionNotice && (
           <section
@@ -332,7 +304,6 @@ export function WorkRoom({
             </p>
           </section>
         )}
-        <ActivityRibbon studio={studio} paused={motionPaused} />
         {replayOpen && (
           <ImprovementReplay
             studio={studio}
@@ -343,30 +314,26 @@ export function WorkRoom({
           <MissionControl
             studio={studio}
             inspect={(target) => {
-              setTab(target);
               setLens("studio");
+              setDrawer(target);
             }}
           />
         )}
         {lens === "proof" && <ProofLab studio={studio} />}
-        <div hidden={lens !== "studio"}>
-          {install ? (
+        <div hidden={lens !== "studio"} className="flex flex-col gap-4">
+          {install && (
             <p className="text-[13px] text-fog">
-              The installation conversation: ask the engine about anything on
-              the Setup page. It sees the checklist, the checkout log and which
-              keys are set (never their values), and can read the code.
+              The installation conversation: ask the engine about anything on the Setup page. It sees the checklist, the checkout log and which keys
+              are set (never their values), and can read the code.
             </p>
-          ) : (
-            <Rail stage={d.work.stage} />
           )}
 
           {d.work.kind === "change" && !closed && (
-            <div className="mb-3">
-              <ComplexityControl d={d} canSet={canApprove && studio.source !== "sample" && !d.work.released} busy={busy} act={act} siteId={siteId} />
-            </div>
+            <ComplexityControl d={d} canSet={canApprove && studio.source !== "sample" && !d.work.released} busy={busy} act={act} siteId={siteId} />
           )}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,4fr)_minmax(0,7fr)]">
+          {/* The cockpit: the conversation in the centre, where the work is beside it. */}
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(340px,1fr)]">
             <Thread
               d={d}
               working={working}
@@ -384,107 +351,36 @@ export function WorkRoom({
                     canShip={canShip}
                     mayApproveTry={mayApproveTry}
                     busy={busy}
-                    onTab={setTab}
+                    onTab={setDrawer}
                     act={act}
                     siteId={siteId}
                   />
                 )
               }
             />
-
-            <Card className="flex min-h-[520px] flex-col">
-              <nav
-                aria-label="Work item documents"
-                className="flex flex-wrap gap-1 border-b border-line px-3 pt-3"
-              >
-                {(
-                  [
-                    [
-                      "design",
-                      `Design${latest ? ` v${latest.version}` : ""}`,
-                      FileText,
-                    ],
-                    [
-                      "plan",
-                      `Plan${d.steps.length ? ` · ${d.steps.filter((s) => s.status === "done").length}/${d.steps.length}` : ""}`,
-                      ListChecks,
-                    ],
-                    ["ship", "Prove & release", Rocket],
-                    ["log", "Live log", ScrollText],
-                  ] as const
-                )
-                  .filter(([id]) => !install || id === "log")
-                  .map(([id, label, Icon]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setTab(id)}
-                      aria-pressed={tab === id}
-                      className={cx(
-                        "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px]",
-                        tab === id
-                          ? "border-gold text-ink"
-                          : "border-transparent text-fog hover:text-ink",
-                      )}
-                    >
-                      <Icon className="size-4" /> {label}
-                    </button>
-                  ))}
-              </nav>
-              <div className="flex-1 overflow-y-auto p-4">
-                {tab === "design" && (
-                  <DesignPanel
-                    d={d}
-                    canAsk={canAsk && !closed && d.actions.draftDesign}
-                    canApprove={canApprove && !closed}
-                    busy={busy || working}
-                    siteId={siteId}
-                    act={act}
-                  />
-                )}
-                {tab === "plan" && (
-                  <PlanPanel
-                    d={d}
-                    canAsk={canAsk && !closed}
-                    canApprove={canApprove && !closed}
-                    busy={busy || working}
-                    siteId={siteId}
-                    act={act}
-                    next={next}
-                  />
-                )}
-                {tab === "ship" && <ShipPanel d={d} />}
-                {tab === "log" && <LogPanel d={d} />}
-              </div>
-            </Card>
+            <aside aria-label="Where the work stands" className="flex flex-col gap-4">
+              {!install && <WhereWeAre milestones={progressFor(d)} complexity={d.work.complexity} />}
+              {!install && instruments && <CockpitPanel siteId={siteId} number={n} initial={instruments} compact />}
+              <DocumentCards cards={install ? artifactCards(d).filter((c) => c.id === "log") : artifactCards(d)} onOpen={setDrawer} />
+            </aside>
           </div>
         </div>
+        {drawer && (
+          <DocDrawer
+            title={drawer === "design" ? `${d.work.complexity === "medium" ? "Brief" : "Design"}${latest ? ` v${latest.version}` : ""}` : drawer === "plan" ? "Plan" : drawer === "ship" ? "Proof and release" : "Live log"}
+            onClose={() => setDrawer(null)}
+          >
+            {drawer === "design" && (
+              <DesignPanel d={d} canAsk={canAsk && !closed && d.actions.draftDesign} canApprove={canApprove && !closed} busy={busy || working} siteId={siteId} act={act} />
+            )}
+            {drawer === "plan" && <PlanPanel d={d} canAsk={canAsk && !closed} canApprove={canApprove && !closed} busy={busy || working} siteId={siteId} act={act} next={next} />}
+            {drawer === "ship" && <ShipPanel d={d} />}
+            {drawer === "log" && <LogPanel d={d} />}
+          </DocDrawer>
+        )}
       </div>
     </>
   );
-}
-
-function defaultTab(d: WorkDetail): Tab {
-  if (d.work.kind === "install") return "log";
-  const j = d.jobs[0];
-  if (
-    j &&
-    (j.kind === "build_step" || j.kind === "prove" || j.kind === "release") &&
-    (j.status === "queued" || j.status === "running")
-  )
-    return "log";
-  if (
-    SHIP_STAGES.includes(d.work.stage) &&
-    (d.work.proof || d.work.stage !== "prove")
-  )
-    return "ship";
-  if (
-    d.work.stage === "plan" ||
-    d.work.stage === "build" ||
-    d.work.stage === "prove"
-  )
-    return "plan";
-  return "design";
 }
 
 function RunnerBadge({ online }: { online: boolean }) {
