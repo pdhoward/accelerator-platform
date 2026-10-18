@@ -5,6 +5,7 @@ export * from "./metrics";
 export * from "./permissions";
 export * from "./complexity";
 export * from "./decisions";
+export * from "./instruments";
 export * from "./domains";
 export * from "./flywheel";
 export * from "./tenancy";

@@ -14,18 +14,22 @@ import {
   WORK_TERMINAL_LABEL,
   RAIL_LABEL,
   type BriefingResponse,
+  type InstrumentsResponse,
 } from "@accelerator/domain";
 import { browserApi } from "@/lib/browser-api";
+import { CockpitPanel } from "../cockpit/cockpit-panel";
 import { button, Card, Chip, Eyebrow, Page, PageHeader } from "../ui";
 
 /** Executive view of recorded Work progress and review points, with explicit unknowns. */
 export function ExecutiveBriefing({
   siteId,
   initial,
+  instruments,
   canCreate,
 }: {
   siteId: string;
   initial: BriefingResponse;
+  instruments: InstrumentsResponse;
   canCreate: boolean;
 }) {
   const [b, setB] = useState(initial);
@@ -157,38 +161,7 @@ export function ExecutiveBriefing({
             </p>
           </div>
         </section>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            [
-              "Active improvements",
-              b.active,
-              "Open change records; installations excluded",
-            ],
-            [
-              "Review points",
-              b.decisions.length,
-              "Review the artifact; server policy decides authority",
-            ],
-            [
-              "Recorded releases",
-              b.delivered,
-              "Successful release records; not verified business gains",
-            ],
-            [
-              "Protected changes",
-              b.protected,
-              "Active money, data, authentication or security scope",
-            ],
-          ].map(([label, value, note]) => (
-            <Card key={label} className="p-5">
-              <Eyebrow>{label}</Eyebrow>
-              <p className="my-3 text-4xl font-semibold tabular-nums">
-                {value}
-              </p>
-              <p className="text-xs leading-relaxed text-fog">{note}</p>
-            </Card>
-          ))}
-        </div>
+        <CockpitPanel siteId={siteId} initial={instruments} />
         <div className="grid gap-5 xl:grid-cols-[1.4fr_1fr]">
           <Card className="p-5">
             <div className="mb-4 flex items-center justify-between">

@@ -1,5 +1,6 @@
 import type {
   BriefingResponse,
+  InstrumentsResponse,
   StudioResponse,
   AccessVia,
   Account,
@@ -118,6 +119,9 @@ export function createApiClient({
 
     briefing: (siteId: string) =>
       call<BriefingResponse>(`${site(siteId)}/briefing`),
+    /** The Cockpit Dial's readings for the site, or for one Work item (gen2-crew.md §19.5). */
+    instruments: (siteId: string, n?: number) =>
+      call<InstrumentsResponse>(n == null ? `${site(siteId)}/instruments` : `${site(siteId)}/work/${n}/instruments`),
 
     bridge: (siteId: string) => call<Bridge>(`${site(siteId)}/bridge`),
 

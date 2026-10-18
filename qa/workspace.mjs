@@ -128,6 +128,98 @@ try {
     path: path.join(artifacts, "executive-briefing.png"),
     fullPage: true,
   });
+
+  // ── The Cockpit Dial (gen2-crew.md §19.5) ──────────────────────────────────
+  const dial = page.getByRole("slider", { name: "Site measures" });
+  const card = () => page.locator("article[aria-labelledby^='reading-'] h3");
+  check(await dial.isVisible(), "cockpit dial visible on the briefing");
+  check(
+    (await card().textContent()) === "State integrity",
+    "dial rests on state integrity when nothing needs attention",
+  );
+  check(
+    (await dial.getAttribute("aria-valuetext"))?.startsWith("State integrity: Not established"),
+    "no release yet is reported as not established, not as a score",
+  );
+  await dial.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction(
+    () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Tests",
+  );
+  check(
+    (await dial.getAttribute("aria-valuetext")) === "Tests: 18 of 18 passing, verified",
+    "arrow key turns the dial to Tests and the card follows",
+  );
+  await page.keyboard.press("End");
+  check((await card().textContent()) === "Budget", "End jumps to the last measure");
+  check(
+    (await dial.getAttribute("aria-valuetext")) === "Budget: Not connected, not connected",
+    "an unconnected measure says so, with no number",
+  );
+  // Drag the ring two segments clockwise (72° on a 10-segment face): Budget → Uptime. Start from rest.
+  await page.waitForTimeout(800);
+  const box = await dial.boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const rr = box.width * 0.35;
+  const at = (deg) => [cx + rr * Math.sin((deg * Math.PI) / 180), cy - rr * Math.cos((deg * Math.PI) / 180)];
+  check((await dial.getAttribute("data-angle")) === "36", "the ring has turned so Budget sits under the pointer");
+  await page.mouse.move(...at(-36));
+  await page.mouse.down();
+  for (let deg = -32; deg <= 36; deg += 4) await page.mouse.move(...at(deg));
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.waitForFunction(
+    () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Uptime",
+  );
+  checks++;
+  // Tap the segment at three o'clock: it comes to the top.
+  await page.waitForTimeout(700);
+  await page.mouse.click(...at(90).map((v, k) => (k === 0 ? v + box.width * 0.02 : v)));
+  await page.waitForFunction(
+    () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent !== "Uptime",
+  );
+  checks++;
+  await page.keyboard.press("End");
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(artifacts, "cockpit-site.png") });
+  await page.getByRole("radio", { name: "Crew" }).click();
+  const crewDial = page.getByRole("slider", { name: "Crew measures" });
+  await crewDial.focus();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForFunction(
+    () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Builder",
+  );
+  check(
+    await page.getByRole("img", { name: /Work landed vs usual pace: 2 \/ 1; First-pass success: 67%/ }).isVisible(),
+    "crew card shows activity rings from ledger results",
+  );
+  check(
+    await page.getByRole("img", { name: "Builder: 2 evidence-backed contributions in 28 days" }).isVisible(),
+    "crew card shows the contribution row",
+  );
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(artifacts, "cockpit-crew.png") });
+  await page.getByRole("button", { name: "Show as list" }).click();
+  check(
+    (await page.locator("table tbody tr").count()) === 7,
+    "list view shows every crew measure as a row",
+  );
+  await page.getByRole("button", { name: "Show the dial" }).click();
+  await page.getByRole("radio", { name: "Site" }).click();
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    check(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      `briefing and cockpit have no horizontal overflow at ${width}`,
+    );
+  }
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: path.join(artifacts, "cockpit-390.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1050 });
   await page.getByRole("link", { name: /Review the preview/ }).click();
   await page
     .getByRole("button", { name: "Replay this improvement", exact: true })

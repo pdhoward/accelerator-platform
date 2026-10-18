@@ -212,6 +212,23 @@ export async function workDetail(site: Site, number: number): Promise<WorkDetail
   };
 }
 
+/**
+ * The decision waiting on a person for each active change item, and since when
+ * (the item's last change). Shared by the briefing and the Cockpit Dial so
+ * both count the same thing.
+ */
+export async function pendingDecisions(items: WorkItem[]): Promise<{ number: number; title: string; work: string; since: string }[]> {
+  const active = items.filter((w) => w.kind === "change" && w.stage !== "done" && w.stage !== "cancelled");
+  const found = await Promise.all(
+    active.map(async (w) => {
+      const p = await parts(w.id);
+      const pd = decisionFor(w, p, workActions(facts(w, p)));
+      return pd ? { number: w.number, title: pd.title, work: w.title, since: w.updatedAt } : null;
+    }),
+  );
+  return found.filter((x): x is NonNullable<typeof x> => !!x);
+}
+
 /** The one governance decision pending now, bound to the exact version or candidate (gen2-crew.md §17.4). */
 function decisionFor(work: WorkItem, p: Awaited<ReturnType<typeof parts>>, actions: ReturnType<typeof workActions>): PendingDecision | null {
   return pendingDecision({ complexity: work.complexity, risk: work.risk, latestDesignVersion: p.designs.at(-1)?.version ?? null, candidate: work.proof?.commit ?? null, actions });

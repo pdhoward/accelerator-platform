@@ -39,6 +39,30 @@ h1, h2, h3 {
   text-wrap: balance;
 }
 
+/* The Cockpit Dial (gen2-crew.md §19.5): the centre readout rolls in; a card rises. Used only under motion-safe. */
+@keyframes dial-roll {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 ::selection {
   background: color-mix(in oklab, var(--color-violet) 55%, transparent);
 }
