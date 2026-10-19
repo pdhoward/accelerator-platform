@@ -5,8 +5,8 @@ import { record } from "./ledger";
 import { db, rows, type Row } from "./supabase";
 
 /**
- * Retention (gen2-crew.md §21.4, traceability T4), run nightly by a scheduled
- * call. Per company: job logs older than the hot window move to compressed
+ * Retention (gen2-crew.md §21.4, traceability T4), run nightly by Supabase
+ * (pg_cron calling /api/cron/retention, migration 0011). Per company: job logs older than the hot window move to compressed
  * archives in private storage; archives past retention are deleted; draft
  * document versions beyond `drafts_kept` are pruned. Anything approved,
  * current or referenced by a decision is never touched, and every pruning is

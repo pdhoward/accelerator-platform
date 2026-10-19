@@ -3,8 +3,9 @@ import { timingSafeEqual } from "node:crypto";
 import { runRetention } from "@/lib/retention";
 
 /**
- * Nightly retention (gen2-crew.md §21.4). Called by Vercel Cron, which sends
- * `Authorization: Bearer $CRON_SECRET`; anything else is refused.
+ * Nightly retention (gen2-crew.md §21.4). Called by Supabase (pg_cron + pg_net,
+ * migration 0011), which sends `Authorization: Bearer <CRON_SECRET>` from
+ * Supabase Vault; anything else is refused.
  */
 export async function GET(request: Request) {
   const want = process.env.CRON_SECRET;
