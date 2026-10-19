@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FORBIDDEN, SECRET_FILE } from "./models";
+import { agentEnv, FORBIDDEN, SECRET_FILE } from "./models";
 import { isTestFile } from "./repo";
 import { parseManifest, parseTests } from "./sh";
 
@@ -57,4 +57,26 @@ ANTHROPIC_API_KEY=
   expect(m[0]).toEqual({ key: "MONGODB_URI", purpose: "Product catalog (MongoDB, read-only).", howToGet: "MongoDB Atlas → Database → Connect → Drivers." });
   expect(m[1]!.purpose).toBe("");
   expect(m[2]!.howToGet).toBe("console.anthropic.com → API keys.");
+});
+
+describe("agents never hold the runner's keys (gen2-crew.md §1.2)", () => {
+  const runner = {
+    PATH: "/usr/bin", HOME: "/home/r", TEMP: "/tmp", SystemRoot: "C:\Windows",
+    ANTHROPIC_API_KEY: "sk-ant-model", ANTHROPIC_WORKSPACE_ID: "ws",
+    RUNNER_TOKEN: "runner-secret", VAULT_KEY: "vault", GITHUB_TOKEN: "ghp", SUPABASE_SECRET_KEY: "sb", OPENAI_API_KEY: "sk-oai", TOOLBELT_SECRET: "tb",
+  };
+  it("passes the system essentials, the model's own key and the site's test values, nothing else", () => {
+    const env = agentEnv(runner, { MONGODB_URI: "mongodb://test-copy" });
+    expect(Object.keys(env).sort()).toEqual(["ANTHROPIC_API_KEY", "ANTHROPIC_WORKSPACE_ID", "HOME", "MONGODB_URI", "PATH", "SystemRoot", "TEMP"].sort());
+    for (const k of ["RUNNER_TOKEN", "VAULT_KEY", "GITHUB_TOKEN", "SUPABASE_SECRET_KEY", "OPENAI_API_KEY", "TOOLBELT_SECRET"]) expect(env[k]).toBeUndefined();
+  });
+  it("refuses dumping or echoing the environment, but not ordinary commands", () => {
+    const refused = (cmd: string) => FORBIDDEN.some(([re]) => re.test(cmd));
+    for (const cmd of ["printenv", "env", "env | grep KEY", "set", "export -p", "echo $ANTHROPIC_API_KEY", "echo ${GITHUB_TOKEN}", 'node -e "console.log(process.env)"', "cat /proc/self/environ", "Get-ChildItem env:", "$env:ANTHROPIC_API_KEY"]) {
+      expect(refused(cmd)).toBe(true);
+    }
+    for (const cmd of ["pnpm test", "pnpm typecheck", "set -e", "env NODE_ENV=test pnpm test", "echo done", "npx vitest run lib/rules.test.ts"]) {
+      expect(refused(cmd)).toBe(false);
+    }
+  });
 });

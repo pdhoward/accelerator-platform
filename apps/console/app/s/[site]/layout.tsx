@@ -1,3 +1,4 @@
+import { CommandComposer } from "@/components/command-composer";
 import { AppSidebar, SidebarContext, type NavGroup } from "@/components/sidebar";
 import { siteAccess, titleCase } from "@/lib/access";
 import { getBridge } from "@/lib/api";
@@ -5,7 +6,7 @@ import { authEnabled } from "@/lib/supabase";
 
 export default async function SiteLayout({ children, params }: { children: React.ReactNode; params: Promise<{ site: string }> }) {
   const { site: slug } = await params;
-  const { me, membership, role, staff } = await siteAccess(slug);
+  const { me, membership, role, staff, can } = await siteAccess(slug);
   const bridge = await getBridge(slug);
   const site = bridge.site;
   const base = `/s/${slug}`;
@@ -64,6 +65,8 @@ export default async function SiteLayout({ children, params }: { children: React
         signOutEnabled={authEnabled}
       />
       <main className="min-w-0 flex-1">{children}</main>
+      {/* ⌘K: ask the crew from anywhere (gen2-crew.md §17 F5); only where work can actually start. */}
+      {authEnabled && can("request.create") && <CommandComposer siteId={slug} />}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { readSse, type LeadStreamEvent } from "@accelerator/domain";
 import type {
   BriefingResponse,
   InstrumentsResponse,
@@ -89,6 +90,30 @@ export function createApiClient({
   }
   const post = <T>(path: string, data: unknown, method = "POST") =>
     call<T>(path, { method, body: JSON.stringify(data) });
+
+  /** Reads a server-sent event stream, handing each event on; throws ApiError on a refused request. */
+  async function stream(path: string, init: RequestInit, onEvent: (e: { type: string } & Record<string, unknown>) => void) {
+    const res = await fetch(`${baseUrl}/api${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", accept: "text/event-stream", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      cache: "no-store",
+    });
+    if (!res.ok || !res.body) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, (body as { error?: string }).error ?? `Request failed (${res.status})`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const { events, rest } = readSse(buffer);
+      buffer = rest;
+      for (const e of events) onEvent(e as { type: string } & Record<string, unknown>);
+    }
+  }
   const site = (siteId: string) => `/sites/${encodeURIComponent(siteId)}`;
 
   return {
@@ -210,6 +235,28 @@ export function createApiClient({
       ) => post<{ number: number }>(`${site(siteId)}/work`, input),
       get: (siteId: string, n: number) =>
         call<WorkDetail>(`${site(siteId)}/work/${n}`),
+      /**
+       * Say something and stream the Team Lead's answer (gen2-crew.md §17 F4):
+       * `onEvent` gets delta events as the words arrive, then done, handled
+       * (a typed command), queued (the runner answers) or error.
+       */
+      sayStream: (siteId: string, n: number, body: string, shown: string | undefined, onEvent: (e: LeadStreamEvent) => void, signal?: AbortSignal) =>
+        stream(`${site(siteId)}/work/${n}/messages/stream`, { method: "POST", body: JSON.stringify({ body, ...(shown && { shown }) }), signal }, (e) => onEvent(e as LeadStreamEvent)),
+      /**
+       * Pushed updates for one Work item (§17 F4): calls `onChange` whenever it
+       * changes, reconnecting as each stream ends, until `signal` aborts.
+       */
+      watch: async (siteId: string, n: number, onChange: () => void, signal: AbortSignal) => {
+        while (!signal.aborted) {
+          try {
+            await stream(`${site(siteId)}/work/${n}/events`, { method: "GET", signal }, (e) => e.type === "changed" && onChange());
+          } catch {
+            if (signal.aborted) return;
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          if (!signal.aborted) onChange(); // catch anything between streams
+        }
+      },
       /** `shown`: the key of the decision card on screen, so a typed "approve" binds to it (gen2-crew.md §17.4). */
       say: (siteId: string, n: number, body: string, shown?: string) =>
         post<{ ok: true }>(`${site(siteId)}/work/${n}/messages`, { body, ...(shown && { shown }) }),

@@ -4,7 +4,10 @@ import type { JobContext, JobEvent } from "@accelerator/domain";
  * The runner talks only to apps/api (never the database): claim a job,
  * stream events, report the result. The API decides what results mean.
  */
-const base = () => (process.env.RUNNER_API_URL ?? process.env.API_URL_LOCAL ?? "http://localhost:4001").replace(/\/$/, "");
+export const base = () => (process.env.RUNNER_API_URL ?? process.env.API_URL_LOCAL ?? "http://localhost:4001").replace(/\/$/, "");
+
+/** The Toolbelt's MCP endpoint on the API (gen2-crew.md §1.2). */
+export const toolbeltUrl = () => `${base()}/mcp`;
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const token = process.env.RUNNER_TOKEN;
@@ -25,7 +28,19 @@ export const claim = (runnerId: string, version: string) => post<{ context: JobC
 /** The site's development keys from the vault, for this running job. */
 export const secrets = (jobId: string) => post<{ env: Record<string, string> }>(`/jobs/${jobId}/secrets`, {});
 
-export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string }) => post(`/jobs/${jobId}/finish`, outcome);
+export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string; generation: number; sessionId?: string }) =>
+  post(`/jobs/${jobId}/finish`, outcome);
+
+/** Renews this job's claim (§14.1); false when the claim lapsed or was handed to another worker. */
+export async function renew(jobId: string, generation: number): Promise<boolean> {
+  try {
+    await post(`/jobs/${jobId}/renew`, { generation });
+    return true;
+  } catch (err) {
+    if (/: 409\b/.test((err as Error).message)) return false;
+    throw err;
+  }
+}
 
 type Event = { kind: JobEvent["kind"]; text: string; data?: unknown };
 

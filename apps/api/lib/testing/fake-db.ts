@@ -10,12 +10,13 @@
 type Row = Record<string, unknown>;
 type Filter = (r: Row) => boolean;
 
-export const fakeDb = { tables: {} as Record<string, Row[]>, seq: 0 };
+export const fakeDb = { tables: {} as Record<string, Row[]>, seq: 0, storage: {} as Record<string, Buffer> };
 
 /** Reset between tests, optionally seeding tables. */
 export function resetFakeDb(tables: Record<string, Row[]> = {}) {
   fakeDb.tables = tables;
   fakeDb.seq = 100;
+  fakeDb.storage = {};
 }
 
 /** A table's rows (created on first use). */
@@ -65,6 +66,8 @@ function query(name: string) {
     in: (c: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[c])), q),
     is: (c: string, v: unknown) => (filters.push((r) => (r[c] ?? null) === v), q),
     gte: (c: string, v: unknown) => (filters.push((r) => r[c] == null || String(r[c]) >= String(v)), q),
+    lt: (c: string, v: unknown) => (filters.push((r) => r[c] != null && String(r[c]) < String(v)), q),
+    not: (c: string, op: string, v: unknown) => (filters.push((r) => (op === "is" && v === null ? r[c] != null : r[c] !== v)), q),
     order: (col: string, o?: { ascending?: boolean }) => ((sort = { col, asc: o?.ascending !== false }), q),
     limit: (n: number) => ((max = n), q),
     single: () => q,
@@ -81,7 +84,18 @@ function query(name: string) {
   return q;
 }
 
+/** Object storage: one bucket's files by path. */
+const storage = {
+  from: (bucket: string) => ({
+    upload: async (path: string, body: Buffer) => ((fakeDb.storage[`${bucket}/${path}`] = Buffer.from(body)), { data: { path }, error: null }),
+    remove: async (paths: string[]) => {
+      for (const p of paths) delete fakeDb.storage[`${bucket}/${p}`];
+      return { data: paths, error: null };
+    },
+  }),
+};
+
 export const fakeSupabase = {
-  db: () => ({ from: query }),
+  db: () => ({ from: query, storage }),
   rows: async (q: { run: () => Row[] }) => q.run(),
 };

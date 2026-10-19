@@ -62,9 +62,28 @@ export const FORBIDDEN: [RegExp, string][] = [
   [SECRET_FILE, "Keys stay out of the model's context."],
   [/\b(vercel|gh|supabase)\s+/, "Deploys and platform settings go through the Control Room."],
   [/\brm\s+-rf\s+(\/|~|\.\.)/, "Not outside the working copy."],
+  // Keys stay out of the model's context (§1.2): no dumping or echoing the environment.
+  [/(^|[;&|]\s*)(printenv|env|set|export\s+-p)\s*($|[;&|>])/, "Keys stay out of the model's context."],
+  [/\becho\b[^\n]*\$\{?[A-Za-z_]*(KEY|TOKEN|SECRET|PASS|PASSWORD|CREDENTIAL)/i, "Keys stay out of the model's context."],
+  [/process\.env\b|\/proc\/[^\s]*\/environ|\$env:|Get-ChildItem\s+env:|\bgci\s+env:/i, "Keys stay out of the model's context."],
 ];
 
-export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string };
+export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string };
+
+/**
+ * The agent's environment (gen2-crew.md §1.2: agents never hold keys): the
+ * operating system's essentials, the site's test values, and what the agent
+ * process itself needs to reach its model. Nothing else from the runner
+ * (RUNNER_TOKEN, VAULT_KEY, GITHUB_TOKEN, database keys…) is passed on.
+ */
+const SYSTEM_ENV = /^(PATH|PATHEXT|HOME|HOMEDRIVE|HOMEPATH|USERPROFILE|USERNAME|USER|LOGNAME|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES(\(X86\))?|COMMONPROGRAMFILES(\(X86\))?|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|LANG|LC_[A-Z]+|TERM|SHELL|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|OS|XDG_[A-Z_]+|PNPM_HOME|NODE_VERSION|NVM_[A-Z_]+|COREPACK_[A-Z_]+|CI)$/i;
+const MODEL_ENV = /^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|ANTHROPIC_WORKSPACE_ID)$/;
+
+export function agentEnv(runnerEnv: Record<string, string | undefined>, siteTestEnv: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(runnerEnv)) if (v != null && (SYSTEM_ENV.test(k) || MODEL_ENV.test(k))) out[k] = v;
+  return { ...out, ...siteTestEnv };
+}
 
 export async function agent(opts: {
   cwd: string;
@@ -75,7 +94,24 @@ export async function agent(opts: {
   log: Log;
   maxTurns?: number;
   maxBudgetUsd?: number;
+  /** The Work item's agent session to continue (§17 F4); a missing session falls back to a fresh one. */
+  resume?: string | null;
+  /** The Toolbelt (§1.2): the API's MCP endpoint and this job's token. */
+  toolbelt?: { url: string; token: string } | null;
+  /** The site's test values for the agent's own commands (never production keys). */
+  siteEnv?: Record<string, string>;
 }): Promise<AgentResult> {
+  if (opts.resume) {
+    try {
+      return await runAgent(opts, opts.resume);
+    } catch (err) {
+      opts.log.status(`Couldn't continue the earlier session (${(err as Error).message.slice(0, 120)}); starting fresh.`);
+    }
+  }
+  return runAgent(opts, undefined);
+}
+
+async function runAgent(opts: Parameters<typeof agent>[0], resume: string | undefined): Promise<AgentResult> {
   const readOnly = ["Read", "Glob", "Grep"];
   const guard = async (tool: string, input: Record<string, unknown>): Promise<PermissionResult> => {
     if (tool === "Bash") {
@@ -101,12 +137,18 @@ export async function agent(opts: {
       settingSources: ["project"], // the site's CLAUDE.md is its rulebook
       tools: opts.mode === "read" ? readOnly : [...readOnly, "Write", "Edit", "Bash"],
       permissionMode: opts.mode === "read" ? "dontAsk" : "acceptEdits",
-      allowedTools: opts.mode === "read" ? readOnly : [...readOnly, "Write", "Edit"],
+      allowedTools: [...(opts.mode === "read" ? readOnly : [...readOnly, "Write", "Edit"]), ...(opts.toolbelt ? ["mcp__accelerator"] : [])],
+      ...(opts.toolbelt && { mcpServers: { accelerator: { type: "http" as const, url: opts.toolbelt.url, headers: { Authorization: `Bearer ${opts.toolbelt.token}` } } } }),
+      ...(resume && { resume }),
       canUseTool: guard,
       maxTurns: opts.maxTurns ?? (opts.mode === "read" ? 20 : 80),
       maxBudgetUsd: opts.maxBudgetUsd ?? (opts.mode === "read" ? 2 : 8),
       effort: "high",
-      env: { ...process.env, ...(workspace() && { ANTHROPIC_CUSTOM_HEADERS: `anthropic-workspace-id: ${workspace()}` }), CLAUDE_AGENT_SDK_CLIENT_APP: "accelerator-runner/0.1" },
+      env: {
+        ...agentEnv(process.env, opts.siteEnv ?? {}),
+        ...(workspace() && { ANTHROPIC_CUSTOM_HEADERS: `anthropic-workspace-id: ${workspace()}` }),
+        CLAUDE_AGENT_SDK_CLIENT_APP: "accelerator-runner/0.1",
+      },
     },
   });
 
@@ -121,7 +163,7 @@ export async function agent(opts: {
       const ok = m.subtype === "success" && !m.is_error;
       text = m.subtype === "success" ? m.result : "";
       opts.log.status(`${ok ? "Finished" : `Stopped (${m.subtype})`} after ${m.num_turns} turns · $${m.total_cost_usd.toFixed(2)}`);
-      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype };
+      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype, sessionId: m.session_id };
     }
   }
   return { text, costUsd: 0, ok: false, reason: "The agent ended without a result." };

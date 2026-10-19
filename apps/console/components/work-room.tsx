@@ -35,6 +35,9 @@ import {
   type WorkspaceLens,
   artifactCards,
   progressFor,
+  readSlash,
+  SLASH_HELP,
+  type Complexity,
   type InstrumentsResponse,
   type StudioSnapshot,
   type AutoAction,
@@ -132,10 +135,17 @@ export function WorkRoom({
     }
   }, [siteId, n, initialStudio.source]);
 
+  // Pushed updates (gen2-crew.md §17 F4): refresh the moment the item changes; a slow poll is the safety net.
   useEffect(() => {
-    const t = setInterval(refresh, working ? 2500 : 12000);
-    return () => clearInterval(t);
-  }, [refresh, working]);
+    if (initialStudio.source === "sample") return;
+    const ctrl = new AbortController();
+    void browserApi().work.watch(siteId, n, () => void refresh(), ctrl.signal);
+    const slow = setInterval(refresh, 30_000);
+    return () => {
+      ctrl.abort();
+      clearInterval(slow);
+    };
+  }, [refresh, siteId, n, initialStudio.source]);
 
 
   async function act(fn: () => Promise<unknown>, done?: string) {
@@ -342,10 +352,11 @@ export function WorkRoom({
               working={working}
               canAsk={canAsk && !closed}
               busy={busy}
-              onSend={(body) => act(() => api.work.say(siteId, n, body, d.decision?.key))}
+              onTier={(c) => act(() => api.work.complexity(siteId, n, c), `Complexity set to ${c}.`)}
+              onOpen={setDrawer}
               siteId={siteId}
               voice={canAsk && !closed && !install}
-              onChanged={() => void refresh()}
+              onChanged={() => refresh()}
               onPause={!closed && d.work.kind === "change" && canAsk ? () => act(() => api.work.ship(siteId, n, d.work.paused ? "resume" : "pause"), d.work.paused ? "The crew resumed." : "The crew is paused.") : undefined}
               card={
                 studio.source !== "sample" && (
@@ -652,8 +663,9 @@ function Thread({
   working,
   canAsk,
   busy,
-  onSend,
   onPause,
+  onTier,
+  onOpen,
   card,
   siteId,
   voice,
@@ -663,22 +675,26 @@ function Thread({
   working: boolean;
   canAsk: boolean;
   busy: boolean;
-  onSend: (body: string) => Promise<void>;
   onPause?: () => void;
+  onTier: (c: Complexity) => Promise<void>;
+  onOpen: (panel: Tab) => void;
   card?: React.ReactNode;
   siteId: string;
   /** Live voice is offered on this item (gen2-crew.md §19.1). */
   voice: boolean;
-  /** The work changed (a voice tool ran, or a call ended): refresh. */
-  onChanged: () => void;
+  /** The work changed (a voice tool ran, a call ended, a reply finished): refresh. */
+  onChanged: () => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState("");
+  // The message just sent and the lead's reply as it streams in (gen2-crew.md §17 F4).
+  const [live, setLive] = useState<{ said: string; reply: string; note: string | null; streaming: boolean } | null>(null);
+  const [hint, setHint] = useState<"help" | string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const call = useVoiceCall({ siteId, number: d.work.number, onChanged });
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
-  }, [d.messages.length, d.decision?.key, d.crewNext, working, call.captions]);
+  }, [d.messages.length, d.decision?.key, d.crewNext, working, call.captions, live?.reply, hint]);
   // Escape leaves the full-screen conversation.
   useEffect(() => {
     if (!expanded) return;
@@ -690,9 +706,41 @@ function Thread({
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
     const body = draft.trim();
-    if (!body) return;
+    if (!body || live?.streaming) return;
     setDraft("");
-    await onSend(body);
+    setHint(null);
+    // Slash commands: shortcuts for what the buttons do (§17 F5); /ship and /approve are the typed decision.
+    const slash = readSlash(body);
+    if (slash) {
+      if (slash.kind === "help") return setHint("help");
+      if (slash.kind === "unknown") return setHint(`"${slash.text}" isn't a command. Type /help for the list.`);
+      if (slash.kind === "pause" || slash.kind === "resume") {
+        if ((slash.kind === "pause") !== d.work.paused) onPause?.();
+        return;
+      }
+      if (slash.kind === "tier") return void (await onTier(slash.complexity));
+      if (slash.kind === "open") return onOpen(slash.panel);
+      if (slash.kind === "talk") return void (voice ? call.start() : setHint("Live voice isn't available on this item."));
+      return void (await say(slash.body));
+    }
+    await say(body);
+  }
+
+  /** Sends a message and streams the lead's answer in place, then refreshes from the record. */
+  async function say(body: string) {
+    setLive({ said: body, reply: "", note: null, streaming: true });
+    try {
+      await browserApi().work.sayStream(siteId, d.work.number, body, d.decision?.key, (e) => {
+        if (e.type === "delta") setLive((l) => (l ? { ...l, reply: l.reply + e.text } : l));
+        else if (e.type === "handled" || e.type === "queued") setLive((l) => (l ? { ...l, note: e.note } : l));
+        else if (e.type === "error") setLive((l) => (l ? { ...l, note: e.message } : l));
+      });
+    } catch (err) {
+      setLive((l) => (l ? { ...l, note: err instanceof Error ? err.message : "That didn't send." } : l));
+    }
+    setLive((l) => (l ? { ...l, streaming: false } : l));
+    await onChanged();
+    setLive(null);
   }
 
   return (
@@ -783,6 +831,46 @@ function Thread({
             </div>
           ),
         )}
+        {live && (
+          <>
+            <div className="flex flex-row-reverse gap-2.5">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-violet/20 text-violet">
+                <User className="size-3.5" />
+              </span>
+              <p className="max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-violet/12 px-3.5 py-2.5 text-[13.5px]">{live.said}</p>
+            </div>
+            {(live.reply || (live.streaming && !live.note)) && (
+              <div className="flex gap-2.5" aria-live="polite">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-gold/15 text-gold-2">
+                  <Bot className="size-3.5" />
+                </span>
+                <div className="max-w-[88%] rounded-2xl rounded-tl-md bg-panel-2 px-3.5 py-2.5">
+                  <p className="mb-1 text-[11.5px] text-mist">Team Lead · {live.streaming ? "replying" : "replied"}</p>
+                  <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed">
+                    {live.reply || "…"}
+                    {live.streaming && <span aria-hidden className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 bg-current/60 motion-safe:animate-pulse" />}
+                  </p>
+                </div>
+              </div>
+            )}
+            {live.note && <p className="self-center rounded-full bg-panel-2 px-3 py-1 text-center text-[12px] text-mist">{live.note}</p>}
+          </>
+        )}
+        {hint && (
+          <div role="status" className="rounded-2xl border border-line bg-panel-2/60 px-4 py-3 text-[12.5px] text-fog">
+            {hint === "help" ? (
+              <ul className="flex flex-col gap-1">
+                {SLASH_HELP.map((h) => (
+                  <li key={h.command}>
+                    <span className="font-mono text-ink">{h.command}</span> · {h.does}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              hint
+            )}
+          </div>
+        )}
         {card}
         <LiveCaptions captions={call.captions} person="You" />
         <div ref={end} />
@@ -811,13 +899,13 @@ function Thread({
                 ? `Ask, or type "approve" for: ${d.decision.title}`
                 : working
                   ? "The crew is working; you can still talk (or type stop)."
-                  : "Observe, question, decide… (Enter to send)"
+                  : "Observe, question, decide… (/ for commands)"
             }
             className={`${inputClass} max-h-40 resize-y`}
           />
           <button
             type="submit"
-            disabled={busy || !draft.trim()}
+            disabled={busy || !draft.trim() || !!live?.streaming}
             aria-label="Send"
             className={button("gold", "size-10 shrink-0 p-0")}
           >

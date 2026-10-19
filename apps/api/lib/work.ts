@@ -2,11 +2,18 @@ import {
   workClosureCopy,
   agreementText,
   autoAction,
+  CLAIM_MS,
+  claimLapsed,
+  consultSystem,
+  lapsedFate,
+  trailerFilter,
+  type LeadStreamEvent,
   canApprove,
   canSite,
   MAX_PROOF_REPAIRS,
   MAX_STEP_REPAIRS,
   pendingDecision,
+  readAssessment,
   readCensus,
   readIntent,
   canSetComplexity,
@@ -55,6 +62,10 @@ import {
 } from "@accelerator/domain";
 
 import { CodeError } from "./codes";
+import { createHash } from "node:crypto";
+
+import { leadTurns, streamAnthropic } from "./anthropic-stream";
+import { signJobToken } from "./job-token";
 import { CREW_ROLE, decide, evidence, invalidate, record, type Actor } from "./ledger";
 import { db, rows, type Row } from "./supabase";
 import { secretStatus } from "./vault";
@@ -378,6 +389,128 @@ async function typedDecision(site: Site, identity: Identity, who: Speaker, w: Ro
   return true;
 }
 
+// ── Documents with identity and versions (traceability T3, §21.3): dual-written beside acc_work_docs ──
+async function documentId(w: Row): Promise<string | null> {
+  const kind = toWork(w).complexity === "medium" ? "brief" : "design";
+  const [found] = await rows(db().from("acc_documents").select("id").eq("work_id", w.id as string).in("kind", ["brief", "design"]).limit(1));
+  if (found) return found.id as string;
+  const { data } = await db().from("acc_documents").insert({ org_id: w.org_id, site_id: w.site_id, work_id: w.id, kind, title: w.title }).select("id").single();
+  return ((data as Row | null)?.id as string) ?? null;
+}
+
+async function documentVersion(w: Row, version: number, body: string, author: { kind: "person" | "model"; label: string; model: string | null }) {
+  try {
+    const id = await documentId(w);
+    if (!id) return;
+    await db().from("acc_document_versions").insert({
+      document_id: id, org_id: w.org_id, site_id: w.site_id, version, body, sha256: createHash("sha256").update(body, "utf8").digest("hex"),
+      bytes: Buffer.byteLength(body, "utf8"), author_kind: author.kind, author_label: author.label, model: author.model,
+    });
+  } catch (err) {
+    console.error("[documents]", err instanceof Error ? err.message : err);
+  }
+}
+
+async function documentApproved(w: Row, version: number, userId: string) {
+  try {
+    const id = await documentId(w);
+    if (id) await db().from("acc_document_versions").update({ approved_at: now(), approved_by: userId }).eq("document_id", id).eq("version", version);
+  } catch (err) {
+    console.error("[documents]", err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * What a viewer needs to know changed on a Work item (§17 F4 pushed updates):
+ * its state, its newest message, its newest job and the step statuses.
+ */
+export async function workFingerprint(siteId: string, number: number): Promise<string> {
+  const w = await workRow(siteId, number);
+  const [[m], [j], steps] = await Promise.all([
+    rows(db().from("acc_work_messages").select("id").eq("work_id", w.id as string).order("created_at", { ascending: false }).limit(1)),
+    rows(db().from("acc_jobs").select("id, status").eq("work_id", w.id as string).order("created_at", { ascending: false }).limit(1)),
+    rows(db().from("acc_work_steps").select("status").eq("work_id", w.id as string).order("position")),
+  ]);
+  return [w.updated_at, w.stage, w.paused_at, m?.id, j?.id, j?.status, steps.map((s) => s.status).join("")].join("|");
+}
+
+// ── The Team Lead's streamed reply (gen2-crew.md §17 F4, §19.2) ─────────────────
+/**
+ * Say something and, unless it's a typed command, have the Team Lead answer
+ * right away, streamed word by word from the API (the conversation never waits
+ * behind the crew). The reply is recorded as a discuss job, so the crew's rules
+ * (one answer per message, assessment, the next automatic move) are unchanged.
+ * Falls back to the runner when the lead's model isn't Claude or the API has no key.
+ */
+export async function streamReply(site: Site, identity: Identity, who: Speaker, number: number, body: string, shown: string | undefined, emit: (e: LeadStreamEvent) => void, signal?: AbortSignal) {
+  const w = await workRow(site.id, number);
+  assertOpen(w);
+  await say(w, { kind: "person", label: personLabel(identity, who.name), userId: identity.userId, body: body.trim() });
+  const intent = w.kind === "change" ? readIntent(body) : null;
+  if (intent === "pause") return void (await pauseWork(site, identity, who.name, number), emit({ type: "handled", note: "The crew is paused." }));
+  if (intent === "resume") return void (await resumeWork(site, identity, who.name, number), emit({ type: "handled", note: "The crew carries on." }));
+  if (intent === "approve" && (await typedDecision(site, identity, who, w, shown))) return emit({ type: "handled", note: "Applied, or explained in the conversation." });
+
+  const lead = (await siteModels(site.id)).consult;
+  if (lead.provider !== "anthropic" || !process.env.ANTHROPIC_API_KEY) {
+    if (!(await busy(w.id as string))) await enqueue(site, w, "discuss", "consult", identity.userId);
+    return emit({ type: "queued", note: "The lead will answer shortly." });
+  }
+
+  // The reply is a discuss job held by the API while it streams (released to the runner if the API stops mid-way).
+  const { data: jobRow, error } = await db()
+    .from("acc_jobs")
+    .insert({
+      org_id: site.orgId, site_id: site.id, work_id: w.id, kind: "discuss", role: "consult", provider: lead.provider, model: lead.model,
+      input: { streamed: true }, created_by: identity.userId, status: "running", runner_id: "api-stream", started_at: now(),
+      claim_expires_at: new Date(Date.now() + 3 * 60_000).toISOString(), generation: 1, attempts: 1,
+    })
+    .select("*")
+    .single();
+  if (error || !jobRow) throw new Error(error?.message ?? "Couldn't start the reply.");
+  const job = jobRow as Row;
+
+  const p = await parts(w.id as string);
+  const work = toWork(w);
+  const [s] = await rows(db().from("acc_sites").select("*").eq("id", site.id));
+  const ctx: JobContext = {
+    job: { ...toJob(job), role: "consult", input: {}, generation: 1 },
+    site: {
+      id: site.id, slug: (s?.slug as string) ?? "", name: site.name, url: (s?.url as string) ?? "", repoPath: null, baseBranch: (s?.base_branch as string) ?? "stage",
+      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain: isDomain(s?.domain) ? s.domain : null,
+    },
+    work: { ...work, messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps, agentSessionId: null },
+    toolbeltToken: null,
+  };
+  const filter = trailerFilter();
+  try {
+    const raw = await streamAnthropic(
+      {
+        model: lead.model, system: consultSystem(ctx), signal,
+        turns: leadTurns(p.messages, "Reply to the Navigator's latest message, then add the assessment lines.", w.title as string),
+      },
+      (text) => {
+        const shownText = filter.push(text);
+        if (shownText) emit({ type: "delta", text: shownText });
+      },
+    );
+    const tail = filter.flush();
+    if (tail) emit({ type: "delta", text: tail });
+    await finish(job.id as string, { status: "done", result: { kind: "discuss", ...readAssessmentOf(raw) }, generation: 1 });
+    emit({ type: "done" });
+  } catch (err) {
+    console.error("[lead stream]", err instanceof Error ? err.message : err);
+    await db().from("acc_jobs").update({ status: "failed", error: "The streamed reply stopped; the runner answers instead.", finished_at: now() }).eq("id", job.id as string).eq("status", "running");
+    if (!(await busy(w.id as string))) await enqueue(site, w, "discuss", "consult", identity.userId);
+    emit({ type: "queued", note: "The live reply stopped; the lead will answer in a moment." });
+  }
+}
+
+const readAssessmentOf = (raw: string) => {
+  const { reply, assessment } = readAssessment(raw);
+  return { reply: reply || raw.trim(), ...(assessment && { assessment }) };
+};
+
 /** A finished voice call's transcript, as one message in the item's conversation (gen2-crew.md §19.1). */
 export async function recordVoiceCall(site: Site, identity: Identity, name: string, number: number, body: string, seconds: number) {
   const w = await workRow(site.id, number);
@@ -423,6 +556,7 @@ export async function saveDesign(site: Site, identity: Identity, name: string, n
   const version = ((top?.version as number) ?? 0) + 1;
   const { error } = await db().from("acc_work_docs").insert({ org_id: w.org_id, work_id: w.id, version, body, author_label: personLabel(identity, name) });
   if (error) throw new Error(error.message);
+  await documentVersion(w, version, body, { kind: "person", label: personLabel(identity, name), model: null });
   await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} edited the design (v${version}).` });
   // A changed design invalidates an approved plan.
   await db().from("acc_work").update({ plan_approved_at: null, plan_approved_by: null }).eq("id", w.id as string);
@@ -436,6 +570,7 @@ export async function approveDesign(site: Site, identity: Identity, name: string
   const [top] = await rows(db().from("acc_work_docs").select("id, version").eq("work_id", w.id as string).order("version", { ascending: false }).limit(1));
   if (!top || top.version !== version) throw new CodeError("There's a newer version of the design. Review that one first.");
   await db().from("acc_work_docs").update({ approved_by: identity.userId, approved_at: now() }).eq("id", top.id as string);
+  await documentApproved(w, version, identity.userId);
   const what = toWork(w).complexity === "medium" ? "the Brief" : "design";
   await say(w, { kind: "system", label: "Control Room", body: `${personLabel(identity, name)} approved ${what} v${version}.` });
   const brief = what === "the Brief";
@@ -770,12 +905,27 @@ export async function heartbeat(runnerId: string, version?: string) {
 }
 
 /** Oldest queued job, claimed atomically (status guard), with everything the runner needs. */
+/**
+ * The oldest queued job, claimed atomically (status guard) with everything the
+ * runner needs (gen2-crew.md §14.1). First, lapsed claims are settled; a
+ * release waits while another release on the same site is landing (the
+ * Change Ledger's land lock, §18). Each claim gets a new generation, an expiry
+ * the runner renews, and a job token for the Toolbelt (§1.2).
+ */
 export async function claim(runnerId: string): Promise<JobContext | null> {
-  const queued = await rows(db().from("acc_jobs").select("id").eq("status", "queued").order("created_at").limit(5));
+  await settleLapsed();
+  const queued = await rows(db().from("acc_jobs").select("id, kind, site_id, generation, attempts").eq("status", "queued").order("created_at").limit(10));
   for (const q of queued) {
+    if (q.kind === "release") {
+      const landing = await rows(db().from("acc_jobs").select("id").eq("site_id", q.site_id as string).eq("kind", "release").eq("status", "running").limit(1));
+      if (landing.length) continue; // one release per site at a time
+    }
     const { data } = await db()
       .from("acc_jobs")
-      .update({ status: "running", started_at: now(), runner_id: runnerId })
+      .update({
+        status: "running", started_at: now(), runner_id: runnerId, claim_expires_at: new Date(Date.now() + CLAIM_MS).toISOString(),
+        generation: ((q.generation as number) ?? 0) + 1, attempts: ((q.attempts as number) ?? 0) + 1,
+      })
       .eq("id", q.id as string)
       .eq("status", "queued")
       .select("*");
@@ -789,13 +939,53 @@ export async function claim(runnerId: string): Promise<JobContext | null> {
   return null;
 }
 
+/**
+ * Running jobs whose claim lapsed (the runner stopped, crashed or lost the
+ * network): requeued once, then failed; a release's outcome is recorded as
+ * unknown and never retried blindly (§14.2).
+ */
+export async function settleLapsed(at = Date.now()) {
+  const running = await rows(db().from("acc_jobs").select("*").eq("status", "running").limit(50));
+  for (const job of running) {
+    if (!claimLapsed({ claimExpiresAt: (job.claim_expires_at as string) ?? null, startedAt: (job.started_at as string) ?? null }, at)) continue;
+    const fate = lapsedFate({ kind: job.kind as JobKind, attempts: (job.attempts as number) ?? 1 });
+    const stepId = job.kind === "build_step" ? ((job.input as Row)?.stepId as string) : null;
+    if (fate.fate === "requeue") {
+      await db().from("acc_jobs").update({ status: "queued", runner_id: null, started_at: null, claim_expires_at: null })
+        .eq("id", job.id as string).eq("status", "running").eq("generation", (job.generation as number) ?? 0);
+      if (stepId) await db().from("acc_work_steps").update({ status: "todo", updated_at: now() }).eq("id", stepId).eq("status", "running");
+    } else {
+      await db().from("acc_jobs").update({ status: "failed", error: fate.note, finished_at: now(), outcome_unknown: fate.fate === "unknown" })
+        .eq("id", job.id as string).eq("status", "running").eq("generation", (job.generation as number) ?? 0);
+      if (stepId) await db().from("acc_work_steps").update({ status: "blocked", updated_at: now() }).eq("id", stepId).eq("status", "running");
+    }
+    const [w] = job.work_id ? await rows(db().from("acc_work").select("*").eq("id", job.work_id as string)) : [];
+    if (w && fate.fate !== "requeue") {
+      await say(w, { kind: "system", label: "Runner", body: fate.note });
+      await record(w, { kind: fate.fate === "unknown" ? "outcome_unknown" : "failed", actor: { kind: "system", label: "Accelerator" }, summary: fate.note, refs: { job: job.id } });
+    }
+  }
+}
+
+/** The runner renews its claim while it works; a lapsed or superseded claim can't be renewed. */
+export async function renewClaim(jobId: string, generation: number): Promise<boolean> {
+  const { data } = await db()
+    .from("acc_jobs")
+    .update({ claim_expires_at: new Date(Date.now() + CLAIM_MS).toISOString() })
+    .eq("id", jobId)
+    .eq("status", "running")
+    .eq("generation", generation)
+    .select("id");
+  return (data?.length ?? 0) > 0;
+}
+
 async function context(job: Row): Promise<JobContext> {
   const [s] = await rows(db().from("acc_sites").select("*").eq("id", job.site_id as string));
   let work: JobContext["work"] = null;
   if (job.work_id) {
     const [w] = await rows(db().from("acc_work").select("*").eq("id", job.work_id as string));
     const p = await parts(job.work_id as string);
-    work = { ...toWork(w!), messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps };
+    work = { ...toWork(w!), messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps, agentSessionId: (w!.agent_session_id as string) ?? null };
   }
   let setup: JobContext["setup"];
   if (work?.kind === "install") {
@@ -810,8 +1000,20 @@ async function context(job: Row): Promise<JobContext> {
       manifest: (await rows(db().from("acc_env_specs").select("key").eq("site_id", siteShape.id))).map((r) => r.key as string),
     };
   }
+  const generation = (job.generation as number) ?? 0;
+  const toolbeltToken = (() => {
+    try {
+      return signJobToken({
+        jobId: job.id as string, orgId: job.org_id as string, siteId: job.site_id as string, workId: (job.work_id as string) ?? null,
+        role: job.role as ModelRole, generation, exp: Date.now() + 3 * 60 * 60_000,
+      });
+    } catch {
+      return null; // no Toolbelt secret configured: the job runs without the Toolbelt
+    }
+  })();
   return {
-    job: { ...toJob(job), role: job.role as ModelRole, input: (job.input as Record<string, unknown>) ?? {} },
+    job: { ...toJob(job), role: job.role as ModelRole, input: (job.input as Record<string, unknown>) ?? {}, generation },
+    toolbeltToken,
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
@@ -843,9 +1045,15 @@ export type JobResult =
   | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
-export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string }) {
+export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string; generation?: number; sessionId?: string }) {
   const [job] = await rows(db().from("acc_jobs").select("*").eq("id", jobId).eq("status", "running"));
   if (!job) throw new CodeError("That job isn't running.");
+  // A worker whose claim lapsed and was handed on can't commit a result (§14.1).
+  if (outcome.generation != null && outcome.generation !== ((job.generation as number) ?? 0)) {
+    throw new CodeError("This job was handed to another worker; this result is discarded.");
+  }
+  // The Work item's agent session, resumed by its next job instead of starting cold (§17 F4).
+  if (outcome.sessionId && job.work_id) await db().from("acc_work").update({ agent_session_id: outcome.sessionId }).eq("id", job.work_id as string);
   const label = modelLabel(job.provider as string, job.model as string);
   const model = `${job.provider}/${job.model}`;
   const [w] = job.work_id ? await rows(db().from("acc_work").select("*").eq("id", job.work_id as string)) : [];
@@ -871,6 +1079,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
     const [top] = await rows(db().from("acc_work_docs").select("version").eq("work_id", w.id as string).order("version", { ascending: false }).limit(1));
     const version = ((top?.version as number) ?? 0) + 1;
     await db().from("acc_work_docs").insert({ org_id: w.org_id, work_id: w.id, version, body: r.body, author_label: label, model });
+    await documentVersion(w, version, r.body, { kind: "model", label, model });
     await db().from("acc_work").update({ plan_approved_at: null, plan_approved_by: null }).eq("id", w.id as string);
     const brief = toWork(w).complexity === "medium";
     await say(w, { kind: "model", label, model, body: brief ? `The Brief (v${version}) is ready. Approve it and the crew plans, builds and proves it on its own.` : `Design v${version} is ready for your review. Edit it, ask for changes, or approve it.` });

@@ -29,7 +29,15 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
       headers,
       body: hasBody ? await request.text() : undefined,
       cache: "no-store",
+      signal: request.signal, // the browser went away: stop the upstream work too
     });
+    // Streams (the lead's reply, pushed updates) pass straight through, unbuffered (gen2-crew.md §17 F4).
+    if (res.headers.get("content-type")?.startsWith("text/event-stream") && res.body) {
+      return new Response(res.body, {
+        status: res.status,
+        headers: { "content-type": "text/event-stream", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" },
+      });
+    }
     return new Response(await res.text(), {
       status: res.status,
       headers: { "content-type": res.headers.get("content-type") ?? "application/json" },

@@ -2,15 +2,29 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { census, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
 
-import { secrets, type Log } from "./api";
+import { secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
 import { changedFiles, checks, commitAll, ensureWorktree, git, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
-/** Development keys: the vault first, envmachine as the fallback during the switchover. */
-const devEnv = async (ctx: JobContext) => ({ ...siteEnv(ctx.site.slug), ...(await secrets(ctx.job.id).then((r) => r.env).catch(() => ({}))) });
+/**
+ * The site's test keys: the vault first. envmachine is a logged fallback during
+ * the switchover (gen2-crew.md §4.2), switched off with RUNNER_ENVMACHINE=off.
+ */
+const devEnv = async (ctx: JobContext, log?: Log) => {
+  const vault = await secrets(ctx.job.id).then((r) => r.env).catch(() => ({}) as Record<string, string>);
+  const fallback = process.env.RUNNER_ENVMACHINE === "off" ? {} : siteEnv(ctx.site.slug);
+  const borrowed = Object.keys(fallback).filter((k) => !(k in vault));
+  if (borrowed.length && log) log.status(`envmachine fallback supplied ${borrowed.length} key(s) the vault doesn't have (${borrowed.join(", ")}). Move them to the vault, then set RUNNER_ENVMACHINE=off.`);
+  return { ...fallback, ...vault };
+};
+
+/** The agent session each job ran in, reported with its result so the Work item's next job continues it (§17 F4). */
+const sessions = new WeakMap<JobContext, string>();
+export const agentSession = (ctx: JobContext) => sessions.get(ctx);
+const toolbelt = (ctx: JobContext) => (ctx.toolbeltToken ? { url: toolbeltUrl(), token: ctx.toolbeltToken } : null);
 
 /**
  * One function per job kind. Each returns the result the API applies to
@@ -39,7 +53,11 @@ async function think(ctx: JobContext, log: Log, system: string, instruction: str
   const dir = provider === "anthropic" ? await workDir(ctx, w, log) : null;
   log.status(`${model} is ${ctx.job.kind === "discuss" ? "replying" : `writing the ${ctx.job.kind}`}…`);
   if (dir) {
-    const r = await agent({ cwd: dir, model, append: system, mode: "read", log, prompt: `THE CONVERSATION SO FAR\n\n${transcript(w)}\n\n${instruction}` });
+    const r = await agent({
+      cwd: dir, model, append: system, mode: "read", log, prompt: `THE CONVERSATION SO FAR\n\n${transcript(w)}\n\n${instruction}`,
+      resume: w.agentSessionId, toolbelt: toolbelt(ctx),
+    });
+    if (r.sessionId) sessions.set(ctx, r.sessionId);
     if (!r.ok || !r.text.trim()) throw new Error(`The model stopped early (${r.reason ?? "no answer"}).`);
     return r.text.trim();
   }
@@ -91,7 +109,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   if (ctx.job.provider !== "anthropic") throw new Error("Building needs a model with an agent harness (Claude at launch).");
 
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
-  const env = await devEnv(ctx);
+  const env = await devEnv(ctx, log);
   log.status(`Step ${step.position}: ${step.title}`);
 
   // Before: the suite as it stands, so the step can't shrink it.
@@ -103,7 +121,11 @@ export async function buildStep(ctx: JobContext, log: Log) {
   // A repair run: the crew re-runs a step the Protocol blocked, told exactly what failed (gen2-crew.md §17.4).
   const repair = Array.isArray(ctx.job.input.repairReasons) ? (ctx.job.input.repairReasons as unknown[]).map(String) : [];
   if (repair.length) log.status(`Repairing: ${repair.join(" ")}`);
-  const r = await agent({ cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step, repair) });
+  const r = await agent({
+    cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step, repair),
+    resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env,
+  });
+  if (r.sessionId) sessions.set(ctx, r.sessionId);
   if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
 
   // After: the runner's own checks decide the verdict, not the model's report.
