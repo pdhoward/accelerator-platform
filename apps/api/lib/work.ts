@@ -378,6 +378,16 @@ async function typedDecision(site: Site, identity: Identity, who: Speaker, w: Ro
   return true;
 }
 
+/** A finished voice call's transcript, as one message in the item's conversation (gen2-crew.md §19.1). */
+export async function recordVoiceCall(site: Site, identity: Identity, name: string, number: number, body: string, seconds: number) {
+  const w = await workRow(site.id, number);
+  await say(w, { kind: "model", label: "Voice call", body: body.slice(0, 60_000) });
+  await record(w, {
+    kind: "voice_call", actor: person(identity, name),
+    summary: `${personLabel(identity, name)} talked with the Team Lead about #${number} for ${Math.max(1, Math.round(seconds / 60))} min.`,
+  });
+}
+
 /** "Stop": nothing new starts until a person resumes; queued work is withdrawn, running work finishes. */
 export async function pauseWork(site: Site, identity: Identity, name: string, number: number) {
   const w = await workRow(site.id, number);

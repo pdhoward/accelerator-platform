@@ -269,6 +269,23 @@ try {
     await page.getByRole("button", { name: "Open Proof and release" }).isVisible(),
     "documents appear as cards",
   );
+  // Live voice (gen2-crew.md §19.1): never offered on the illustrative sample; the conversation can go full screen.
+  check((await page.getByRole("button", { name: "Talk", exact: true }).count()) === 0, "the sample offers no live voice call");
+  await page.getByRole("button", { name: "Full screen", exact: true }).click();
+  const convo = page.getByRole("button", { name: "Leave full screen", exact: true });
+  await convo.waitFor();
+  check(
+    await page.evaluate(() => {
+      const card = document.querySelector("button[aria-label='Leave full screen']")?.closest("section");
+      return !!card && card.getBoundingClientRect().width > window.innerWidth * 0.9;
+    }),
+    "the conversation expands to full screen",
+  );
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(artifacts, "work-fullscreen.png") });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Full screen", exact: true }).waitFor();
+  checks++;
   await page.getByRole("button", { name: "Open Design v1", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "Design v1" });
   await drawer.getByRole("heading", { name: "Mobile quote journey", exact: true }).waitFor();

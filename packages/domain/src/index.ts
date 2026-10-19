@@ -11,6 +11,7 @@ export * from "./instruments";
 export * from "./domains";
 export * from "./flywheel";
 export * from "./tenancy";
+export * from "./voice";
 
 export * from "./studio";
 

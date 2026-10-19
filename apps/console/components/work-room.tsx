@@ -12,6 +12,8 @@ import {
   Flag,
   ListChecks,
   Loader2,
+  Maximize2,
+  Minimize2,
   Pause,
   PenLine,
   Play,
@@ -55,6 +57,7 @@ import { button, Card, Chip, cx, Eyebrow, PageHeader } from "./ui";
 import { EngineerOnly, useUi } from "./ui-provider";
 
 import { CockpitPanel } from "./cockpit/cockpit-panel";
+import { LiveCaptions, TalkButton, useVoiceCall, VoiceBar } from "./cockpit/voice-talk";
 import { DocDrawer, DocumentCards, WhereWeAre } from "./cockpit/work-sidebar";
 import { ActivityRibbon } from "./workspace/activity-ribbon";
 import { ImprovementReplay } from "./workspace/improvement-replay";
@@ -340,6 +343,9 @@ export function WorkRoom({
               canAsk={canAsk && !closed}
               busy={busy}
               onSend={(body) => act(() => api.work.say(siteId, n, body, d.decision?.key))}
+              siteId={siteId}
+              voice={canAsk && !closed && !install}
+              onChanged={() => void refresh()}
               onPause={!closed && d.work.kind === "change" && canAsk ? () => act(() => api.work.ship(siteId, n, d.work.paused ? "resume" : "pause"), d.work.paused ? "The crew resumed." : "The crew is paused.") : undefined}
               card={
                 studio.source !== "sample" && (
@@ -649,6 +655,9 @@ function Thread({
   onSend,
   onPause,
   card,
+  siteId,
+  voice,
+  onChanged,
 }: {
   d: WorkDetail;
   working: boolean;
@@ -657,12 +666,26 @@ function Thread({
   onSend: (body: string) => Promise<void>;
   onPause?: () => void;
   card?: React.ReactNode;
+  siteId: string;
+  /** Live voice is offered on this item (gen2-crew.md §19.1). */
+  voice: boolean;
+  /** The work changed (a voice tool ran, or a call ended): refresh. */
+  onChanged: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const call = useVoiceCall({ siteId, number: d.work.number, onChanged });
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
-  }, [d.messages.length, d.decision?.key, d.crewNext, working]);
+  }, [d.messages.length, d.decision?.key, d.crewNext, working, call.captions]);
+  // Escape leaves the full-screen conversation.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
 
   async function send(e?: React.FormEvent) {
     e?.preventDefault();
@@ -673,11 +696,26 @@ function Thread({
   }
 
   return (
-    <Card className="flex max-h-[78vh] min-h-[520px] flex-col">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <Eyebrow>Conversation</Eyebrow>
+    <>
+    {expanded && <div aria-hidden className="fixed inset-0 z-30 bg-bg/80 backdrop-blur-sm" onClick={() => setExpanded(false)} />}
+    <Card className={cx("flex flex-col", expanded ? "fixed inset-3 z-40 shadow-2xl sm:inset-6" : "max-h-[78vh] min-h-[520px]")}>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <span className="flex items-center gap-2">
+          <Eyebrow>Conversation</Eyebrow>
+          {voice && <TalkButton call={call} />}
+        </span>
         <span className="flex items-center gap-2 text-[12px] text-mist">
           Lead: {modelLabel(d.models.consult.provider, d.models.consult.model)}
+          <button
+            type="button"
+            onClick={() => setExpanded((x) => !x)}
+            aria-pressed={expanded}
+            aria-label={expanded ? "Leave full screen" : "Full screen"}
+            title={expanded ? "Leave full screen (Esc)" : "Full screen"}
+            className={button("ghost", "size-8 p-0")}
+          >
+            {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </button>
           {onPause && (
             <button
               type="button"
@@ -692,7 +730,8 @@ function Thread({
           )}
         </span>
       </div>
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
+      <VoiceBar call={call} />
+      <div className={cx("flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4", expanded && "mx-auto w-full max-w-4xl")}>
         {d.messages.map((m) =>
           m.authorKind === "system" ? (
             <p
@@ -745,6 +784,7 @@ function Thread({
           ),
         )}
         {card}
+        <LiveCaptions captions={call.captions} person="You" />
         <div ref={end} />
       </div>
       {canAsk && (
@@ -786,6 +826,7 @@ function Thread({
         </form>
       )}
     </Card>
+    </>
   );
 }
 

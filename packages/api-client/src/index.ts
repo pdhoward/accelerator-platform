@@ -234,6 +234,15 @@ export function createApiClient({
         n: number,
         action: "begin" | "pause" | "resume" | "prove" | "approve" | "ship" | "release" | "close" | "cancel",
       ) => post<{ ok: true }>(`${site(siteId)}/work/${n}/ship`, { action }),
+      /** Live voice on this item (gen2-crew.md §19.1): a one-call pass, the lead's tools, and the saved transcript. */
+      voice: {
+        start: (siteId: string, n: number) =>
+          post<{ pass: string; passExpiresAt: string; endsAt: string; minutes: number }>(`${site(siteId)}/work/${n}/voice`, {}),
+        tool: (siteId: string, n: number, call: { name: string; arguments: string }) =>
+          post<{ output: string }>(`${site(siteId)}/work/${n}/voice/tool`, call),
+        transcript: (siteId: string, n: number, input: { lines: { speaker: "person" | "lead"; text: string; at: number }[]; startedAt: number; endedAt: number }) =>
+          post<{ ok: true }>(`${site(siteId)}/work/${n}/voice/transcript`, input),
+      },
       /** The complexity tier (gen2-crew.md §17). */
       complexity: (siteId: string, n: number, complexity: Complexity) =>
         post<{ ok: true }>(`${site(siteId)}/work/${n}`, { complexity }, "PATCH"),
