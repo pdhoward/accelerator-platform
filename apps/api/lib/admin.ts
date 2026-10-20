@@ -39,7 +39,8 @@ async function snapshot() {
     rows(db().from("acc_sites").select("org_id")),
     rows(db().from("acc_subscriptions").select("org_id, status, mrr_usd")),
     rows(db().from("acc_usage").select("org_id, cost_usd").gte("at", monthStart())),
-    rows(db().from("acc_requests").select("org_id, stage, created_at")),
+    // Work items (Gen 2), not the retired request records (traceability T7).
+    rows(db().from("acc_work").select("org_id, stage, created_at, updated_at")),
   ]);
   const by = <T>(list: Row[], orgId: string, f: (r: Row) => T) => list.filter((r) => r.org_id === orgId).map(f);
   const accounts: AdminAccountRow[] = orgs.map((o) => {
@@ -56,9 +57,9 @@ async function snapshot() {
       members: by(members, id, () => 1).length,
       sites: by(sites, id, () => 1).length,
       aiSpendMonthUsd: Math.round(by(usage, id, (u) => num(u.cost_usd)).reduce((a, b) => a + b, 0) * 100) / 100,
-      openRequests: reqs.filter((r) => r.stage !== "done" && r.stage !== "watch").length,
+      openRequests: reqs.filter((r) => r.stage !== "done" && r.stage !== "cancelled").length,
       createdAt: o.created_at as string,
-      lastActivityAt: reqs.map((r) => r.created_at as string).sort().pop() ?? null,
+      lastActivityAt: reqs.map((r) => (r.updated_at ?? r.created_at) as string).sort().pop() ?? null,
     };
   });
   return { accounts, requests };
@@ -88,7 +89,7 @@ export async function overview(identity: Identity): Promise<AdminOverview> {
     people: { members: members.length, platformStaff: staff.length, openInvites: invites.length },
     work: {
       openRequests: accounts.reduce((s, a) => s + a.openRequests, 0),
-      changesInFlight: requests.filter((r) => ["build", "prove", "try", "ship"].includes(r.stage as string)).length,
+      changesInFlight: requests.filter((r) => ["build", "prove", "try", "release"].includes(r.stage as string)).length,
     },
     aiSpendMonthUsd: ai,
     textsLast24h: { sent: text("sent"), suppressed: text("suppressed"), failed: text("failed") },
