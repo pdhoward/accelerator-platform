@@ -20,9 +20,25 @@ export async function ensureWorktree(repoPath: string, slug: string, name: strin
   mkdirSync(join(root(), slug), { recursive: true });
   await git("worktree prune", repoPath);
   const hasBranch = (await git(`rev-parse --verify --quiet refs/heads/${branch}`, repoPath)).code === 0;
-  const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${base}`, repoPath);
+  const from = hasBranch ? base : await baseRef(repoPath, base);
+  const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${from}`, repoPath);
   if (r.code !== 0) throw new Error(`Couldn't create the worktree: ${r.out.trim()}`);
   return dir;
+}
+
+/**
+ * Where new work starts: the local base branch, else GitHub's copy of it
+ * (fetched), else a plain explanation. A missing base used to surface as
+ * git's "invalid reference: stage".
+ */
+export async function baseRef(repoPath: string, base: string): Promise<string> {
+  if ((await git(`rev-parse --verify --quiet refs/heads/${base}`, repoPath)).code === 0) return base;
+  await git(`fetch --quiet origin ${base}`, repoPath);
+  if ((await git(`rev-parse --verify --quiet refs/remotes/origin/${base}`, repoPath)).code === 0) {
+    await git(`branch --track ${base} origin/${base}`, repoPath);
+    return base;
+  }
+  throw new Error(`The site's base branch "${base}" doesn't exist here or on GitHub. Create it from main (git branch ${base} main && git push -u origin ${base}), or change the base branch in Setup.`);
 }
 
 export const headSha = async (dir: string) => (await git("rev-parse HEAD", dir)).out.trim();
