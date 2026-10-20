@@ -412,6 +412,36 @@ try {
       .count()) === 1,
     "work list opens the same sample record",
   );
+  // G2.4: the four screens lead the navigation; Gen 1 pages wait behind Engineer view.
+  await page.goto("http://127.0.0.1:4100/s/cypress-resort");
+  const nav = page.getByRole("navigation", { name: "Control Room" });
+  for (const label of ["Overview", "Work", "Site", "Crew & Knowledge"]) {
+    check((await nav.getByRole("link", { name: label, exact: true }).count()) === 1, `navigation shows ${label}`);
+  }
+  check((await nav.getByRole("link", { name: "Proof", exact: true }).count()) === 0, "Gen 1 pages stay behind Engineer view");
+
+  // G2.3 Crew & Knowledge: the keyless demo shows the catalog, labelled, and nothing can be changed.
+  await page.goto("http://127.0.0.1:4100/s/cypress-resort/crew");
+  await page.locator("[data-team-lead]").waitFor();
+  check((await page.locator("[data-sample]").count()) === 1, "the demo crew is labelled as a sample");
+  check((await page.locator("[data-specialist]").count()) === 8, "the crew shows its eight specialists beside the Team Lead");
+  const handbook = await page.locator("[data-handbook]").innerText();
+  check(handbook.includes("Writing standard (ASD-STE100") && handbook.includes("Commerce: the catalog feeds everything"), "the handbook shows crew and domain skills");
+  check((await page.getByLabel("Locked").count()) >= 3, "safety skills are locked");
+  check((await page.getByRole("switch").count()) === 0, "a sample crew has no switches");
+  await page.screenshot({ path: path.join(artifacts, "crew.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 900 });
+  check(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    "Crew & Knowledge fits a phone without sideways scrolling",
+  );
+  await page.setViewportSize({ width: 1440, height: 1050 });
+
+  // Site, Boarding and the Timeline need records: the demo says so plainly instead of inventing them.
+  for (const screen of ["site", "boarding", "timeline"]) {
+    await page.goto(`http://127.0.0.1:4100/s/cypress-resort/${screen}`);
+    check((await page.locator("main").innerText()).includes("needs the database"), `${screen} says it needs the database in the demo`);
+  }
   check(
     errors.length === 0,
     `no uncaught browser errors: ${errors.join("; ")}`,

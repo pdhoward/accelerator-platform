@@ -62,6 +62,7 @@ import { EngineerOnly, useUi } from "./ui-provider";
 import { CockpitPanel } from "./cockpit/cockpit-panel";
 import { LiveCaptions, TalkButton, useVoiceCall, VoiceBar } from "./cockpit/voice-talk";
 import { DocDrawer, DocumentCards, WhereWeAre } from "./cockpit/work-sidebar";
+import { MandateCard } from "./cockpit/mandate-card";
 import { ActivityRibbon } from "./workspace/activity-ribbon";
 import { ImprovementReplay } from "./workspace/improvement-replay";
 import { MissionControl } from "./workspace/mission-control";
@@ -377,6 +378,9 @@ export function WorkRoom({
             />
             <aside aria-label="Where the work stands" className="flex flex-col gap-4">
               {!install && <WhereWeAre milestones={progressFor(d)} complexity={d.work.complexity} />}
+              {!install && studio.source !== "sample" && (
+                <MandateCard siteId={siteId} d={d} canEdit={canApprove && access.via === "member" && !closed} onSaved={refresh} />
+              )}
               {!install && instruments && <CockpitPanel siteId={siteId} number={n} initial={instruments} compact />}
               <DocumentCards cards={install ? artifactCards(d).filter((c) => c.id === "log") : artifactCards(d)} onOpen={setDrawer} />
             </aside>

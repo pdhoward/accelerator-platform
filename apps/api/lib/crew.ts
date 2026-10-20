@@ -93,6 +93,20 @@ export async function readCrew(s: Site): Promise<CrewResponse> {
     rows(db().from("acc_jobs").select("kind, status, created_at, work_id").eq("site_id", s.id).gte("created_at", since).order("created_at", { ascending: false }).limit(500)),
     rows(db().from("acc_crew_versions").select("version, note, created_label, created_at").eq("site_id", s.id).order("version", { ascending: false }).limit(20)),
   ]);
+  return crewView({
+    version, config, domain, records, jobs,
+    history: history.map((h) => ({ version: h.version as number, note: (h.note as string) ?? null, by: h.created_label as string, at: h.created_at as string })),
+  });
+}
+
+/** The crew catalog alone, for the keyless demo: no records, so no activity and no versions, and labelled as a sample. */
+export const catalogCrew = (domain: Domain | null): CrewResponse => ({
+  ...crewView({ version: 0, config: DEFAULT_CREW_CONFIG, domain, records: [], jobs: [], history: [] }),
+  sample: true,
+});
+
+function crewView(v: { version: number; config: CrewConfig; domain: Domain | null; records: SkillRecord[]; jobs: Row[]; history: CrewResponse["history"] }): CrewResponse {
+  const { config, domain, records, jobs } = v;
   const members = SPECIALISTS.map((id) => {
     const spec = CREW[id];
     const mine = jobs.filter((j) => spec.jobs.includes(j.kind as JobKind));
@@ -110,10 +124,7 @@ export async function readCrew(s: Site): Promise<CrewResponse> {
     ...DOMAIN_SKILLS.filter((k) => k.domain === domain).map((k) => ({ ...k, on: !off.has(k.key), locked: false })),
     ...records.map((r) => ({ key: `${r.scope}.${r.id}`, id: r.id, tier: r.scope, title: r.title, body: r.body, version: r.version, specialists: r.specialists, enabled: r.enabled, on: r.enabled, locked: false })),
   ];
-  return {
-    catalogVersion: CREW_CATALOG_VERSION, crewVersion: version, config, domain, members, handbook,
-    history: history.map((h) => ({ version: h.version as number, note: (h.note as string) ?? null, by: h.created_label as string, at: h.created_at as string })),
-  };
+  return { catalogVersion: CREW_CATALOG_VERSION, crewVersion: v.version, config, domain, members, handbook, history: v.history };
 }
 
 /** A new crew version: validated against the catalog; a safety skill or a widened tool is refused. */

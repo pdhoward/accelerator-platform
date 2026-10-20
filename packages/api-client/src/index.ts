@@ -1,6 +1,16 @@
 import { readSse, type LeadStreamEvent } from "@accelerator/domain";
 import type {
+  Boarding,
   BriefingResponse,
+  CapabilitiesResponse,
+  CrewConfig,
+  CrewResponse,
+  FormValues,
+  Mandate,
+  MandateBody,
+  SkillProposal,
+  TimelineFilter,
+  TimelineResponse,
   InstrumentsResponse,
   StudioResponse,
   AccessVia,
@@ -205,6 +215,44 @@ export function createApiClient({
         post<Skill>(`${site(siteId)}/skills/${skillId}`, { enabled }, "PATCH"),
     },
 
+    /** The crew as configuration (gen2-crew.md §2, G2.3). */
+    crew: {
+      get: (siteId: string) => call<CrewResponse>(`${site(siteId)}/crew`),
+      save: (siteId: string, config: CrewConfig, note?: string) => post<{ version: number }>(`${site(siteId)}/crew`, { config, ...(note && { note }) }),
+      skill: (siteId: string, skillId: string, enabled: boolean) => post<{ ok: true }>(`${site(siteId)}/crew/skills/${skillId}`, { enabled }, "PATCH"),
+      proposals: (siteId: string) => call<SkillProposal[]>(`${site(siteId)}/crew/proposals`),
+      propose: (siteId: string, values: FormValues) => post<SkillProposal>(`${site(siteId)}/crew/proposals`, values),
+      decide: (siteId: string, proposalId: string, decision: "approve" | "reject" | "rollback") =>
+        post<{ ok: true }>(`${site(siteId)}/crew/proposals/${proposalId}`, { decision }),
+      skillsmith: (siteId: string) => post<{ proposed: number }>(`${site(siteId)}/crew/skillsmith`, {}),
+    },
+
+    /** The capability inventory (§10.3, G2.3a). */
+    capabilities: {
+      get: (siteId: string) => call<CapabilitiesResponse>(`${site(siteId)}/capabilities`),
+      survey: (siteId: string) => post<{ proposed: number; refreshed: number }>(`${site(siteId)}/capabilities`, { action: "survey" }),
+      add: (siteId: string, values: FormValues) => post<{ id: string }>(`${site(siteId)}/capabilities`, { action: "add", values }),
+      review: (siteId: string, id: string, action: { action: "accept" | "restore" } | { action: "retire"; reason: string } | { action: "edit"; values: FormValues }) =>
+        post<{ ok: true }>(`${site(siteId)}/capabilities/${id}`, action),
+    },
+
+    /** The Site Timeline (§18, G2.5); the export is a download at exportUrl. */
+    timeline: (siteId: string, opts: { before?: number | null; filter?: TimelineFilter; work?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (opts.before) q.set("before", String(opts.before));
+      if (opts.filter && opts.filter !== "all") q.set("filter", opts.filter);
+      if (opts.work) q.set("work", String(opts.work));
+      return call<TimelineResponse>(`${site(siteId)}/timeline${q.size ? `?${q}` : ""}`);
+    },
+    exportUrl: (siteId: string) => `${baseUrl}/api${site(siteId)}/export`,
+
+    /** Boarding (§2.5, G2.6). */
+    boarding: {
+      get: (siteId: string) => call<Boarding & { interview: { values: FormValues; version: number; at: string; by: string } | null }>(`${site(siteId)}/boarding`),
+      interview: (siteId: string, values: FormValues) => post<{ version: number }>(`${site(siteId)}/boarding`, { action: "interview", values }),
+      intervention: (siteId: string, step: string, note: string) => post<{ ok: true }>(`${site(siteId)}/boarding`, { action: "intervention", step, note }),
+    },
+
     code: {
       tree: (siteId: string) => call<FileNode[]>(`${site(siteId)}/code/tree`),
       file: (siteId: string, path: string) =>
@@ -289,6 +337,11 @@ export function createApiClient({
           post<{ output: string }>(`${site(siteId)}/work/${n}/voice/tool`, call),
         transcript: (siteId: string, n: number, input: { lines: { speaker: "person" | "lead"; text: string; at: number }[]; startedAt: number; endedAt: number }) =>
           post<{ ok: true }>(`${site(siteId)}/work/${n}/voice/transcript`, input),
+      },
+      /** The mandate (§10.1): current, history, and a draft from the approved Brief when there is none. */
+      mandate: {
+        get: (siteId: string, n: number) => call<{ current: Mandate | null; history: Mandate[]; draft: MandateBody | null }>(`${site(siteId)}/work/${n}/mandate`),
+        save: (siteId: string, n: number, values: FormValues) => post<Mandate>(`${site(siteId)}/work/${n}/mandate`, values),
       },
       /** The complexity tier (gen2-crew.md §17). */
       complexity: (siteId: string, n: number, complexity: Complexity) =>

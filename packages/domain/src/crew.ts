@@ -305,4 +305,6 @@ export type CrewResponse = {
   /** Every skill the site's crew can run with, by tier, with whether this site has it on. */
   handbook: (CrewSkill & { on: boolean; locked: boolean })[];
   history: { version: number; note: string | null; by: string; at: string }[];
+  /** The keyless demo: the catalog alone, no site records. */
+  sample?: boolean;
 };

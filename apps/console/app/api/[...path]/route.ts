@@ -38,9 +38,11 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
         headers: { "content-type": "text/event-stream", "cache-control": "no-store, no-transform", "x-accel-buffering": "no" },
       });
     }
+    // A download (the site's export) keeps its file name.
+    const disposition = res.headers.get("content-disposition");
     return new Response(await res.text(), {
       status: res.status,
-      headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
+      headers: { "content-type": res.headers.get("content-type") ?? "application/json", ...(disposition && { "content-disposition": disposition }) },
     });
   } catch {
     return Response.json({ error: "The Control Room couldn't reach its API. Try again shortly." }, { status: 502 });

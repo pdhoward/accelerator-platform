@@ -98,7 +98,7 @@ export function AppSidebar({
       {context}
 
       <nav className="flex gap-4 overflow-x-auto lg:flex-col lg:gap-3 lg:overflow-visible" aria-label={title}>
-        {groups.map((g, i) => (
+        {groups.filter((g) => g.items.some((it) => !it.engineer || engineer)).map((g, i) => (
           <div key={i} className="flex gap-0.5 lg:flex-col">
             {g.title && <span className="hidden px-2.5 pb-1 pt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-mist lg:block">{g.title}</span>}
             {g.items

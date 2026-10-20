@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /** Shared presentational pieces. Server-safe (no hooks). */
 
@@ -44,8 +44,12 @@ export function CardHead({ title, hint, children }: { title: string; hint?: stri
   );
 }
 
-export function CardBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("px-5 pb-5 pt-3.5", className)}>{children}</div>;
+export function CardBody({ children, className, ...rest }: { children: ReactNode; className?: string } & Omit<HTMLAttributes<HTMLDivElement>, "className" | "children">) {
+  return (
+    <div {...rest} className={cx("px-5 pb-5 pt-3.5", className)}>
+      {children}
+    </div>
+  );
 }
 
 export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
