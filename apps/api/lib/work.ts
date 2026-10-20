@@ -1,6 +1,8 @@
 import {
   workClosureCopy,
   agreementText,
+  CREW,
+  specialistFor,
   autoAction,
   CLAIM_MS,
   claimLapsed,
@@ -65,7 +67,11 @@ import { CodeError } from "./codes";
 import { createHash } from "node:crypto";
 
 import { leadTurns, streamAnthropic } from "./anthropic-stream";
+import { linkCapabilities, workCapabilities } from "./capabilities";
+import { crewConfig, crewContext, runSkillsmith } from "./crew";
 import { signJobToken } from "./job-token";
+import { siteInterview, workRecord } from "./library";
+import { budgetFor, currentMandate } from "./mandate";
 import { CREW_ROLE, decide, evidence, invalidate, record, type Actor } from "./ledger";
 import { db, rows, type Row } from "./supabase";
 import { secretStatus } from "./vault";
@@ -212,16 +218,19 @@ export async function runnerOnline() {
 export async function workDetail(site: Site, number: number): Promise<WorkDetail> {
   const work = toWork(await workRow(site.id, number));
   const p = await parts(work.id);
-  const [events, models, online] = await Promise.all([
+  const [events, models, online, mandate, budget, capabilities] = await Promise.all([
     p.jobs[0] ? rows(db().from("acc_job_events").select("id, at, kind, text").eq("job_id", p.jobs[0].id).order("id").limit(400)) : Promise.resolve([]),
     siteModels(site.id),
     runnerOnline(),
+    currentMandate(work.id),
+    budgetFor(work.id),
+    workCapabilities(work.id),
   ]);
   const f = facts(work, p);
   const actions = workActions(f);
   return {
     work, ...p, events: events as unknown as JobEvent[], actions, crewNext: work.kind === "change" ? autoAction(f) : null,
-    decision: work.kind === "change" ? decisionFor(work, p, actions) : null, models, runnerOnline: online,
+    decision: work.kind === "change" ? decisionFor(work, p, actions) : null, models, runnerOnline: online, mandate, budget, capabilities,
   };
 }
 
@@ -266,16 +275,56 @@ async function restage(workId: string) {
   await db().from("acc_work").update({ stage, updated_at: now() }).eq("id", workId);
 }
 
+/** Jobs that spend the mandate's budget on the crew's own initiative (a reply to a person is always answered). */
+const SPENDING: JobKind[] = ["design", "plan", "build_step"];
+
+const HANDOFF: Partial<Record<JobKind, string>> = {
+  discuss: "answer the Navigator", design: "write the Brief or design", plan: "plan the build", build_step: "build the next step",
+  prove: "prove the candidate", release: "release it",
+};
+
 async function enqueue(site: Pick<Site, "id" | "orgId">, work: Row | null, kind: JobKind, role: ModelRole, userId: string, input: Record<string, unknown> = {}) {
+  let mandateVersion: number | null = null;
+  let previous: Row | undefined;
   if (work) {
     const busy = await rows(db().from("acc_jobs").select("id").eq("work_id", work.id as string).in("status", ["queued", "running"]).limit(1));
     if (busy.length) throw new CodeError("The engine is already working on this. Wait for it to finish.");
+    // The mandate's budget (§10.1): at the limit the crew stops and asks, instead of spending more.
+    if (SPENDING.includes(kind)) {
+      const budget = await budgetFor(work.id as string);
+      if (budget.over) return void (await stopForBudget(work, budget));
+    }
+    mandateVersion = (await currentMandate(work.id as string))?.version ?? null;
+    [previous] = await rows(db().from("acc_jobs").select("kind").eq("work_id", work.id as string).order("created_at", { ascending: false }).limit(1));
   }
-  const m = (await siteModels(site.id))[role];
+  const [m, crew] = await Promise.all([siteModels(site.id).then((all) => all[role]), crewConfig(site.id)]);
   const { error } = await db().from("acc_jobs").insert({
     org_id: site.orgId, site_id: site.id, work_id: work?.id ?? null, kind, role, provider: m.provider, model: m.model, input, created_by: userId,
+    mandate_version: mandateVersion, crew_version: crew.version,
   });
   if (error) throw new Error(error.message);
+  // An audited specialist handoff (G2.3): who passed the work to whom, under which mandate.
+  if (work && previous) {
+    const from = CREW[specialistFor(previous.kind as JobKind)];
+    const to = CREW[specialistFor(kind)];
+    if (from.id !== to.id) {
+      await record(work, {
+        kind: "handoff", actor: { kind: "crew", label: from.label },
+        summary: `${from.label} → ${to.label}: ${HANDOFF[kind] ?? kind}${mandateVersion ? ` under mandate v${mandateVersion}` : ""}.`,
+        refs: { from: from.id, to: to.id, mandate: mandateVersion, crew: crew.version },
+      });
+    }
+  }
+}
+
+async function stopForBudget(w: Row, budget: { limit: number | null; spent: number }) {
+  if (w.paused_at) return;
+  await db().from("acc_work").update({ paused_at: now(), updated_at: now() }).eq("id", w.id as string);
+  await say(w, {
+    kind: "system", label: "Crew",
+    body: `The crew stopped: this item has used $${budget.spent.toFixed(2)} of its $${(budget.limit ?? 0).toFixed(2)} budget. Raise the budget in the mandate, then say "resume".`,
+  });
+  await decide(w, { kind: "pause", actor: { kind: "policy", label: "Mandate budget" }, target: `$${budget.spent.toFixed(2)} of $${(budget.limit ?? 0).toFixed(2)}`, summary: `#${w.number} paused at its budget.` });
 }
 
 const personLabel = (identity: Identity, name?: string) => name || identity.email.split("@")[0]!;
@@ -473,14 +522,20 @@ export async function streamReply(site: Site, identity: Identity, who: Speaker, 
   const p = await parts(w.id as string);
   const work = toWork(w);
   const [s] = await rows(db().from("acc_sites").select("*").eq("id", site.id));
+  const domain = isDomain(s?.domain) ? s.domain : null;
+  const [crew, mandate, interview] = await Promise.all([crewContext({ id: site.id, orgId: site.orgId, domain }, "discuss"), currentMandate(w.id as string), siteInterview(site.id)]);
+  await db().from("acc_jobs").update({ mandate_version: mandate?.version ?? null, crew_version: crew.crewVersion }).eq("id", job.id as string);
   const ctx: JobContext = {
     job: { ...toJob(job), role: "consult", input: {}, generation: 1 },
     site: {
       id: site.id, slug: (s?.slug as string) ?? "", name: site.name, url: (s?.url as string) ?? "", repoPath: null, baseBranch: (s?.base_branch as string) ?? "stage",
-      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain: isDomain(s?.domain) ? s.domain : null,
+      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain,
     },
     work: { ...work, messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps, agentSessionId: null },
     toolbeltToken: null,
+    crew: { specialist: crew.specialist, label: crew.label, crewVersion: crew.crewVersion, skills: crew.skills },
+    mandate,
+    interview: interview?.values ?? null,
   };
   const filter = trailerFilter();
   try {
@@ -1001,11 +1056,22 @@ async function context(job: Row): Promise<JobContext> {
     };
   }
   const generation = (job.generation as number) ?? 0;
+  const domain = isDomain(s!.domain) ? s!.domain : null;
+  // What this run knows (G2.3): its specialist and skills, the mandate, and the site's interview.
+  const [crew, mandate, interview] = await Promise.all([
+    crewContext({ id: s!.id as string, orgId: s!.org_id as string, domain }, job.kind as JobKind),
+    job.work_id ? currentMandate(job.work_id as string) : Promise.resolve(null),
+    siteInterview(s!.id as string),
+  ]);
+  // T5: at Prove the Librarian writes the item's record into the repository (docs/accelerator/), when the site has it on.
+  const [wr] = job.kind === "prove" && job.work_id && s!.docs_sync !== false ? await rows(db().from("acc_work").select("*").eq("id", job.work_id as string)) : [];
+  const docRecord = wr ? await workRecord(s!.name as string, wr) : null;
   const toolbeltToken = (() => {
     try {
       return signJobToken({
         jobId: job.id as string, orgId: job.org_id as string, siteId: job.site_id as string, workId: (job.work_id as string) ?? null,
         role: job.role as ModelRole, generation, exp: Date.now() + 3 * 60 * 60_000,
+        stage: work?.stage ?? null, tools: crew.tools,
       });
     } catch {
       return null; // no Toolbelt secret configured: the job runs without the Toolbelt
@@ -1017,10 +1083,14 @@ async function context(job: Row): Promise<JobContext> {
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
-      repo: (s!.repo as string) || null, domain: isDomain(s!.domain) ? s!.domain : null,
+      repo: (s!.repo as string) || null, domain,
     },
     work,
     setup,
+    crew: { specialist: crew.specialist, label: crew.label, crewVersion: crew.crewVersion, skills: crew.skills },
+    mandate,
+    interview: interview?.values ?? null,
+    record: docRecord,
   };
 }
 
@@ -1045,7 +1115,7 @@ export type JobResult =
   | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
-export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string; generation?: number; sessionId?: string }) {
+export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string; generation?: number; sessionId?: string; costUsd?: number }) {
   const [job] = await rows(db().from("acc_jobs").select("*").eq("id", jobId).eq("status", "running"));
   if (!job) throw new CodeError("That job isn't running.");
   // A worker whose claim lapsed and was handed on can't commit a result (§14.1).
@@ -1056,6 +1126,8 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   if (outcome.sessionId && job.work_id) await db().from("acc_work").update({ agent_session_id: outcome.sessionId }).eq("id", job.work_id as string);
   const label = modelLabel(job.provider as string, job.model as string);
   const model = `${job.provider}/${job.model}`;
+  // What the run cost (the mandate's budget reads it).
+  if (outcome.costUsd != null && Number.isFinite(outcome.costUsd)) await db().from("acc_jobs").update({ cost_usd: Math.round(outcome.costUsd * 10_000) / 10_000 }).eq("id", jobId);
   const [w] = job.work_id ? await rows(db().from("acc_work").select("*").eq("id", job.work_id as string)) : [];
 
   if (outcome.status === "failed" || !outcome.result) {
@@ -1103,6 +1175,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       detail: { reasons: verdict.reasons, typecheck: checks.typecheck, testsBefore: checks.testsBefore, files: r.files ?? [] },
       summary: verdict.ok ? `Step built and checked: ${r.summary.split("\n")[0]!.slice(0, 160)}` : `Step blocked by the Protocol: ${verdict.reasons.join(" ")}`,
     });
+    await linkCapabilities(w, r.files ?? []);
     if (r.commit) {
       await db().from("acc_work").update(UNPROVEN).eq("id", w.id as string); // new code: prove it again
       await invalidate(w, ["approve_try", "ship"], "new code since the preview was approved");
@@ -1169,6 +1242,8 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
       detail: { reasons: release.reasons, productionState: r.productionState, liveUrl: r.liveUrl, liveStatus: r.liveStatus },
       summary: verdict.ok ? `Live: ${r.liveUrl} answers ${r.liveStatus}.` : r.mainCommit ? "Released to main; the live check needs a look." : "The release didn't reach main.",
     });
+    // The rail's Learn stop: the Skillsmith reads the evidence and proposes; it never activates anything.
+    if (r.mainCommit) await runSkillsmith({ id: job.site_id as string, orgId: job.org_id as string }).catch((e) => console.error("[skillsmith]", e instanceof Error ? e.message : e));
     await say(w, {
       kind: "model", label, model,
       body: verdict.ok

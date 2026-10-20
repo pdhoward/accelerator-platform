@@ -23,3 +23,11 @@ export * from "./studio";
 export * from "./decision-access";
 
 export * from "./work-closure";
+
+export * from "./crew";
+export * from "./mandate";
+export * from "./capabilities";
+export * from "./library";
+export * from "./skillsmith";
+export * from "./forms";
+export * from "./boarding";

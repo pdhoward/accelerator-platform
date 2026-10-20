@@ -1,5 +1,8 @@
 import { COMPLEXITY_LABEL, COMPLEXITY_PROMISE, COMPLEXITY_RUBRIC } from "./complexity";
+import { skillsBlock } from "./crew";
 import { domainGuidance } from "./domains";
+import { interviewBlock } from "./forms";
+import { mandateBlock } from "./mandate";
 import { RAIL_LABEL, type JobContext, type WorkStep } from "./flywheel";
 import { WORK_CLOSURE_LABEL } from "./work-closure";
 
@@ -14,7 +17,17 @@ export const PROTOCOL = `The Protocol (standing orders; the runner checks them a
 - Typecheck and the full test suite must pass before a step is done. Run them yourself before you finish.
 - Test data only. Never use production keys or data. Never read .env files.
 - The site's stack and CLAUDE.md are the given. Asked "A or B?", recommend one and say why in a sentence.
-- Report plainly: what changed, what is proven, what is next.`;
+- Report plainly: what changed, what is proven, what is next.
+- Write for people in Simplified Technical English (ASD-STE100): short sentences, active voice, one meaning per word, the client's own terms.`;
+
+/**
+ * What the crew knows on this run (G2.3): the site from its Boarding
+ * interview, the Work item's mandate and the specialist's assembled skills.
+ */
+export function crewKnowledge(ctx: JobContext): string {
+  const parts = [interviewBlock(ctx.interview ?? null), mandateBlock(ctx.mandate ?? null), ctx.crew ? skillsBlock(ctx.crew.skills) : ""].filter(Boolean);
+  return parts.length ? `\n\n${parts.join("\n\n")}` : "";
+}
 
 type Work = NonNullable<JobContext["work"]>;
 
@@ -26,6 +39,7 @@ export function brief(ctx: JobContext): string {
     w && w.kind === "change" && `Complexity: ${COMPLEXITY_LABEL[w.complexity]} (${w.complexitySetBy === "person" ? "set by the Navigator" : "the platform's rating"}). ${COMPLEXITY_PROMISE[w.complexity]}`,
     w?.design && `Design: v${w.design.version}, ${w.design.approvedAt ? "approved" : "awaiting approval"}.`,
     w?.steps.length && `Plan: ${w.steps.length} steps (${w.steps.filter((s) => s.status === "done").length} done), ${w.planApproved ? "approved" : "awaiting approval"}.`,
+    ctx.crew && `You are the ${ctx.crew.label} on this site's crew (crew v${ctx.crew.crewVersion}).`,
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -68,7 +82,7 @@ How to respond:
 - If code was delivered outside the platform, distinguish that report from the platform's recorded release proof. Do not force an unnecessary deployment just to start new design work.
 - You lead the work; the crew acts on its own within the complexity tier. Say plainly what happens next ("Low: I'll fix it, prove it and ship it.", "Medium: I'll write a short Brief for you to approve."). Never ask the Navigator to press buttons for steps the crew takes itself.
 - You can read the site's code when a repository is available; use it to ground your answers.
-- Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}${ctx.work?.kind === "change" ? assessmentRules(ctx) : ""}
+- Short replies: a few sentences or a short list. No headings.${setupBrief(ctx)}${ctx.work?.kind === "change" ? assessmentRules(ctx) : ""}${crewKnowledge(ctx)}
 
 ${PROTOCOL}`;
 
@@ -97,7 +111,7 @@ Write design.md in Markdown with exactly these sections:
 ## How we'll prove it (the tests to add, what each proves)
 ## Risks and open questions
 
-Precise, not wordy. Ground it in the actual code when a repository is available. Return only the document.
+Precise, not wordy. Ground it in the actual code when a repository is available. Return only the document.${crewKnowledge(ctx)}
 
 ${PROTOCOL}`;
 
@@ -114,7 +128,7 @@ Write the Brief in Markdown, short enough to read in a minute, with exactly thes
 ## How we'll prove it (the tests, in one line each)
 ## Risks and open questions (or "None")
 
-Ground it in the actual code when a repository is available. Return only the document.
+Ground it in the actual code when a repository is available. Return only the document.${crewKnowledge(ctx)}
 
 ${PROTOCOL}`;
 
@@ -127,13 +141,13 @@ Rules:
 - Each step says what changes and which tests it adds or updates.
 - No "set up" or "research" steps; the builder reads the code as part of each step.
 
-Reply with only JSON, no prose: {"summary": "<one sentence>", "steps": [{"title": "<short imperative>", "detail": "<what changes; which tests prove it>"}]}
+Reply with only JSON, no prose: {"summary": "<one sentence>", "steps": [{"title": "<short imperative>", "detail": "<what changes; which tests prove it>"}]}${crewKnowledge(ctx)}
 
 ${PROTOCOL}`;
 
 export const buildAppend = (ctx: JobContext) => `You are the builder in the Accelerator's runner, working in a git worktree on this Work item's own branch.
 
-${brief(ctx)}
+${brief(ctx)}${crewKnowledge(ctx)}
 
 ${PROTOCOL}
 

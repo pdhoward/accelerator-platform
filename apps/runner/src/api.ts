@@ -9,6 +9,9 @@ export const base = () => (process.env.RUNNER_API_URL ?? process.env.API_URL_LOC
 /** The Toolbelt's MCP endpoint on the API (gen2-crew.md §1.2). */
 export const toolbeltUrl = () => `${base()}/mcp`;
 
+/** The model proxy on the API (G2.2b): agents call their model here with their job token, holding no model key. */
+export const modelProxyUrl = () => `${base()}/model`;
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   const token = process.env.RUNNER_TOKEN;
   if (!token) throw new Error("RUNNER_TOKEN is not set.");
@@ -28,7 +31,7 @@ export const claim = (runnerId: string, version: string) => post<{ context: JobC
 /** The site's development keys from the vault, for this running job. */
 export const secrets = (jobId: string) => post<{ env: Record<string, string> }>(`/jobs/${jobId}/secrets`, {});
 
-export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string; generation: number; sessionId?: string }) =>
+export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string; generation: number; sessionId?: string; costUsd?: number }) =>
   post(`/jobs/${jobId}/finish`, outcome);
 
 /** Renews this job's claim (§14.1); false when the claim lapsed or was handed to another worker. */

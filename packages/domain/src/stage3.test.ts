@@ -56,7 +56,7 @@ describe("slash commands are shortcuts, never new authority", () => {
 
 describe("the Toolbelt: a specialist is its tool list", () => {
   it("lets every role read, and only working roles post notes", () => {
-    expect(toolsFor("consult").map((t) => t.name)).toEqual(["work_status", "work_history", "work_decisions", "evidence_recent", "site_census"]);
+    expect(toolsFor("consult").map((t) => t.name)).toEqual(["work_status", "work_history", "work_decisions", "evidence_recent", "site_census", "site_capabilities"]);
     expect(toolsFor("build").map((t) => t.name)).toContain("rail_note");
     expect(mayCall("consult", "rail_note")).toBe(false);
     expect(mayCall("build", "rail_note")).toBe(true);

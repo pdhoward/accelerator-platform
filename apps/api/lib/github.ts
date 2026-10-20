@@ -78,3 +78,11 @@ export async function repoFile(site: Site, path: string): Promise<string> {
   const ref = await branch(site, t);
   return gh<string>(`/repos/${repoOf(site)}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`, t, "application/vnd.github.raw");
 }
+
+/** Every file path in the repository (the Surveyor's input), from GitHub's recursive tree. */
+export async function repoPaths(site: Site): Promise<string[]> {
+  const t = await token(site.id);
+  const ref = await branch(site, t);
+  const data = await gh<{ tree: { path: string; type: string }[]; truncated: boolean }>(`/repos/${repoOf(site)}/git/trees/${encodeURIComponent(ref)}?recursive=1`, t);
+  return data.tree.filter((e) => e.type === "blob").map((e) => e.path);
+}

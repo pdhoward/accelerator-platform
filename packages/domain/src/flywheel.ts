@@ -479,6 +479,10 @@ export type WorkDetail = {
   decision: PendingDecision | null;
   models: Record<ModelRole, SiteModel>;
   runnerOnline: boolean;
+  /** The current mandate (§10.1), the spend against its budget, and the capabilities this item touched (G2.3a). */
+  mandate?: import("./mandate").Mandate | null;
+  budget?: { limit: number | null; spent: number; over: boolean; near: boolean } | null;
+  capabilities?: { id: string; name: string; area: string }[];
 };
 
 export type SetupItem = { code: string; phase: "install" | "checkout"; title: string; owner: SetupOwner; status: SetupStatus; note: string | null; evidence: Record<string, unknown>; updatedAt: string };
@@ -500,6 +504,14 @@ export type JobContext = {
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[]; agentSessionId: string | null }) | null;
   /** The job's Toolbelt token (§1.2): the agent reaches the API's /mcp with it; it holds no other key. */
   toolbeltToken: string | null;
+  /** Who runs this job and what it knows (G2.3): the specialist, its assembled skills and the crew version. */
+  crew?: import("./crew").CrewContext | null;
+  /** The Work item's current mandate (§10.1); the job records its version. */
+  mandate?: import("./mandate").Mandate | null;
+  /** The site's Boarding interview answers (§2.5), read on every run. */
+  interview?: import("./forms").FormValues | null;
+  /** Prove only: the record the Librarian writes into the repository (T5), when the site has /docs sync on. */
+  record?: { path: string; body: string } | null;
   /** Installation conversations only: what the engine needs to diagnose setup (never key values). */
   setup?: {
     items: Pick<SetupItem, "code" | "title" | "owner" | "status" | "note">[];

@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { census, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
 
-import { secrets, toolbeltUrl, type Log } from "./api";
+import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
@@ -25,6 +25,14 @@ const devEnv = async (ctx: JobContext, log?: Log) => {
 const sessions = new WeakMap<JobContext, string>();
 export const agentSession = (ctx: JobContext) => sessions.get(ctx);
 const toolbelt = (ctx: JobContext) => (ctx.toolbeltToken ? { url: toolbeltUrl(), token: ctx.toolbeltToken } : null);
+
+/** G2.2b: with RUNNER_MODEL_PROXY=on the agent holds only its job token; the API holds the model key. */
+const modelProxy = (ctx: JobContext) => (process.env.RUNNER_MODEL_PROXY === "on" && ctx.toolbeltToken ? { url: modelProxyUrl(), token: ctx.toolbeltToken } : null);
+
+/** What each job's model runs cost, reported with its result (the mandate's budget reads it). */
+const costs = new WeakMap<JobContext, number>();
+export const jobCost = (ctx: JobContext) => costs.get(ctx);
+const spent = (ctx: JobContext, usd: number) => costs.set(ctx, (costs.get(ctx) ?? 0) + (Number.isFinite(usd) ? usd : 0));
 
 /**
  * One function per job kind. Each returns the result the API applies to
@@ -55,9 +63,10 @@ async function think(ctx: JobContext, log: Log, system: string, instruction: str
   if (dir) {
     const r = await agent({
       cwd: dir, model, append: system, mode: "read", log, prompt: `THE CONVERSATION SO FAR\n\n${transcript(w)}\n\n${instruction}`,
-      resume: w.agentSessionId, toolbelt: toolbelt(ctx),
+      resume: w.agentSessionId, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
     });
     if (r.sessionId) sessions.set(ctx, r.sessionId);
+    spent(ctx, r.costUsd);
     if (!r.ok || !r.text.trim()) throw new Error(`The model stopped early (${r.reason ?? "no answer"}).`);
     return r.text.trim();
   }
@@ -123,9 +132,10 @@ export async function buildStep(ctx: JobContext, log: Log) {
   if (repair.length) log.status(`Repairing: ${repair.join(" ")}`);
   const r = await agent({
     cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step, repair),
-    resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env,
+    resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
   });
   if (r.sessionId) sessions.set(ctx, r.sessionId);
+  spent(ctx, r.costUsd);
   if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
 
   // After: the runner's own checks decide the verdict, not the model's report.
@@ -181,6 +191,7 @@ export async function prove(ctx: JobContext, log: Log) {
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, branch, ctx.site.baseBranch);
   const env = await devEnv(ctx);
 
+  if (ctx.record) await writeRecord(dir, w.number, ctx.record, log);
   log.status("Prove: typecheck, tests and the production build");
   const c = await fullChecks(dir, env, log);
   const commit = await headSha(dir);
@@ -200,6 +211,26 @@ export async function prove(ctx: JobContext, log: Log) {
   const previewStatus = d.url ? await probe(d.url) : null;
   log.check(d.url ? `Preview ${d.state}: ${d.url} (answers ${previewStatus ?? "nothing"})` : `No preview (${d.state})`);
   return { ...result, facts, previewUrl: d.url, previewStatus };
+}
+
+/**
+ * The Librarian's /docs sync (traceability T5): the item's record, built by
+ * the API from the decisions and evidence, committed under docs/accelerator/
+ * on the Work item's branch before Prove, so the proven candidate carries
+ * it. Deterministic: an unchanged record makes no commit. Never fails Prove.
+ */
+async function writeRecord(dir: string, number: number, record: { path: string; body: string }, log: Log) {
+  try {
+    if (!/^docs\/accelerator\/[\w.-]+\.md$/.test(record.path)) throw new Error(`refused path ${record.path}`);
+    const full = join(dir, record.path);
+    if (existsSync(full) && readFileSync(full, "utf8") === record.body) return;
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, record.body, "utf8");
+    const sha = await commitAll(dir, `docs: Accelerator record for work #${number}`);
+    if (sha) log.tool(`Librarian: wrote ${record.path} (${sha.slice(0, 8)})`);
+  } catch (err) {
+    log.check(`The record wasn't written: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**

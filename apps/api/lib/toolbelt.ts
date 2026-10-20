@@ -1,8 +1,9 @@
-import { mayCall, readCensus, ROLE_VOICE, toolsFor, type JobTokenClaims, type ModelRole } from "@accelerator/domain";
+import { isStripeTestKey, mayCall, readCensus, ROLE_VOICE, toolsFor, type JobTokenClaims, type ModelRole, type ToolScope } from "@accelerator/domain";
 
 import { verifyJobToken } from "./job-token";
 import { record } from "./ledger";
 import { db, rows, type Row } from "./supabase";
+import { secretValues } from "./vault";
 
 /**
  * The Toolbelt v0 (gen2-crew.md §1.2, G2.2): an MCP server inside the API.
@@ -19,12 +20,18 @@ type RpcRequest = { jsonrpc?: string; id?: string | number | null; method?: stri
 type RpcResponse = { jsonrpc: "2.0"; id: string | number | null; result?: unknown; error?: { code: number; message: string } };
 
 const ok = (id: RpcRequest["id"], result: unknown): RpcResponse => ({ jsonrpc: "2.0", id: id ?? null, result });
+/** The job's narrowing (G2.2b): its rail stop and the site crew's allowance, both from the token. */
+const scopeOf = (c: JobTokenClaims): ToolScope => ({ stage: c.stage ?? null, allowed: c.tools ?? null });
 const err = (id: RpcRequest["id"], code: number, message: string): RpcResponse => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 const text = (value: unknown, isError = false) => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }], ...(isError && { isError: true }) });
 
 /** The caller's claims, if the token is valid and its job is still running under the same claim. */
 export async function authenticate(request: Request): Promise<JobTokenClaims | null> {
-  const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? "";
+  return authenticateToken(request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? "");
+}
+
+/** The same check for a bare token (the model proxy reads it from x-api-key). */
+export async function authenticateToken(token: string): Promise<JobTokenClaims | null> {
   const claims = token ? verifyJobToken(token) : null;
   if (!claims) return null;
   const [job] = await rows(db().from("acc_jobs").select("status, generation, site_id").eq("id", claims.jobId));
@@ -58,7 +65,7 @@ async function one(claims: JobTokenClaims, m: RpcRequest): Promise<RpcResponse |
     case "ping":
       return ok(m.id, {});
     case "tools/list":
-      return ok(m.id, { tools: toolsFor(claims.role).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) });
+      return ok(m.id, { tools: toolsFor(claims.role, scopeOf(claims)).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })) });
     case "tools/call": {
       const name = typeof m.params?.name === "string" ? m.params.name : "";
       const args = (m.params?.arguments as Record<string, unknown> | undefined) ?? {};
@@ -75,8 +82,8 @@ export async function callTool(claims: JobTokenClaims, name: string, args: Recor
   let ok = false;
   let summary = "";
   try {
-    if (!mayCall(claims.role, name)) {
-      summary = `${name} isn't available to the ${ROLE_VOICE[claims.role]}.`;
+    if (!mayCall(claims.role, name, scopeOf(claims))) {
+      summary = `${name} isn't available to the ${ROLE_VOICE[claims.role]}${claims.stage ? ` at ${claims.stage}` : ""}.`;
       return text(summary, true);
     }
     const result = await runTool(claims, name, args);
@@ -138,6 +145,28 @@ async function runTool(claims: JobTokenClaims, name: string, args: Record<string
       const [e] = await rows(db().from("acc_evidence").select("created_at, commit_sha, detail").eq("site_id", claims.siteId).eq("kind", "census").order("created_at", { ascending: false }).limit(1));
       const c = e ? readCensus((e.detail as Record<string, unknown>) ?? {}) : null;
       return c ? { at: e!.created_at, commit: e!.commit_sha, ...c } : { note: "No census has been counted yet; Prove counts one on each candidate." };
+    }
+    case "site_capabilities": {
+      const caps = await rows(db().from("acc_capabilities").select("key, area, name, purpose, importance, requirements, paths").eq("site_id", claims.siteId).eq("lifecycle", "accepted"));
+      return caps.length
+        ? caps.map((c) => ({ key: c.key, area: c.area, name: c.name, purpose: c.purpose, importance: c.importance, requirements: c.requirements, paths: ((c.paths as string[]) ?? []).slice(0, 40) }))
+        : { note: "No capabilities are accepted for this site yet." };
+    }
+    case "stripe_test_catalog": {
+      const key = (await secretValues(claims.siteId, "development").catch(() => ({}) as Record<string, string>)).STRIPE_SECRET_KEY;
+      if (!key) throw new Error("This site has no Stripe test key (STRIPE_SECRET_KEY under Configuration → development keys).");
+      if (!isStripeTestKey(key)) throw new Error("The site's Stripe key isn't a test-mode key; the Toolbelt only uses test mode.");
+      const kind = args.kind === "prices" ? "prices" : "products";
+      const limit = Math.min(50, Math.max(1, Number(args.limit) || 20));
+      const res = await fetch(`https://api.stripe.com/v1/${kind}?limit=${limit}${kind === "products" ? "&active=true" : ""}`, {
+        headers: { authorization: `Bearer ${key.trim()}` }, signal: AbortSignal.timeout(10_000),
+      });
+      const data = (await res.json().catch(() => ({}))) as { data?: Row[]; error?: { message?: string }; livemode?: boolean };
+      if (!res.ok) throw new Error(`Stripe ${res.status}: ${data.error?.message ?? "request failed"}`);
+      const list = (data.data ?? []).filter((x) => x.livemode !== true);
+      return kind === "products"
+        ? list.map((p) => ({ id: p.id, name: p.name, description: p.description, default_price: p.default_price, metadata: p.metadata }))
+        : list.map((p) => ({ id: p.id, product: p.product, currency: p.currency, unit_amount: p.unit_amount, recurring: p.recurring, nickname: p.nickname }));
     }
     case "rail_note": {
       const w = needWork();

@@ -11,6 +11,10 @@ import type { ModelRole } from "./flywheel";
  * the census, and a note on the rail. Writing code stays in the runner's
  * worktree; releasing stays a person's decision (or the Low-tier policy) in the
  * API. No release or merge tool exists for any agent.
+ *
+ * G2.2b: tools are disclosed by stage (a tool appears only at the rail stops
+ * where it helps), and a site's crew can narrow a specialist's tools; both
+ * travel in the job token and are enforced on every call.
  */
 
 export type ToolRisk = "read" | "report";
@@ -20,6 +24,8 @@ export type ToolSpec = {
   description: string;
   risk: ToolRisk;
   roles: readonly ModelRole[];
+  /** The rail stops where the tool is listed (progressive disclosure); missing means every stop. */
+  stages?: readonly string[];
   inputSchema: Record<string, unknown>;
 };
 
@@ -63,6 +69,26 @@ export const TOOLBELT: readonly ToolSpec[] = [
     inputSchema: none,
   },
   {
+    name: "site_capabilities",
+    description: "The site's accepted capability inventory: each business capability, its importance, requirements and the repository paths that implement it.",
+    risk: "read",
+    roles: ALL,
+    inputSchema: none,
+  },
+  {
+    name: "stripe_test_catalog",
+    description: "Read the site's Stripe catalog in TEST MODE only (products or prices), to ground payment and pricing work in real test data. Refuses any live key.",
+    risk: "read",
+    roles: ["design", "plan", "build"],
+    stages: ["design", "plan", "build", "prove"],
+    inputSchema: {
+      type: "object",
+      properties: { kind: { type: "string", enum: ["products", "prices"] }, limit: { type: "integer", minimum: 1, maximum: 50 } },
+      required: ["kind"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "rail_note",
     description:
       "Post a short note from your role into this Work item's conversation, for things the person should know now (a finding, a risk, a question). Not for progress chatter.",
@@ -77,11 +103,20 @@ export const TOOLBELT: readonly ToolSpec[] = [
   },
 ];
 
-/** The tools a role may see and call. */
-export const toolsFor = (role: ModelRole) => TOOLBELT.filter((t) => t.roles.includes(role));
+/** What narrows a role's tools for one job: the rail stop it runs at, and the site crew's allowance. */
+export type ToolScope = { stage?: string | null; allowed?: readonly string[] | null };
+
+const fits = (t: ToolSpec, role: ModelRole, scope: ToolScope = {}) =>
+  t.roles.includes(role) && (!t.stages || !scope.stage || t.stages.includes(scope.stage)) && (!scope.allowed || scope.allowed.includes(t.name));
+
+/** The tools a role may see and call, at this stop, within the site crew's allowance. */
+export const toolsFor = (role: ModelRole, scope?: ToolScope) => TOOLBELT.filter((t) => fits(t, role, scope));
 
 /** Whether a role may call a tool: checked on every invocation, whatever was listed. */
-export const mayCall = (role: ModelRole, tool: string) => TOOLBELT.some((t) => t.name === tool && t.roles.includes(role));
+export const mayCall = (role: ModelRole, tool: string, scope?: ToolScope) => TOOLBELT.some((t) => t.name === tool && fits(t, role, scope));
+
+/** Only a Stripe test-mode key may be used by any tool. */
+export const isStripeTestKey = (key: string | undefined | null) => !!key && /^(sk|rk)_test_[A-Za-z0-9]+$/.test(key.trim());
 
 /** What a job token binds (§1.2 change 1): one job, its tenant and its role, until it expires. */
 export type JobTokenClaims = {
@@ -94,6 +129,10 @@ export type JobTokenClaims = {
   generation: number;
   /** Expiry, epoch milliseconds. */
   exp: number;
+  /** The rail stop the job runs at (progressive disclosure). */
+  stage?: string | null;
+  /** The site crew's tool allowance for this specialist; missing means the role's full list. */
+  tools?: string[] | null;
 };
 
 /** The crew role a model setting speaks as, in notes and the audit. */

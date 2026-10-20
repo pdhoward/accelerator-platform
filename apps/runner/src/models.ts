@@ -79,10 +79,17 @@ export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?:
 const SYSTEM_ENV = /^(PATH|PATHEXT|HOME|HOMEDRIVE|HOMEPATH|USERPROFILE|USERNAME|USER|LOGNAME|APPDATA|LOCALAPPDATA|PROGRAMDATA|PROGRAMFILES(\(X86\))?|COMMONPROGRAMFILES(\(X86\))?|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|LANG|LC_[A-Z]+|TERM|SHELL|NUMBER_OF_PROCESSORS|PROCESSOR_ARCHITECTURE|OS|XDG_[A-Z_]+|PNPM_HOME|NODE_VERSION|NVM_[A-Z_]+|COREPACK_[A-Z_]+|CI)$/i;
 const MODEL_ENV = /^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|ANTHROPIC_WORKSPACE_ID)$/;
 
-export function agentEnv(runnerEnv: Record<string, string | undefined>, siteTestEnv: Record<string, string>): Record<string, string> {
+/**
+ * With the model proxy (G2.2b) the agent gets no model key at all: its
+ * ANTHROPIC_BASE_URL is the API's /model and its "API key" is the job token,
+ * which the API checks and swaps for the real key server-side.
+ */
+export function agentEnv(runnerEnv: Record<string, string | undefined>, siteTestEnv: Record<string, string>, proxy?: { url: string; token: string } | null): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(runnerEnv)) if (v != null && (SYSTEM_ENV.test(k) || MODEL_ENV.test(k))) out[k] = v;
-  return { ...out, ...siteTestEnv };
+  for (const [k, v] of Object.entries(runnerEnv)) if (v != null && (SYSTEM_ENV.test(k) || (!proxy && MODEL_ENV.test(k)))) out[k] = v;
+  // A site key named like a model key never reaches the agent either.
+  const site = Object.fromEntries(Object.entries(siteTestEnv).filter(([k]) => !MODEL_ENV.test(k)));
+  return { ...out, ...site, ...(proxy && { ANTHROPIC_BASE_URL: proxy.url, ANTHROPIC_API_KEY: proxy.token }) };
 }
 
 export async function agent(opts: {
@@ -100,6 +107,8 @@ export async function agent(opts: {
   toolbelt?: { url: string; token: string } | null;
   /** The site's test values for the agent's own commands (never production keys). */
   siteEnv?: Record<string, string>;
+  /** The model proxy (G2.2b): when set, the agent reaches its model through the API with its job token. */
+  modelProxy?: { url: string; token: string } | null;
 }): Promise<AgentResult> {
   if (opts.resume) {
     try {
@@ -145,8 +154,8 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
       maxBudgetUsd: opts.maxBudgetUsd ?? (opts.mode === "read" ? 2 : 8),
       effort: "high",
       env: {
-        ...agentEnv(process.env, opts.siteEnv ?? {}),
-        ...(workspace() && { ANTHROPIC_CUSTOM_HEADERS: `anthropic-workspace-id: ${workspace()}` }),
+        ...agentEnv(process.env, opts.siteEnv ?? {}, opts.modelProxy),
+        ...(workspace() && !opts.modelProxy && { ANTHROPIC_CUSTOM_HEADERS: `anthropic-workspace-id: ${workspace()}` }),
         CLAUDE_AGENT_SDK_CLIENT_APP: "accelerator-runner/0.1",
       },
     },

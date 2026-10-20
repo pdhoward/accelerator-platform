@@ -70,6 +70,15 @@ describe("agents never hold the runner's keys (gen2-crew.md §1.2)", () => {
     expect(Object.keys(env).sort()).toEqual(["ANTHROPIC_API_KEY", "ANTHROPIC_WORKSPACE_ID", "HOME", "MONGODB_URI", "PATH", "SystemRoot", "TEMP"].sort());
     for (const k of ["RUNNER_TOKEN", "VAULT_KEY", "GITHUB_TOKEN", "SUPABASE_SECRET_KEY", "OPENAI_API_KEY", "TOOLBELT_SECRET"]) expect(env[k]).toBeUndefined();
   });
+  it("with the model proxy (G2.2b), holds no model key at all: only the API's address and the job token", () => {
+    const env = agentEnv(runner, { MONGODB_URI: "mongodb://test-copy", ANTHROPIC_API_KEY: "sk-ant-from-the-site" }, { url: "https://api.example/model", token: "job-token" });
+    expect(env.ANTHROPIC_API_KEY).toBe("job-token");
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://api.example/model");
+    expect(env.ANTHROPIC_WORKSPACE_ID).toBeUndefined();
+    expect(Object.values(env)).not.toContain("sk-ant-model");
+    expect(Object.values(env)).not.toContain("sk-ant-from-the-site");
+    expect(env.MONGODB_URI).toBe("mongodb://test-copy");
+  });
   it("refuses dumping or echoing the environment, but not ordinary commands", () => {
     const refused = (cmd: string) => FORBIDDEN.some(([re]) => re.test(cmd));
     for (const cmd of ["printenv", "env", "env | grep KEY", "set", "export -p", "echo $ANTHROPIC_API_KEY", "echo ${GITHUB_TOKEN}", 'node -e "console.log(process.env)"', "cat /proc/self/environ", "Get-ChildItem env:", "$env:ANTHROPIC_API_KEY"]) {
