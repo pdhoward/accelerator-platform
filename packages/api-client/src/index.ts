@@ -20,25 +20,14 @@ import type {
   AdminOverview,
   AuditEntry,
   Bridge,
-  Change,
   Configuration,
-  Consultation,
-  DataCheck,
-  DataInvestigation,
-  Doc,
-  Drift,
-  Fact,
   FileNode,
   Health,
   LighthouseScores,
   Me,
   NewAccountInput,
   PlatformStaff,
-  Proof,
-  Release,
   Role,
-  SiteRequest,
-  Skill,
   SupportGrant,
   Complexity,
   Domain,
@@ -160,46 +149,6 @@ export function createApiClient({
 
     bridge: (siteId: string) => call<Bridge>(`${site(siteId)}/bridge`),
 
-    requests: {
-      list: (siteId: string) => call<SiteRequest[]>(`${site(siteId)}/requests`),
-      create: (siteId: string, input: { text: string; source?: string }) =>
-        post<SiteRequest>(`${site(siteId)}/requests`, input),
-    },
-
-    changes: {
-      list: (siteId: string) => call<Change[]>(`${site(siteId)}/changes`),
-      get: (siteId: string, changeId: string) =>
-        call<Change>(`${site(siteId)}/changes/${changeId}`),
-      approve: (
-        siteId: string,
-        changeId: string,
-        input: { checked: string[] },
-      ) =>
-        post<{ change: Change; blockers: string[] }>(
-          `${site(siteId)}/changes/${changeId}/approve`,
-          input,
-        ),
-    },
-
-    dataDesk: (siteId: string) =>
-      call<{ investigations: DataInvestigation[]; checks: DataCheck[] }>(
-        `${site(siteId)}/data-desk`,
-      ),
-
-    library: {
-      list: (siteId: string) =>
-        call<{ docs: Doc[]; facts: Fact[]; drift: Drift[] }>(
-          `${site(siteId)}/library`,
-        ),
-      get: (siteId: string, docId: string) =>
-        call<Doc>(`${site(siteId)}/library/${docId}`),
-    },
-
-    consultations: (siteId: string) =>
-      call<Consultation[]>(`${site(siteId)}/consultations`),
-    releases: (siteId: string) => call<Release[]>(`${site(siteId)}/releases`),
-    proof: (siteId: string) => call<Proof>(`${site(siteId)}/proof`),
-
     health: {
       get: (siteId: string) => call<Health>(`${site(siteId)}/health`),
       runLighthouse: (siteId: string, page = "/") =>
@@ -208,12 +157,6 @@ export function createApiClient({
 
     configuration: (siteId: string) =>
       call<Configuration>(`${site(siteId)}/configuration`),
-
-    skills: {
-      list: (siteId: string) => call<Skill[]>(`${site(siteId)}/skills`),
-      toggle: (siteId: string, skillId: string, enabled: boolean) =>
-        post<Skill>(`${site(siteId)}/skills/${skillId}`, { enabled }, "PATCH"),
-    },
 
     /** The crew as configuration (gen2-crew.md §2, G2.3). */
     crew: {

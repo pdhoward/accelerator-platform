@@ -72,7 +72,7 @@ import { crewConfig, crewContext, runSkillsmith } from "./crew";
 import { signJobToken } from "./job-token";
 import { siteInterview, workRecord } from "./library";
 import { budgetFor, currentMandate } from "./mandate";
-import { CREW_ROLE, decide, evidence, invalidate, record, type Actor } from "./ledger";
+import { CREW_ROLE, decide, evidence, invalidate, record } from "./ledger";
 import { db, rows, type Row } from "./supabase";
 import { secretStatus } from "./vault";
 

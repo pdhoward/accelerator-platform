@@ -1,7 +1,10 @@
 /**
- * Seeds the demo tenant (Cypress Resort, Customer Zero) into the Supabase
- * control-plane database. Safe to re-run: it deletes the demo org first
- * (everything else cascades), then inserts fresh rows.
+ * Seeds the demo tenant (Example Machine Shop, gen2-crew.md G2.4) into the
+ * Supabase control-plane database: the company, members, the site (marked
+ * demo), the key list, usage and limits. Safe to re-run: it deletes the demo
+ * company first, and the earlier Cypress-themed one if it is still there
+ * (everything else cascades), then inserts fresh rows. The full Work story
+ * (three items, the ledger, capabilities, Boarding) is the keyless demo's.
  *
  * Run with keys injected, from apps/api:
  *   pnpm exec dotenv -e <envmachine>/.env.development.local -- pnpm seed:demo
@@ -26,9 +29,6 @@ async function run<T>(label: string, q: PromiseLike<{ data: T | null; error: { m
   return data as T;
 }
 
-/** "Sep 26 · 14:02" / "Sep 27 · 14:00" → a 2026 timestamp. */
-const stamp = (label: string) => new Date(`${label.replace(" · ", " 2026 ")}`).toISOString();
-
 /** "2 min ago" / "1 h ago" / "Today" / "Sep 20" → a timestamp near now. */
 function verified(label: string | null): string | null {
   if (!label) return null;
@@ -40,8 +40,10 @@ function verified(label: string | null): string | null {
 }
 
 async function main() {
-  // 1. Clear the previous demo tenant.
-  await run("delete org", sb.from("acc_orgs").delete().eq("name", F.ORG.name).select("id"));
+  // 1. Clear the previous demo tenant, and the retired Cypress-themed one.
+  for (const name of [F.ORG.name, "Thin Spaces Hotel Company"]) {
+    await run("delete org", sb.from("acc_orgs").delete().eq("name", name).select("id"));
+  }
 
   // 2. Org, members, site.
   // Account #1 is boarded free (comped) with the platform owner as its Owner,
@@ -58,11 +60,10 @@ async function main() {
       .insert(F.MEMBERS.map((m) => ({ org_id: org.id, user_id: randomUUID(), name: m.name, email: m.email, role: m.role })))
       .select("id, name"),
   );
-  const memberId = (name: string) => members.find((m) => m.name === name)?.id ?? null;
   const s = F.SITES[0]!;
   const site = await run<{ id: string }>(
     "site",
-    sb.from("acc_sites").insert({ org_id: org.id, slug: s.slug, name: s.name, url: s.url, repo: s.repo, stack: s.stack, status: s.status }).select("id").single(),
+    sb.from("acc_sites").insert({ org_id: org.id, slug: s.slug, name: s.name, url: s.url, repo: s.repo, stack: s.stack, status: s.status, demo: true, domain: "commerce" }).select("id").single(),
   );
   const base = { org_id: org.id, site_id: site.id };
 
@@ -72,110 +73,7 @@ async function main() {
     await run("owner invites", sb.from("acc_invites").insert(owners.map((email) => ({ org_id: org.id, email, role: "owner" }))).select("id"));
   }
 
-  // 3. Requests (permanent numbers kept).
-  const reqs = await run<{ id: string; number: number }[]>(
-    "requests",
-    sb
-      .from("acc_requests")
-      .insert(
-        F.REQUESTS.map((r) => ({
-          ...base,
-          number: r.number,
-          title: r.title,
-          detail: r.detail,
-          type: r.type,
-          risk: r.risk,
-          priority: r.priority,
-          stage: r.stage,
-          source: r.source,
-          note: r.note ?? null,
-          created_by: memberId(r.source),
-        })),
-      )
-      .select("id, number"),
-  );
-  const requestId = (n: number) => reqs.find((r) => r.number === n)?.id ?? null;
-
-  // 4. Changes.
-  await run(
-    "changes",
-    sb
-      .from("acc_changes")
-      .insert(
-        F.CHANGES.map((c) => ({
-          ...base,
-          request_id: requestId(c.requestNumber),
-          request_number: c.requestNumber,
-          title: c.title,
-          stage: c.stage,
-          risk: c.risk,
-          level: c.level,
-          summary: c.summary,
-          conversation: c.conversation,
-          evidence: c.evidence,
-          checklist: c.checklist,
-          engineer: c.engineer,
-          details: { before: c.before, after: c.after, alsoChanges: c.alsoChanges, unchanged: c.unchanged, designDoc: c.designDoc },
-        })),
-      )
-      .select("id"),
-  );
-
-  // 5. Releases.
-  await run(
-    "releases",
-    sb
-      .from("acc_releases")
-      .insert(F.RELEASES.map((r) => ({ ...base, title: r.title, notes: r.detail, request_number: r.requestNumber ?? null, released_at: stamp(r.at) })))
-      .select("id"),
-  );
-
-  // 6. Library documents (body as Markdown sections).
-  const docs = await run<{ id: string; title: string }[]>(
-    "docs",
-    sb
-      .from("acc_docs")
-      .insert(
-        F.DOCS.map((d) => ({
-          ...base,
-          kind: d.kind,
-          title: d.title,
-          status: d.status,
-          source: d.source,
-          repo_path: d.source.includes("/") ? d.source : null,
-          body: d.sections.map((x) => `## ${x.heading}\n\n${x.body}`).join("\n\n"),
-        })),
-      )
-      .select("id, title"),
-  );
-  const docId = (fixtureId?: string) => {
-    const title = F.DOCS.find((d) => d.id === fixtureId)?.title;
-    return docs.find((d) => d.title === title)?.id ?? null;
-  };
-
-  // 7. Consultations.
-  await run(
-    "consultations",
-    sb
-      .from("acc_consultations")
-      .insert(
-        F.CONSULTATIONS.map((c) => ({
-          ...base,
-          title: c.title,
-          mode: c.mode,
-          stage: c.stage,
-          participants: c.participants,
-          transcript: c.transcriptExcerpt,
-          requirements: c.requirements,
-          open_questions: c.openQuestions,
-          doc_id: docId(c.designDoc),
-          held_at: stamp(c.date),
-        })),
-      )
-      .select("id"),
-  );
-
-  // 8. Configuration: the env manifest (names and status only — never values).
+  // 3. Configuration: the env manifest (names and status only — never values).
   await run(
     "env specs",
     sb
@@ -196,28 +94,7 @@ async function main() {
       .select("id"),
   );
 
-  // 9. Skills: library skills copied into the site, plus the site's own.
-  await run(
-    "skills",
-    sb
-      .from("acc_skills")
-      .insert(
-        F.SKILLS.map((k) => ({
-          ...base,
-          name: k.name,
-          category: k.category,
-          description: k.description,
-          version: k.version,
-          body: k.description,
-          enabled: k.enabled,
-          used_by: k.usedBy,
-          source: k.source,
-        })),
-      )
-      .select("id"),
-  );
-
-  // 10. Usage this month and limits.
+  // 4. Usage this month and limits.
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12).toISOString();
   await run(
     "usage",
@@ -249,10 +126,7 @@ async function main() {
   );
 
   console.log(`Seeded "${F.ORG.name}" (${org.id}) with site ${s.slug} (${site.id}); owner invite: ${owners.join(", ") || "none (set PLATFORM_ADMIN_EMAILS)"}.`);
-  console.log(
-    `  ${members.length} members · ${reqs.length} requests · ${F.CHANGES.length} change · ${F.RELEASES.length} releases · ${docs.length} docs · ` +
-      `${F.CONSULTATIONS.length} consultations · ${F.CONFIGURATION.env.length} env keys · ${F.SKILLS.length} skills`,
-  );
+  console.log(`  ${members.length} members · ${F.CONFIGURATION.env.length} env keys · ${F.ACCOUNT.meters.length} usage meters`);
 }
 
 main().catch((err) => {

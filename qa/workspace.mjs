@@ -24,6 +24,18 @@ const env = {
   VERCEL: "",
   RUNNER_TOKEN: "",
 };
+/**
+ * Production builds, served with `next start`, in their own .next-qa folders. A second `next dev` on
+ * the same app folder (a developer's server already running) can leave either server answering 404
+ * for routes that exist; a built server doesn't watch files, so the two never interfere.
+ */
+function build(app) {
+  const cwd = path.join(root, "apps", app);
+  const out = execFileSync(process.execPath, [path.join(cwd, "node_modules/next/dist/bin/next"), "build"], {
+    cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, maxBuffer: 64 * 1024 * 1024,
+  });
+  createWriteStream(path.join(artifacts, `${app}-build.log`)).end(out);
+}
 function start(app, port) {
   const cwd = path.join(root, "apps", app);
   const log = createWriteStream(path.join(artifacts, `${app}.log`));
@@ -32,7 +44,7 @@ function start(app, port) {
     process.execPath,
     [
       path.join(cwd, "node_modules/next/dist/bin/next"),
-      "dev",
+      "start",
       "--port",
       String(port),
     ],
@@ -43,16 +55,20 @@ function start(app, port) {
   children.push(child);
 }
 async function ready(url) {
+  let last = "no answer";
   for (let i = 0; i < 90; i++) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      await response.arrayBuffer();
+      const text = await response.text();
       if (response.ok) return;
-    } catch {}
+      last = `${response.status} ${text.slice(0, 160).replace(/\s+/g, " ")}`;
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `QA server did not become ready: ${url}. Inspect .qa-artifacts logs.`,
+    `QA server did not become ready: ${url} (last answer: ${last}). Inspect .qa-artifacts logs.`,
   );
 }
 let browser;
@@ -62,6 +78,8 @@ function check(value, message) {
   checks++;
 }
 try {
+  build("api");
+  build("console");
   start("api", 4101);
   start("console", 4100);
   await ready("http://127.0.0.1:4101/api/sites/demo-shop/briefing");

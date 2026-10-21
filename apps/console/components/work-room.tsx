@@ -18,7 +18,6 @@ import {
   PenLine,
   Play,
   Rocket,
-  ScrollText,
   Sparkles,
   User,
   Wifi,
