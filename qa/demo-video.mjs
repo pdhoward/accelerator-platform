@@ -3,6 +3,7 @@
  *
  *   node qa/demo-video.mjs              record every scene (webm, 1920×1080)
  *   node qa/demo-video.mjs --voice      also make the narration (needs OPENAI_API_KEY)
+ *   node qa/demo-video.mjs --voice --with-after   the final cut, once the change is live
  *   node qa/demo-video.mjs --only try   record one scene
  *   node qa/demo-video.mjs --only before   record the real shop's "before" (then keep it:
  *                                          copy qa/.video/before.webm to before-saved.webm;
@@ -314,6 +315,11 @@ try {
       continue;
     }
     if (scene.shop && !shopUp) continue;
+    // The real "after" only once the change is live: --with-after.
+    if (scene.id === "after" && !args.includes("--with-after")) {
+      console.log("Skipping the after scene (add --with-after once the change is live).");
+      continue;
+    }
     if (!scene.shop) {
       stop(api);
       api = start("api", 4201, { ACCELERATOR_DEMO_STAGE: scene.stage });
