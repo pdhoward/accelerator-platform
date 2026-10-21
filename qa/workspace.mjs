@@ -165,7 +165,7 @@ try {
     () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Tests",
   );
   check(
-    (await dial.getAttribute("aria-valuetext")) === "Tests: 58 of 58 passing, verified",
+    (await dial.getAttribute("aria-valuetext")) === "Tests: 276 of 276 passing, verified",
     "arrow key turns the dial to Tests and the card follows",
   );
   await page.keyboard.press("End");
@@ -212,11 +212,11 @@ try {
     () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Builder",
   );
   check(
-    await page.getByRole("img", { name: /Work landed vs usual pace: 5 \/ 1; First-pass success: 83%/ }).isVisible(),
+    await page.getByRole("img", { name: /Work landed vs usual pace: 6 \/ 1; First-pass success: 100%/ }).isVisible(),
     "crew card shows activity rings from ledger results",
   );
   check(
-    await page.getByRole("img", { name: "Builder: 5 evidence-backed contributions in 28 days" }).isVisible(),
+    await page.getByRole("img", { name: "Builder: 6 evidence-backed contributions in 28 days" }).isVisible(),
     "crew card shows the contribution row",
   );
   await page.waitForTimeout(800);
@@ -306,7 +306,7 @@ try {
   checks++;
   await page.getByRole("button", { name: "Open Design v1", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "Design v1" });
-  await drawer.getByRole("heading", { name: "Buy and ship with Stripe", exact: true }).waitFor();
+  await drawer.getByRole("heading", { name: "Buy now with Stripe (test mode)", exact: true }).waitFor();
   checks++;
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(artifacts, "work-drawer.png") });
@@ -359,7 +359,7 @@ try {
   check(
     await page
       .getByRole("dialog", { name: "Design v1" })
-      .getByRole("heading", { name: "Buy and ship with Stripe", exact: true })
+      .getByRole("heading", { name: "Buy now with Stripe (test mode)", exact: true })
       .isVisible(),
     "documents stay one click away after lens switching",
   );
@@ -467,7 +467,7 @@ try {
   await page.goto("http://127.0.0.1:4100/s/demo-shop/timeline");
   await page.locator("[data-entry]").first().waitFor();
   const kinds = await page.locator("[data-entry]").evaluateAll((els) => els.map((e) => e.getAttribute("data-entry")));
-  check(["decision", "handoff", "repair", "prove", "release"].every((k) => kinds.includes(k)), "the timeline traces decisions, handoffs, a repair, proof and the release");
+  check(["decision", "handoff", "step_checks", "prove", "release"].every((k) => kinds.includes(k)), "the timeline traces decisions, handoffs, step checks, proof and the release");
   await page.getByRole("radio", { name: "Decisions" }).click();
   check((await page.locator("[data-entry]").count()) === 6, "the Decisions filter shows who decided what, including the Low-tier policy");
   await page.screenshot({ path: path.join(artifacts, "timeline.png"), fullPage: true });

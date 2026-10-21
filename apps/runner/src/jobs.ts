@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { census, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
+import { census, cleanDocument, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
 
 import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
@@ -90,10 +90,8 @@ export async function design(ctx: JobContext, log: Log) {
   const w = needWork(ctx);
   const note = typeof ctx.job.input.note === "string" ? `\nThe Navigator adds: ${ctx.job.input.note}` : "";
   const current = w.design ? `\n\nTHE CURRENT DESIGN (v${w.design.version}); revise it to reflect the conversation since:\n\n${w.design.body}` : "";
-  let body = await think(ctx, log, designSystem(ctx), `Write the design document now.${note}${current}`);
-  body = body.replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/m, "$1").trim();
-  if (!body.startsWith("#")) body = body.slice(Math.max(0, body.indexOf("\n#") + 1)).trim() || body;
-  return { kind: "design", body };
+  const raw = await think(ctx, log, designSystem(ctx), `Write the design document now.${note}${current}`);
+  return { kind: "design", body: cleanDocument(raw) || raw.trim() };
 }
 
 export async function plan(ctx: JobContext, log: Log) {

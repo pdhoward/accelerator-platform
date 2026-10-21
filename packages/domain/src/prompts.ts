@@ -1,4 +1,4 @@
-import { COMPLEXITY_LABEL, COMPLEXITY_PROMISE, COMPLEXITY_RUBRIC } from "./complexity";
+import { COMPLEXITY_LABEL, COMPLEXITY_PROMISE, COMPLEXITY_RUBRIC, readAssessment } from "./complexity";
 import { skillsBlock } from "./crew";
 import { domainGuidance } from "./domains";
 import { interviewBlock } from "./forms";
@@ -174,4 +174,18 @@ ${repair.map((r) => `- ${r}`).join("\n")}
 Find and fix the cause within this step's scope. Never weaken, skip or delete tests to make them pass, and never shrink the suite.`
     : ""
 }`;
+}
+
+/**
+ * A drafted Brief or design as the record keeps it: the document only. Drops a
+ * code fence around it, any assessment lines (COMPLEXITY/READY/REASON) the
+ * lead's session carried over, and a chatty opening before the first heading
+ * ("Here is the design…"). Found on Machine Shop #9, 2026-10-21.
+ */
+export function cleanDocument(raw: string): string {
+  let body = readAssessment(raw).reply;
+  body = body.replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/m, "$1").trim();
+  const heading = /^(#{1,3} |\*\*[^*\n]{3,}\*\*\s*$)/m.exec(body);
+  if (heading && heading.index > 0) body = body.slice(heading.index).trim();
+  return body;
 }

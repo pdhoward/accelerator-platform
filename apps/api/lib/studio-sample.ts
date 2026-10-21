@@ -28,7 +28,9 @@ import {
  *   #3 High:   let shoppers buy and ship a product with Stripe. Money moves, so
  *              Sally approves the design, the plan, the preview and the release.
  *
- * #3 is told in stages, so a recording can show the whole cycle:
+ * #3 mirrors the real Work item #9 on Machine Shop (released 2026-10-21): the
+ * same design, four steps, commits and test counts (243 → 276), no repairs.
+ * It is told in stages, so a recording can show the whole cycle:
  *   discuss → design → plan → build → try → live
  * ACCELERATOR_DEMO_STAGE picks the stage (default "try": proven, waiting on
  * Sally's release decision). Synthetic and read-only: never persisted, never
@@ -81,7 +83,7 @@ function itemImages(): WorkDetail {
   const work = base({
     id: "sample-images", number: 1, title: "Fix blurry product images on phones", stage: "done", complexity: "low",
     complexityReason: "Display only: no data, money or sign-in.", planApproved: true, tryApproved: true, released: true,
-    proof: { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 36, failed: 0, total: 36 }, baseline: 34, pushed: true, previewState: "success", branch: "work/1", commit: "2fa8d610", previewUrl: null, previewStatus: null, at: t(-70) },
+    proof: { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 240, failed: 0, total: 240 }, baseline: 238, pushed: true, previewState: "success", branch: "work/1", commit: "2fa8d610", previewUrl: null, previewStatus: null, at: t(-70) },
     release: { ok: true, reasons: [], stageCommit: "2fa8d610", mainCommit: "2fa8d610", productionState: "success", liveUrl: "https://machineshop.example", liveStatus: 200, at: t(-69) },
     createdAt: t(-74), updatedAt: t(-69),
   });
@@ -92,7 +94,7 @@ function itemImages(): WorkDetail {
       msg("s1-m1", "person", OWNER, "discuss", "Product photos look blurry on my phone.", -74),
       msg("s1-m2", "model", "Team Lead", "discuss", "Low complexity: display only. I'll fix it, prove it and ship it. You'll see it live.", -73.8),
       msg("s1-m3", "system", "Crew", "release", "Low complexity: every check in the TDD plane passed, so this ships now.", -70),
-      msg("s1-m4", "model", "Release", "learn", "Live. Production deployed and the site answers 200. 36/36 tests passing.", -69),
+      msg("s1-m4", "model", "Release", "learn", "Live. Production deployed and the site answers 200. 240/240 tests passing.", -69),
     ],
     designs: [],
     steps: [{ id: "s1-st1", position: 1, title: "Fix blurry product images on phones", detail: "Serve images at the phone's pixel density; add a test.", status: "done", attempts: 1, evidence: { summary: "Responsive image sizes; test added.", files: ["components/product-card.tsx", "lib/product.test.ts"], commit: "2fa8d610" } }],
@@ -106,7 +108,7 @@ function itemBrand(): WorkDetail {
   const work = base({
     id: "sample-brand", number: 2, title: "Search by brand", stage: "done", complexity: "medium",
     complexityReason: "Changes how search reads the catalog; no money or personal data.", planApproved: true, tryApproved: true, released: true,
-    proof: { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 41, failed: 0, total: 41 }, baseline: 36, pushed: true, previewState: "success", branch: "work/2", commit: "9b2c41e0", previewUrl: null, previewStatus: null, at: t(-40) },
+    proof: { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 243, failed: 0, total: 243 }, baseline: 240, pushed: true, previewState: "success", branch: "work/2", commit: "9b2c41e0", previewUrl: null, previewStatus: null, at: t(-40) },
     release: { ok: true, reasons: [], stageCommit: "9b2c41e0", mainCommit: "9b2c41e0", productionState: "success", liveUrl: "https://machineshop.example", liveStatus: 200, at: t(-39) },
     createdAt: t(-50), updatedAt: t(-39),
   });
@@ -118,7 +120,7 @@ function itemBrand(): WorkDetail {
       msg("s2-m2", "model", "Team Lead", "discuss", "Medium: it changes how search reads the catalog. The Designer writes a short Brief; you approve it once, and the crew plans, builds and proves on its own.", -49.8),
       msg("s2-m3", "person", OWNER, "design", "approve the brief", -48),
       msg("s2-m4", "person", OWNER, "try", "ship it", -40),
-      msg("s2-m5", "model", "Release", "learn", "Live. Brand searches list that brand first. 41/41 tests passing.", -39),
+      msg("s2-m5", "model", "Release", "learn", "Live. Brand searches list that brand first. 243/243 tests passing.", -39),
     ],
     designs: [{
       id: "s2-d1", version: 1, authorLabel: "Designer", model: models.design.model, createdAt: t(-49), approvedAt: t(-48),
@@ -132,40 +134,45 @@ function itemBrand(): WorkDetail {
 }
 
 // ── #3: buy and ship with Stripe, told in stages ────────────────────────────
-const CHECKOUT_DESIGN = `# Buy and ship with Stripe
+const CHECKOUT_DESIGN = `# Buy now with Stripe (test mode)
 
-## Goal
-A shopper picks a product, pays with Stripe and has it shipped. Sally sees each order in Stripe.
+## Outcome
+A shopper opens a product, selects "Buy now" and pays on Stripe's checkout page with a test card. Stripe records the order and the shipping address. Sally sees each order in the Stripe test dashboard and ships it from there.
 
-## What we agreed
-1. A "Buy and ship" button on every product page with a price and stock.
-2. Payment through Stripe Checkout: card details never touch our site.
-3. The price always comes from the catalog on the server, never from the browser.
-4. Checkout collects the shipping address; one flat shipping rate to start.
-5. Test mode only until Sally approves the release.
+## What the shopper sees
+1. The product page shows a "Buy now" button next to "Ask about this product".
+2. The button shows only when the product has a price, is in stock and is priced in US dollars.
+3. Stripe's page asks for the shipping address and card, and shows the flat shipping charge.
+4. After payment, an "Order received" page shows the product, the total and the Stripe order reference.
+5. If the shopper cancels, Stripe sends them back to the product page.
 
-## Scope / Out of scope
-In: one product per order, shipping address, flat-rate shipping, an order confirmation page.
-Out: a cart with several products, discounts, accounts, refunds (later steps).
+## Decisions
+1. One product per order, quantity 1. No cart.
+2. US shipping addresses only, one flat rate: $9.95.
+3. Stripe holds the orders. The site keeps no orders database and stores no addresses.
 
-## Data
-The catalog stays read-only. Orders live in Stripe. No card data is stored by the site.
+## Safety rules
+- The server reads the price from the catalog. It never accepts a price from the browser.
+- The site uses a Stripe test key only. The server refuses to create a checkout with a live key.
+- Card details go only to Stripe. The "Order received" page shows no address.
+- The catalog stays read-only.
 
 ## How we'll prove it
-- Price: the charge equals the catalog price, even if the browser sends another.
-- Stock: an out-of-stock product can't be bought.
-- Tax and shipping: the total is price + shipping + tax, to the cent.
-- A declined card shows a clear message and creates no order.
-- A double click creates one payment, not two.
-- The payment confirmation from Stripe is checked for its signature.
+1. A test-card payment for a priced product creates a paid order with a US address.
+2. The order total equals the catalog price plus the flat shipping rate.
+3. Products with no price, out of stock or not in US dollars show no "Buy now" button.
+4. A changed price or product ID sent from the browser cannot change the charged amount.
+5. A live Stripe key makes the server refuse checkout.
+6. Typecheck, the full test suite and the build pass.
 
-## Risks and open questions
-Money moves: Sally approves the design, the plan, the preview and the release.`;
+## Out of scope
+Cart, sales tax, stock reduction, refunds, order emails and live payments: each can start later as its own improvement.`;
 
 const CHECKOUT_STEPS = [
-  { title: "Add the Buy and ship button and Stripe Checkout (test mode)", detail: "Button on the product page; a server route opens Stripe Checkout; tests.", files: ["app/p/[id]/buy-button.tsx", "app/api/checkout/route.ts", "app/api/checkout/route.test.ts"], commit: "4d1e7a30" },
-  { title: "Charge the catalog price, never the browser's", detail: "The server reads price and stock from the catalog; tests for tampering and out of stock.", files: ["lib/checkout.ts", "lib/checkout.test.ts"], commit: "8c03b9f2" },
-  { title: "Collect the shipping address and confirm the order", detail: "Shipping address and flat rate in Checkout; a confirmation page; a signed webhook; tests for declined cards and double clicks.", files: ["app/order/[session]/page.tsx", "app/api/stripe/webhook/route.ts", "app/api/stripe/webhook/route.test.ts"], commit: "c7f5e118" },
+  { title: "Add the checkout rules", detail: "Who can buy, the amount in cents, US-only shipping, the $9.95 flat rate and the test-key check; a unit test for each rule.", files: ["lib/checkout.ts", "lib/checkout.test.ts"], commit: "16cb20fe", tests: 252 },
+  { title: "Add the Stripe client and the checkout route", detail: "The route looks the product up in the catalog and opens Stripe Checkout; route tests with Stripe mocked.", files: ["lib/stripe.ts", "lib/stripe.test.ts", "app/api/checkout/route.ts", "app/api/checkout/route.test.ts"], commit: "c0bcacd1", tests: 269 },
+  { title: "Add the Buy now button, the Order received page and the cancel return", detail: "The button shows only when a product can be bought; tests cover when it shows.", files: ["components/buy-button.tsx", "app/order/success/page.tsx"], commit: "3b35417e", tests: 274 },
+  { title: "Update the store notice, .env.example and CLAUDE.md", detail: "\"Browse and ask\" becomes \"Test store: payments use Stripe test mode\"; the site's rules allow test-mode orders.", files: [".env.example", "CLAUDE.md", "app/layout.tsx"], commit: "c9c6e39d", tests: 276 },
 ];
 
 function itemCheckout(): WorkDetail {
@@ -173,54 +180,54 @@ function itemCheckout(): WorkDetail {
   const proven = reached("try");
   const live = reached("live");
   const stepStatus = (i: number): "todo" | "running" | "done" =>
-    !reached("build") ? "todo" : reached("try") ? "done" : i === 0 ? "done" : i === 1 ? "running" : "todo";
+    !reached("build") ? "todo" : reached("try") ? "done" : i < 2 ? "done" : i === 2 ? "running" : "todo";
   const work = base({
     id: "sample-checkout", number: 3, title: "Let shoppers buy and ship a product with Stripe", risk: ["money"], complexity: "high",
     stage: stage === "live" ? "learn" : stage,
-    complexityReason: "Money moves: payments, prices, tax and shipping. Sally approves each stop.",
+    complexityReason: "Money moves and shoppers give an address: Sally approves the design, the plan, the preview and the release.",
     planApproved: reached("build"), tryApproved: live, released: live, branch: "work/3",
-    proof: proven ? { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 58, failed: 0, total: 58 }, baseline: 41, pushed: true, previewState: "success", branch: "work/3", commit: "c7f5e118", previewUrl: null, previewStatus: null, at: t(30) } : null,
-    release: live ? { ok: true, reasons: [], stageCommit: "c7f5e118", mainCommit: "c7f5e118", productionState: "success", liveUrl: "https://machineshop.example", liveStatus: 200, at: t(34) } : null,
-    createdAt: t(0), updatedAt: t(live ? 34 : proven ? 30 : reached("build") ? 17 : reached("plan") ? 8 : reached("design") ? 2.2 : 0.3),
+    proof: proven ? { ok: true, reasons: [], typecheck: true, build: true, tests: { passed: 276, failed: 0, total: 276 }, baseline: 243, pushed: true, previewState: "success", branch: "work/3", commit: "8d22b2a0", previewUrl: null, previewStatus: null, at: t(18) } : null,
+    release: live ? { ok: true, reasons: [], stageCommit: "a3bf9c1d", mainCommit: "a3bf9c1d", productionState: "success", liveUrl: "https://machineshop.example", liveStatus: 200, at: t(21) } : null,
+    createdAt: t(0), updatedAt: t(live ? 21 : proven ? 18 : reached("build") ? 13 : reached("plan") ? 8 : reached("design") ? 2.2 : 0.3),
   });
 
   const messages = [
-    msg("s3-m1", "person", `${OWNER} (by voice)`, "discuss", "I want shoppers to pick a product, pay with Stripe and have it shipped to them.", 0),
-    msg("s3-m2", "model", "Team Lead", "discuss", "Good next step. Money moves here, so I rate it High: you approve the design, the plan, the preview and the release, and nothing else needs you. Stripe Checkout keeps card details off your site. The Designer drafts it now.", 0.3),
-    ...(reached("design") ? [msg("s3-m3", "model", "Designer", "design", "Design v1 is ready: a Buy and ship button, Stripe Checkout in test mode, the price always from the catalog, the shipping address and one flat shipping rate.", 2.2)] : []),
+    msg("s3-m1", "person", `${OWNER} (by voice)`, "discuss", "Let shoppers pick a product, pay with Stripe and have it shipped to them. Stripe test mode only.", 0),
+    msg("s3-m2", "model", "Team Lead", "discuss", "Good next step. Money moves and shoppers give an address, so I rate it High: you approve the design, the plan, the preview and the release, and nothing else needs you. Stripe Checkout keeps card details off your site. The Designer drafts it now.", 0.3),
+    ...(reached("design") ? [msg("s3-m3", "model", "Designer", "design", "The design is ready: a Buy now button, Stripe Checkout in test mode, the price always from the catalog, US shipping at a flat $9.95, and Stripe keeps the orders.", 2.2)] : []),
     ...(reached("plan")
       ? [
           msg("s3-m4", "person", OWNER, "design", "approve the design", 4),
-          msg("s3-m5", "model", "Planner", "plan", "The plan has 3 steps, each with its own tests. Approve it and the crew builds.", 8),
+          msg("s3-m5", "model", "Planner", "plan", "The plan has 4 steps, each with its own tests. Approve it and the crew builds.", 8),
         ]
       : []),
     ...(reached("build")
       ? [
           msg("s3-m6", "person", OWNER, "plan", "approve the plan", 9),
-          msg("s3-m7", "model", "Builder", "build", "Step 1 built and checked: the Buy and ship button opens Stripe Checkout in test mode. 47/47 tests passing.", 14),
-          msg("s3-m8", "system", "Crew", "build", "Step 2 didn't pass its checks: 1 test failing (a tampered price was accepted). The crew is fixing it (repair 1 of 2).", 17),
+          msg("s3-m7", "model", "Builder", "build", "Step 1 built and checked: the checkout rules (who can buy, the amount in cents, US-only shipping, the flat rate, the test-key check). 252/252 tests passing.", 11),
+          msg("s3-m8", "model", "Builder", "build", "Step 2 built and checked: the checkout route reads the price from the catalog and opens Stripe Checkout. 269/269 tests passing.", 13),
         ]
       : []),
     ...(proven
       ? [
-          msg("s3-m9", "model", "Builder", "build", "Step 2 repaired: the server now charges the catalog price whatever the browser sends. 53/53 tests passing.", 19),
-          msg("s3-m10", "model", "Builder", "build", "Step 3 built and checked: shipping address, flat-rate shipping, the confirmation page and a signed Stripe webhook. 58/58 tests passing.", 26),
-          msg("s3-m11", "model", "Judge", "prove", "Proven: typecheck clean, 58/58 tests passing (the site's baseline was 41), production build ok. The preview is up. Buy something with Stripe's test card 4242 4242 4242 4242, then approve it for release.", 30),
+          msg("s3-m9", "model", "Builder", "build", "Step 3 built and checked: the Buy now button, the Order received page and the cancel return. 274/274 tests passing.", 15),
+          msg("s3-m10", "model", "Builder", "build", "Step 4 built and checked: the store notice now says payments use Stripe test mode. 276/276 tests passing.", 16),
+          msg("s3-m11", "model", "Judge", "prove", "Proven: typecheck clean, 276/276 tests passing (the site's baseline was 243), production build ok. The preview is up. Buy something with Stripe's test card 4242 4242 4242 4242, then approve it for release.", 18),
         ]
       : []),
     ...(live
       ? [
-          msg("s3-m12", "person", OWNER, "try", "I bought the drill with the test card and the order showed up in Stripe. Approved for release.", 33),
-          msg("s3-m13", "model", "Release", "learn", "Live. Production deployed and the site answers 200. Shoppers can buy and ship. The record is in docs/accelerator/work-3.md.", 34),
+          msg("s3-m12", "person", OWNER, "try", "I bought the cordless drill with the test card: $136.63 plus $9.95 shipping, and the order is in Stripe. Approved for release.", 20),
+          msg("s3-m13", "model", "Release", "learn", "Live. Production deployed and the site answers 200. Shoppers can buy now. The record is in docs/accelerator/work-3.md.", 21),
         ]
       : []),
   ];
 
   const jobs: Job[] = [
-    ...(live ? [job("s3-release", "release", "build", 33.5)] : []),
-    ...(proven ? [job("s3-prove", "prove", "judge", 29), job("s3-build3", "build_step", "build", 24), job("s3-build2b", "build_step", "build", 18)] : []),
-    ...(stage === "build" ? [job("s3-build2b", "build_step", "build", 18, "running")] : []),
-    ...(reached("build") ? [job("s3-build2", "build_step", "build", 16), job("s3-build1", "build_step", "build", 12)] : []),
+    ...(live ? [job("s3-release", "release", "build", 20.5)] : []),
+    ...(proven ? [job("s3-prove", "prove", "judge", 17), job("s3-build4", "build_step", "build", 15.5), job("s3-build3", "build_step", "build", 14)] : []),
+    ...(stage === "build" ? [job("s3-build3", "build_step", "build", 14, "running")] : []),
+    ...(reached("build") ? [job("s3-build2", "build_step", "build", 12), job("s3-build1", "build_step", "build", 10)] : []),
     ...(reached("plan") ? [job("s3-plan", "plan", "plan", 6)] : []),
     ...(reached("design") ? [job("s3-design", "design", "design", 1)] : [job("s3-design", "design", "design", 1, "running")]),
     job("s3-lead", "discuss", "consult", 0.1),
@@ -235,22 +242,22 @@ function itemCheckout(): WorkDetail {
       steps: reached("plan")
         ? CHECKOUT_STEPS.map((s, i) => ({
             id: `s3-st${i + 1}`, position: i + 1, title: s.title, detail: s.detail, status: stepStatus(i),
-            attempts: i === 1 && reached("build") ? 2 : stepStatus(i) === "done" ? 1 : 0,
+            attempts: stepStatus(i) === "done" ? 1 : 0,
             evidence: stepStatus(i) === "done" ? { summary: s.detail, files: s.files, commit: s.commit } : {},
           }))
         : [],
       mandate: reached("plan")
         ? {
             version: 1, createdBy: OWNER, createdAt: t(4.5),
-            outcome: "Shoppers can buy one product and have it shipped, paid through Stripe; nothing is charged while testing.",
-            scope: ["Buy and ship button", "Stripe Checkout", "Shipping address and flat-rate shipping", "Order confirmation"],
-            outOfScope: ["A cart with several products", "Discounts", "Refunds"],
-            acceptance: ["The charge equals the catalog price", "An out-of-stock product can't be bought", "A declined card creates no order", "A double click creates one payment", "Stripe's confirmation is signature-checked"],
+            outcome: "Shoppers can buy one product and have it shipped in the US, paid through Stripe test mode; Stripe keeps the orders.",
+            scope: ["Buy now button", "Stripe Checkout", "US shipping at a flat $9.95", "Order received page"],
+            outOfScope: ["Cart", "Sales tax", "Refunds", "Order emails", "Live payments"],
+            acceptance: ["A test-card payment creates a paid order with a US address", "The total equals the catalog price plus $9.95", "No Buy now without a price, stock and US dollars", "The browser can't change the charged amount", "A live Stripe key is refused"],
             protected: ["The catalog stays read-only", "Card details never touch the site", "The assistant mentions only products the catalog returns"],
             budgetUsd: 40, dueBy: null, decisionOwners: "Sally approves the design, the plan, the preview and the release.", reviewBy: null,
           }
         : null,
-      budget: { limit: reached("plan") ? 40 : null, spent: live ? 24.6 : proven ? 22.9 : reached("build") ? 14.2 : reached("plan") ? 3.1 : 1.2, over: false, near: false },
+      budget: { limit: reached("plan") ? 40 : null, spent: live ? 18.4 : proven ? 17.1 : reached("build") ? 9.6 : reached("plan") ? 2.4 : 0.9, over: false, near: false },
       capabilities: reached("build") ? [{ id: "cap-checkout", name: "Checkout and payment", area: "Sales" }, { id: "cap-product", name: "Product page", area: "Catalog" }] : [],
     },
     stage === "discuss" || stage === "build",
@@ -280,38 +287,36 @@ function sampleLedger(): (Omit<TimelineEntry, "id" | "refs" | "work"> & { work: 
     p(-88.5, null, "crew", "Crew v1 saved with the Commerce domain pack."),
     c(-73.8, 1, "Team Lead", "assessed", "Rated Low complexity: display only."),
     c(-73.7, 1, "Team Lead", "handoff", "Team Lead → Builder: build the next step."),
-    c(-72, 1, "Builder", "step_checks", "Step built and checked: responsive image sizes (36/36 tests).", true),
+    c(-72, 1, "Builder", "step_checks", "Step built and checked: responsive image sizes (240/240 tests).", true),
     c(-70.5, 1, "Judge", "prove", "Proven: every check passed and the preview is up (2fa8d610).", true),
     pol(-70, 1, "#1 shipped under the Low-complexity policy: every check passed."),
     c(-69, 1, "Release", "release", "Live: https://machineshop.example answers 200.", true),
     c(-49.8, 2, "Team Lead", "assessed", "Rated Medium complexity: changes how search reads the catalog."),
     c(-49, 2, "Designer", "drafted", "Brief v1 drafted for #2."),
     p(-48, 2, "decision", "Approved the Brief v1 (typed in the conversation)."),
-    c(-44, 2, "Builder", "step_checks", "Step built and checked: brand matching and ranking (41/41 tests).", true),
+    c(-44, 2, "Builder", "step_checks", "Step built and checked: brand matching and ranking (243/243 tests).", true),
     c(-40.5, 2, "Judge", "prove", "Proven: every check passed and the preview is up (9b2c41e0).", true),
     p(-40, 2, "decision", "Ship it: released #2 (9b2c41e0)."),
     c(-39, 2, "Release", "release", "Live: brand searches list that brand first.", true),
   ];
   const story: [DemoStage, Entry][] = [
-    ["discuss", c(0.3, 3, "Team Lead", "assessed", "Rated High complexity: money moves (payments, prices, tax, shipping).")],
+    ["discuss", c(0.3, 3, "Team Lead", "assessed", "Rated High complexity: money moves and shoppers give an address.")],
     ["discuss", c(0.4, 3, "Team Lead", "handoff", "Team Lead → Designer: write the design.")],
     ["design", c(2.2, 3, "Designer", "drafted", "Design v1 drafted for #3.")],
-    ["plan", p(4, 3, "decision", "Approved design v1 (typed in the conversation).")],
+    ["plan", p(4, 3, "decision", "Approved design v1.")],
     ["plan", p(4.5, 3, "decision", "Mandate v1 set for #3: outcome, 5 acceptance criteria, protected behavior, $40 budget.")],
-    ["plan", c(8, 3, "Planner", "drafted", "Plan of 3 steps drafted for #3.")],
-    ["build", p(9, 3, "decision", "Approved the plan (3 steps).")],
+    ["plan", c(8, 3, "Planner", "drafted", "Plan of 4 steps drafted for #3.")],
+    ["build", p(9, 3, "decision", "Approved the plan (4 steps).")],
     ["build", c(9.2, 3, "Planner", "handoff", "Planner → Builder: build the next step under mandate v1.")],
-    ["build", c(14, 3, "Builder", "step_checks", "Step 1 built and checked: Buy and ship opens Stripe Checkout in test mode (47/47 tests).", true)],
-    ["build", c(17, 3, "Builder", "step_checks", "Step 2 blocked by the Protocol: 1 test failing (a tampered price was accepted).")],
-    ["build", c(17.2, 3, "Builder", "repair", "Repairing step 2 of #3 (repair 1 of 2).")],
-    ["try", c(19, 3, "Builder", "step_checks", "Step 2 built and checked: the catalog price is charged, whatever the browser sends (53/53 tests).", true)],
-    ["try", c(26, 3, "Builder", "step_checks", "Step 3 built and checked: shipping, confirmation and a signed Stripe webhook (58/58 tests).", true)],
-    ["try", c(28, 3, "Librarian", "note", "Record written to docs/accelerator/work-3.md on work/3.")],
-    ["try", c(29, 3, "Builder", "handoff", "Builder → Judge: prove the candidate.")],
-    ["try", c(30, 3, "Judge", "prove", "Proven: every check passed and the preview is up (c7f5e118).", true)],
-    ["live", p(33, 3, "decision", "Approved the preview for release (c7f5e118), after a test purchase.")],
-    ["live", c(34, 3, "Release", "release", "Live: shoppers can buy and ship. https://machineshop.example answers 200.", true)],
-    ["live", c(35, null, "Skillsmith", "skill", "Proposed \"Test every money rule with a tampered request\": a price-tampering test failed once before it was fixed.")],
+    ["build", c(11, 3, "Builder", "step_checks", "Step 1 built and checked: the checkout rules (252/252 tests).", true)],
+    ["build", c(13, 3, "Builder", "step_checks", "Step 2 built and checked: the Stripe client and the checkout route (269/269 tests).", true)],
+    ["try", c(15, 3, "Builder", "step_checks", "Step 3 built and checked: Buy now, Order received and the cancel return (274/274 tests).", true)],
+    ["try", c(16, 3, "Builder", "step_checks", "Step 4 built and checked: the store notice, .env.example and the site's rules (276/276 tests).", true)],
+    ["try", c(16.5, 3, "Librarian", "note", "Record written to docs/accelerator/work-3.md on work/3.")],
+    ["try", c(16.8, 3, "Builder", "handoff", "Builder → Judge: prove the candidate.")],
+    ["try", c(18, 3, "Judge", "prove", "Proven: every check passed and the preview is up (8d22b2a0).", true)],
+    ["live", p(20, 3, "decision", "Approved the preview for release (8d22b2a0), after a test purchase.")],
+    ["live", c(21, 3, "Release", "release", "Live: shoppers can buy now. https://machineshop.example answers 200.", true)],
   ];
   return [...history, ...story.filter(([s]) => reached(s)).map(([, e]) => e)];
 }
@@ -331,30 +336,30 @@ function sampleEvidence(): InstrumentInputs["evidence"] {
     kind, ok, commit, passed: total == null ? null : total - (failed ?? 0), failed, total, at: t(at), work, step, detail,
   });
   return [
-    e("step_checks", true, "2fa8d610", 36, 0, -72, 1, "s1-st1"),
-    e("prove", true, "2fa8d610", 36, 0, -70.5, 1, null),
+    e("step_checks", true, "2fa8d610", 240, 0, -72, 1, "s1-st1"),
+    e("prove", true, "2fa8d610", 240, 0, -70.5, 1, null),
     e("release", true, "2fa8d610", null, null, -69, 1, null),
-    e("step_checks", true, "9b2c41e0", 41, 0, -44, 2, "s2-st1"),
-    e("prove", true, "9b2c41e0", 41, 0, -40.5, 2, null),
+    e("step_checks", true, "9b2c41e0", 243, 0, -44, 2, "s2-st1"),
+    e("prove", true, "9b2c41e0", 243, 0, -40.5, 2, null),
     e("release", true, "9b2c41e0", null, null, -39, 2, null),
-    ...(reached("build") ? [e("step_checks", true, "4d1e7a30", 47, 0, 14, 3, "s3-st1"), e("step_checks", false, "8c03b9f0", 53, 1, 17, 3, "s3-st2")] : []),
+    ...(reached("build") ? [e("step_checks", true, "16cb20fe", 252, 0, 11, 3, "s3-st1"), e("step_checks", true, "c0bcacd1", 269, 0, 13, 3, "s3-st2")] : []),
     ...(reached("try")
       ? [
-          e("step_checks", true, "8c03b9f2", 53, 0, 19, 3, "s3-st2"),
-          e("step_checks", true, "c7f5e118", 58, 0, 26, 3, "s3-st3"),
-          e("prove", true, "c7f5e118", 58, 0, 30, 3, null),
-          e("census", true, "c7f5e118", null, null, 30, 3, null, {
-            files: 58, lines: 6900, functions: 189, components: 23, routes: 15, tests: 17,
-            hotspots: [{ path: "lib/checkout.ts", branches: 24, lines: 180 }, { path: "lib/product.ts", branches: 31, lines: 240 }],
+          e("step_checks", true, "3b35417e", 274, 0, 15, 3, "s3-st3"),
+          e("step_checks", true, "c9c6e39d", 276, 0, 16, 3, "s3-st4"),
+          e("prove", true, "8d22b2a0", 276, 0, 18, 3, null),
+          e("census", true, "8d22b2a0", null, null, 18, 3, null, {
+            files: 57, lines: 6209, functions: 184, components: 22, routes: 13, tests: 16,
+            hotspots: [{ path: "components/voice-call.tsx", branches: 91, lines: 546 }, { path: "lib/voice.ts", branches: 75, lines: 458 }, { path: "components/assistant.tsx", branches: 43, lines: 301 }],
           }),
         ]
       : []),
-    ...(reached("live") ? [e("release", true, "c7f5e118", null, null, 34, 3, null)] : []),
+    ...(reached("live") ? [e("release", true, "a3bf9c1d", null, null, 21, 3, null)] : []),
   ];
 }
 
 /** The hour the story has reached; it is "now" in the readings. */
-const storyNow = () => ({ discuss: 0.5, design: 2.5, plan: 8.5, build: 17.5, try: 30.5, live: 35.5 })[demoStage()];
+const storyNow = () => ({ discuss: 0.5, design: 2.5, plan: 8.5, build: 13.5, try: 18.5, live: 21.5 })[demoStage()];
 
 /**
  * Synthetic, read-only records for the Cockpit Dial in keyless demo mode.
@@ -366,7 +371,7 @@ export function instrumentsSample(now: string): Omit<InstrumentInputs, "scope"> 
   const items = sampleItems();
   return {
     now,
-    baselineTests: 41,
+    baselineTests: 243,
     work: items.map((d) => ({
       number: d.work.number, title: d.work.title, kind: "change" as const, stage: d.work.stage, complexity: d.work.complexity, createdAt: at(d.work.createdAt),
       released: d.work.released, releasedAt: d.work.release ? at(d.work.release.at) : null, paused: false,
@@ -383,8 +388,8 @@ const sampleFiles = () => [
   "app/api/assistant/route.ts", "app/api/voice/session/route.ts", "app/api/voice/session/route.test.ts", "app/owner/transcripts/page.tsx",
   "components/search-box.tsx", "components/gallery.tsx", "components/product-card.tsx", "components/assistant.tsx", "components/voice-call.tsx",
   "lib/catalog.ts", "lib/catalog.test.ts", "lib/product.ts", "lib/product.test.ts", "lib/assistant-tools.ts", "lib/assistant-tools.test.ts",
-  ...(reached("build") ? ["app/p/[id]/buy-button.tsx", "app/api/checkout/route.ts", "app/api/checkout/route.test.ts", "lib/checkout.ts", "lib/checkout.test.ts"] : []),
-  ...(reached("try") ? ["app/order/[session]/page.tsx", "app/api/stripe/webhook/route.ts", "app/api/stripe/webhook/route.test.ts"] : []),
+  ...(reached("build") ? ["lib/checkout.ts", "lib/checkout.test.ts", "lib/stripe.ts", "lib/stripe.test.ts", "app/api/checkout/route.ts", "app/api/checkout/route.test.ts"] : []),
+  ...(reached("try") ? ["components/buy-button.tsx", "app/order/success/page.tsx"] : []),
 ];
 
 /** The capability inventory in the demo: the Survey's proposals, the accepted ones with condition and progress. */
@@ -399,7 +404,7 @@ export function capabilitiesSample(now: string): CapabilitiesResponse {
     const linked = items.filter((d) => d.capabilities?.some((c) => c.id === id)).map((d) => d.work);
     return {
       id, key: p.key, area: p.area, name: p.name, purpose: p.purpose, lifecycle, importance: p.importance, paths: p.paths, tests: p.tests,
-      requirements: p.key === "sales.checkout" ? [{ text: "The charge equals the catalog price", acceptance: "a tampered-price test" }, { text: "A double click creates one payment", acceptance: "an idempotency test" }] : [],
+      requirements: p.key === "sales.checkout" ? [{ text: "The total equals the catalog price plus the flat shipping rate", acceptance: "a unit test per rule" }, { text: "The browser can't change the charged amount", acceptance: "a route test" }] : [],
       version: 1, source: "survey", confidence: p.confidence, evidence: { ...p.evidence, tests: p.tests },
       reviewedBy: lifecycle === "accepted" ? OWNER : null, reviewedAt: lifecycle === "accepted" ? now : null,
       condition: capabilityCondition({ lifecycle, tests: p.tests.length }, latestSuite, now),
@@ -414,7 +419,7 @@ export function boardingSample(now: string): Boarding & { interview: null } {
   const b = boardingProgress(
     {
       scanned: true, repo: true, repoPath: true, items: { C1: "done", C2: "done", C4: "done", I5: "done" }, censusAt: now,
-      capabilities: { proposed: 4, accepted: 4 }, domain: true, interviewAt: now, crewVersion: 1, baselineTests: 34, released: 2, agreementSigned: false,
+      capabilities: { proposed: 4, accepted: 4 }, domain: true, interviewAt: now, crewVersion: 1, baselineTests: 238, released: 2, agreementSigned: false,
     },
     [
       { at: t(-91), step: "connect", note: "The voice database login had to be created by hand in MongoDB Atlas.", by: "Strategic Machines" },

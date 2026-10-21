@@ -164,8 +164,8 @@ const SCENES = [
     id: "discuss", stage: "discuss",
     async run(page, d) {
       await d.go(item);
-      await d.glide(page.getByText("I want shoppers to pick a product", { exact: false }), { hold: 1600 });
-      await d.glide(page.getByText("Money moves here", { exact: false }), { hold: 2200 });
+      await d.glide(page.getByText("Let shoppers pick a product, pay with Stripe", { exact: false }), { hold: 1600 });
+      await d.glide(page.getByText("Money moves and shoppers give an address", { exact: false }), { hold: 2200 });
       await d.glide(page.getByRole("complementary", { name: "Where the work stands" }), { hold: 1500 });
     },
   },
@@ -173,10 +173,10 @@ const SCENES = [
     id: "design", stage: "design",
     async run(page, d) {
       await d.go(item);
-      await d.glide(page.getByText("Design v1 is ready", { exact: false }), { hold: 1200 });
+      await d.glide(page.getByText("The design is ready", { exact: false }), { hold: 1200 });
       await d.click(page.getByRole("button", { name: "Open Design v1", exact: true }), { after: 1400 });
       const drawer = page.getByRole("dialog");
-      await d.glide(drawer.getByRole("heading", { name: "What we agreed" }), { hold: 1400 });
+      await d.glide(drawer.getByRole("heading", { name: "Safety rules" }), { hold: 1400 });
       await d.glide(drawer.getByRole("heading", { name: "How we'll prove it" }), { hold: 2000 });
       await page.keyboard.press("Escape");
       await d.pause(600);
@@ -198,12 +198,12 @@ const SCENES = [
     id: "build", stage: "build",
     async run(page, d) {
       await d.go(item);
-      await d.glide(page.getByText("47/47 tests passing", { exact: false }), { hold: 1200 });
-      await d.glide(page.getByText("a tampered price was accepted", { exact: false }), { hold: 2000 });
+      await d.glide(page.getByText("252/252 tests passing", { exact: false }), { hold: 1400 });
+      await d.glide(page.getByText("269/269 tests passing", { exact: false }), { hold: 1800 });
       await d.go(site("/timeline"));
       await d.click(page.getByRole("radio", { name: "Evidence" }), { after: 1600 });
       await d.click(page.getByRole("radio", { name: "Everything" }), { after: 800 });
-      await d.glide(page.locator("[data-entry='repair']"), { hold: 1800 });
+      await d.glide(page.locator("[data-entry='step_checks']"), { hold: 1800 });
     },
   },
   {
@@ -218,7 +218,7 @@ const SCENES = [
         await d.pause(1800);
       }
       await d.go(item);
-      await d.glide(page.getByText("58/58 tests passing (the site's baseline was 41)", { exact: false }), { hold: 1600 });
+      await d.glide(page.getByText("276/276 tests passing (the site's baseline was 243)", { exact: false }), { hold: 1600 });
       await d.click(page.getByRole("button", { name: "Open Proof and release" }), { after: 1600 });
       await d.pause(1400);
       await page.keyboard.press("Escape");
@@ -229,7 +229,7 @@ const SCENES = [
     id: "live", stage: "live",
     async run(page, d) {
       await d.go(item);
-      await d.glide(page.getByText("Shoppers can buy and ship", { exact: false }), { hold: 1600 });
+      await d.glide(page.getByText("Shoppers can buy now", { exact: false }), { hold: 1600 });
       await d.go(site("/timeline"));
       await d.click(page.getByRole("radio", { name: "Decisions" }), { after: 2000 });
       await d.go(site("/site"));

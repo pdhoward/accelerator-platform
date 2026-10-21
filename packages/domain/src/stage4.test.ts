@@ -6,7 +6,7 @@ import { assembleSkills, CREW, CREW_SKILLS, crewConfigErrors, readCrewConfig, sk
 import { formErrors, INTERVIEW_FORM, interviewBlock, interviewMarkdown, MANDATE_FORM, readForm, readInterview } from "./forms";
 import { exportManifest, recordPath, timelineCategory, timelineDays, workRecordMarkdown, type TimelineEntry } from "./library";
 import { budgetState, mandateBlock, mandateChanges, mandateErrors, mandateFromDocument, mandateVoids, readMandate } from "./mandate";
-import { crewKnowledge } from "./prompts";
+import { cleanDocument, crewKnowledge } from "./prompts";
 import { proposalLabel, skillsmithProposals, type FailureFact } from "./skillsmith";
 import { isStripeTestKey, mayCall, toolsFor } from "./toolbelt";
 
@@ -314,5 +314,16 @@ describe("what each run knows", () => {
     expect(text).toMatch(/THE MANDATE \(v1/);
     expect(text).toMatch(/Commerce: the catalog feeds everything/);
     expect(crewKnowledge({ job: {} as never, site: {} as never, work: null, toolbeltToken: null })).toBe("");
+  });
+});
+
+describe("drafted documents keep only the document (Machine Shop #9)", () => {
+  it("drops the chatty opening and the assessment lines", () => {
+    const raw = "Here is the design. You did not answer my three questions, so the design uses my recommendations.\n\n**Design: Buy now with Stripe (test mode)**\n\n**Outcome.** A shopper pays on Stripe.\n\nCOMPLEXITY: high\nREADY: yes\nREASON: Payments need the Owner.";
+    expect(cleanDocument(raw)).toBe("**Design: Buy now with Stripe (test mode)**\n\n**Outcome.** A shopper pays on Stripe.");
+  });
+  it("keeps a clean document as it is, and unwraps a fenced one", () => {
+    expect(cleanDocument("# Title\n\n## Goal\nX")).toBe("# Title\n\n## Goal\nX");
+    expect(cleanDocument("```markdown\n# Title\nBody\n```")).toBe("# Title\nBody");
   });
 });
