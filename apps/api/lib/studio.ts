@@ -7,7 +7,7 @@ import {
 } from "@accelerator/domain";
 import { demoMode } from "./auth";
 import { CodeError } from "./codes";
-import { studioSample } from "./studio-sample";
+import { sampleItems, studioSample } from "./studio-sample";
 import { listWork, pendingDecisions, workDetail } from "./work";
 
 /** Read current Work records for an already-authorized site; synthetic only in keyless demo. */
@@ -15,10 +15,13 @@ export async function readBriefing(site: Site): Promise<BriefingResponse> {
   const sample = demoMode();
   if (sample && !site.demo)
     throw new CodeError("Live Work records require the database.");
-  const items = sample ? [studioSample().work] : await listWork(site.id);
+  const samples = sample ? sampleItems() : [];
+  const items = sample ? samples.map((d) => d.work) : await listWork(site.id);
   const briefing = buildBriefing(items);
   // Review points come from the same decision rules as the conversation and the Cockpit Dial.
-  if (!sample) briefing.decisions = (await pendingDecisions(items)).map((p) => ({ number: p.number, title: p.title, detail: p.work }));
+  briefing.decisions = sample
+    ? samples.filter((d) => d.decision).sort((x, y) => x.work.number - y.work.number).map((d) => ({ number: d.work.number, title: d.decision!.title, detail: d.work.title }))
+    : (await pendingDecisions(items)).map((p) => ({ number: p.number, title: p.title, detail: p.work }));
   return {
     ...briefing,
     source: sample ? "sample" : "recorded",
@@ -34,9 +37,9 @@ export async function readStudio(
   if (!Number.isSafeInteger(number) || number < 1)
     throw new CodeError("Invalid work number.");
   const sample = demoMode();
-  if (sample && (!site.demo || number !== 1))
+  if (sample && (!site.demo || !sampleItems().some((d) => d.work.number === number)))
     throw new CodeError("That sample work item does not exist.");
-  const detail = sample ? studioSample() : await workDetail(site, number);
+  const detail = sample ? studioSample(number) : await workDetail(site, number);
   return {
     detail,
     studio: buildStudio(detail, {

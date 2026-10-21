@@ -201,7 +201,7 @@ export function scorecard(caps: Capability[]): Scorecard {
   };
 }
 
-export type CapabilitiesResponse = { capabilities: Capability[]; scorecard: Scorecard; journeys: { name: string; steps: { key: string; name: string; present: boolean }[] }[]; surveyedAt: string | null };
+export type CapabilitiesResponse = { capabilities: Capability[]; scorecard: Scorecard; journeys: { name: string; steps: { key: string; name: string; present: boolean }[] }[]; surveyedAt: string | null; sample?: boolean };
 
 /** The domain's journeys, against what the inventory holds. */
 export function journeysFor(domain: Domain | null, caps: Pick<Capability, "key" | "name" | "lifecycle">[]) {

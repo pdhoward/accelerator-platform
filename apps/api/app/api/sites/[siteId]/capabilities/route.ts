@@ -1,10 +1,16 @@
 import { z } from "zod";
 
+import { demoMode } from "@/lib/auth";
 import { addCapability, readCapabilities, surveyCapabilities } from "@/lib/capabilities";
-import { body, fail, json, workRoute } from "@/lib/http";
+import { body, fail, json, siteRoute, workRoute } from "@/lib/http";
+import { capabilitiesSample } from "@/lib/studio-sample";
 
-/** The capability inventory (gen2-crew.md §10.3, G2.3a): capabilities, condition, progress and the scorecard. */
-export const GET = workRoute(async ({ site }) => json(await readCapabilities(site)));
+/** The capability inventory (gen2-crew.md §10.3, G2.3a): capabilities, condition, progress and the scorecard. The keyless demo shows Machine Shop's sample. */
+export const GET = siteRoute(async ({ site }) =>
+  demoMode()
+    ? site.demo ? json({ ...capabilitiesSample(new Date().toISOString()), sample: true }) : fail("This needs the database.", 503)
+    : json(await readCapabilities(site)),
+);
 
 const schema = z.union([z.object({ action: z.literal("survey") }), z.object({ action: z.literal("add"), values: z.record(z.string(), z.unknown()) })]);
 

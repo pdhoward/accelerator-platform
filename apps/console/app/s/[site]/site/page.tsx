@@ -18,7 +18,14 @@ export default async function SitePage({ params }: { params: Promise<{ site: str
       <PageHeader title="Site" sub="What the site does for the business: each capability's condition, and the changes in flight.">
         <Link href={`/s/${site}/timeline`} className={button("plain")}>Site Timeline</Link>
       </PageHeader>
-      <Page>{data ? <SiteInventory siteId={site} initial={data} canManage={can("config.manage")} /> : <Note text={note ?? "Not available."} />}</Page>
+      <Page>
+        {data?.sample && (
+        <p className="text-sm text-warn" data-sample>
+          Sample: Example Machine Shop, an illustrative site. Every record here is synthetic; a real site shows its own.
+        </p>
+        )}
+        {data ? <SiteInventory siteId={site} initial={data} canManage={!data.sample && can("config.manage")} /> : <Note text={note ?? "Not available."} />}
+      </Page>
     </>
   );
 }

@@ -24,9 +24,9 @@ import type {
 } from "@accelerator/domain";
 
 /**
- * The seeded demo tenant: Cypress Resort, Customer Zero. Example data drawn
- * from the real ts-platform backlog and operating history. Served by
- * lib/store.ts until the Supabase-backed store is wired.
+ * The demo tenant: Example Machine Shop, an illustrative online home-and-
+ * hardware shop (gen2-crew.md G2.4). Synthetic data only; it tells the
+ * platform's story and is never a real site's evidence.
  */
 
 /** The house partner (migration 0006): the demo account is a direct client of Strategic Machines. */
@@ -40,27 +40,27 @@ export const HOUSE_PARTNER: Partner = {
   brand: { crewName: "Strategic Machines" },
 };
 
-export const ORG: Org = { id: "org_cypress", name: "Thin Spaces Hotel Company", plan: "operate" };
+export const ORG: Org = { id: "org_example_shop", name: "Example Machine Shop Co.", plan: "operate" };
 
 export const MEMBERS: Member[] = [
-  { id: "m_patrick", name: "Patrick", email: "owner@example.com", role: "owner" },
-  { id: "m_tanner", name: "Tanner", email: "operator@example.com", role: "operator" },
-  { id: "m_chris", name: "Chris", email: "tester@example.com", role: "tester" },
-  { id: "m_melissa", name: "Melissa", email: "viewer@example.com", role: "viewer" },
+  { id: "m_morgan", name: "Morgan", email: "owner@example.com", role: "owner" },
+  { id: "m_sam", name: "Sam", email: "operator@example.com", role: "operator" },
+  { id: "m_riley", name: "Riley", email: "tester@example.com", role: "tester" },
+  { id: "m_jordan", name: "Jordan", email: "viewer@example.com", role: "viewer" },
 ];
 
 export const SITES: Site[] = [
   {
-    id: "cypress-resort",
+    id: "demo-shop",
     demo: true,
     orgId: ORG.id,
-    slug: "cypress-resort",
-    name: "Cypress Resort",
-    url: "https://cypressresort.com",
-    repo: "Cypress-Resort/ts-platform",
-    stack: "Next.js · Supabase · Stripe · Vercel",
+    slug: "demo-shop",
+    name: "Example Machine Shop",
+    url: "https://machineshop.example",
+    repo: "example/machine-shop",
+    stack: "Next.js · MongoDB (read-only catalog) · Claude · Vercel",
     status: "live",
-    lastReleaseAt: "2026-09-28T12:02:00Z",
+    lastReleaseAt: "2026-10-14T16:00:00Z",
   },
 ];
 
@@ -385,70 +385,56 @@ export const PROOF: Proof = {
 
 export const HEALTH: Health = {
   lighthouse: [
-    { page: "/", performance: 68, accessibility: 96, bestPractices: 96, seo: 100, ranAt: "Today 06:00", source: "sample" },
-    { page: "/villas", performance: 72, accessibility: 95, bestPractices: 96, seo: 100, ranAt: "Today 06:00", source: "sample" },
-    { page: "/gallery", performance: 59, accessibility: 94, bestPractices: 96, seo: 100, ranAt: "Today 06:00", source: "sample" },
+    { page: "/", performance: 84, accessibility: 97, bestPractices: 100, seo: 100, ranAt: "Today 06:00", source: "sample" },
+    { page: "/p/[id]", performance: 79, accessibility: 96, bestPractices: 100, seo: 100, ranAt: "Today 06:00", source: "sample" },
+    { page: "/p/[id]/sheet", performance: 91, accessibility: 98, bestPractices: 100, seo: 92, ranAt: "Today 06:00", source: "sample" },
   ],
   triage: "healthy",
-  triageNote: "Stable and maintainable. Changes are small, tested and reversible.",
+  triageNote: "Stable and maintainable. Every change is small, tested, proven and recorded.",
   vitals: [
-    { id: "v1", name: "Stability", score: 96, reading: "0 rollbacks · 1 escaped defect this quarter", explains: "How often changes break something in production.", trend: [70, 78, 84, 88, 91, 94, 96] },
-    { id: "v2", name: "Test protection", score: 90, reading: "Money paths 100% · pages 71%", explains: "How much of what matters is guarded by tests.", trend: [30, 45, 58, 70, 80, 86, 90] },
-    { id: "v3", name: "Structure", score: 88, reading: "Logic in one place · 0 circular dependencies", explains: "Whether the code is organised so a change stays local.", trend: [80, 82, 84, 85, 86, 87, 88] },
-    { id: "v4", name: "Type safety", score: 97, reading: "Strict TypeScript everywhere", explains: "How many mistakes the compiler catches before anyone sees them.", trend: [90, 92, 94, 95, 96, 97, 97] },
-    { id: "v5", name: "Freshness", score: 93, reading: "Next.js 16 · 2 minor updates pending", explains: "How far behind current versions the site is.", trend: [60, 70, 80, 85, 90, 92, 93] },
-    { id: "v6", name: "Rulebook fit", score: 85, reading: "5 known doc↔code differences", explains: "Whether the code does what the rulebook says.", trend: [70, 74, 78, 80, 82, 84, 85] },
+    { id: "v1", name: "Stability", score: 95, reading: "0 rollbacks · 0 escaped defects this month", explains: "How often changes break something in production.", trend: [80, 84, 88, 90, 92, 94, 95] },
+    { id: "v2", name: "Test protection", score: 86, reading: "46 tests · catalog and assistant 100% · pages 70%", explains: "How much of what matters is guarded by tests.", trend: [40, 52, 63, 71, 78, 83, 86] },
+    { id: "v3", name: "Structure", score: 90, reading: "One read-only catalog module · 0 circular dependencies", explains: "Whether the code is organised so a change stays local.", trend: [82, 84, 86, 87, 88, 89, 90] },
+    { id: "v4", name: "Type safety", score: 98, reading: "Strict TypeScript everywhere", explains: "How many mistakes the compiler catches before anyone sees them.", trend: [92, 94, 95, 96, 97, 98, 98] },
+    { id: "v5", name: "Freshness", score: 96, reading: "Next.js 16 · React 19 · 1 minor update pending", explains: "How far behind current versions the site is.", trend: [70, 78, 85, 90, 93, 95, 96] },
+    { id: "v6", name: "Rulebook fit", score: 92, reading: "2 known doc↔code differences", explains: "Whether the code does what the rulebook says.", trend: [75, 80, 84, 87, 89, 91, 92] },
   ],
   hotspots: [
-    { path: "apps/api/app/api/reservations/[id]/cancel/route.ts", why: "Changes often and handles money; every edit gets the full money-rules suite.", changes90d: 23 },
-    { path: "apps/api/app/api/orders/route.ts", why: "Writes ledger rows by hand instead of using the shared helpers.", changes90d: 17 },
-    { path: "packages/booking-flow/src/BookingFlow.tsx", why: "Large component used by three surfaces.", changes90d: 14 },
+    { path: "lib/product.ts", why: "Cleans 10,000 crawled product records; every change gets the full product test suite.", changes90d: 14 },
+    { path: "app/api/assistant/route.ts", why: "The shopping assistant: it may mention only products the catalog returns.", changes90d: 9 },
+    { path: "components/voice-call.tsx", why: "Live voice; access codes and saved calls are protected behavior.", changes90d: 7 },
   ],
   treatmentPlan: [
-    { phase: "Triage", goal: "Map the site, find what's fragile, stop the bleeding (backups, error alerts, branch protection).", status: "done" },
-    { phase: "Stabilize", goal: "Tests around money and checkout first; no new features until they pass.", status: "done" },
-    { phase: "Repair", goal: "Move logic into one place, one area at a time, each step shipped and tested.", status: "done" },
-    { phase: "Strengthen", goal: "Raise page coverage, clear rulebook drift, keep dependencies current.", status: "active" },
+    { phase: "Triage", goal: "Map the site and find what's fragile; branch protection and a stage branch.", status: "done" },
+    { phase: "Stabilize", goal: "Tests around the catalog and the assistant first.", status: "done" },
+    { phase: "Repair", goal: "Keep catalog access in one read-only module; every page goes through it.", status: "done" },
+    { phase: "Strengthen", goal: "Raise page coverage and keep dependencies current.", status: "active" },
   ],
 };
 
 export const CONFIGURATION: Configuration = {
   env: [
-    { key: "NEXT_PUBLIC_SUPABASE_URL", service: "Supabase", purpose: "Where the database lives", secret: false, requiredBy: ["site", "portal", "api"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "Supabase → Project Settings → API → Project URL" },
-    { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", service: "Supabase", purpose: "Public key for sign-in (safe in the browser)", secret: false, requiredBy: ["site", "portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "Supabase → Project Settings → API → anon key" },
-    { key: "SUPABASE_SERVICE_ROLE_KEY", service: "Supabase", purpose: "Full database access for the API server only", secret: true, requiredBy: ["api"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "Supabase → Project Settings → API → service_role key" },
-    { key: "SUPABASE_JWT_SECRET", service: "Supabase", purpose: "Verifies sign-in tokens", secret: true, requiredBy: ["api"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "Supabase → Project Settings → API → JWT secret" },
-    { key: "SUPABASE_DB_POOLER_HOST", service: "Supabase", purpose: "Direct database connection for tests", secret: false, requiredBy: ["tests"], environments: { development: "set", preview: "not-needed", production: "not-needed" }, lastVerified: "Sep 20", howToGet: "Supabase → Connect → Session pooler host" },
-    { key: "STRIPE_SECRET_KEY", service: "Stripe", purpose: "Charges and refunds (test keys outside production)", secret: true, requiredBy: ["api"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "1 h ago", howToGet: "Stripe → Developers → API keys" },
-    { key: "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", service: "Stripe", purpose: "Card form in the browser", secret: false, requiredBy: ["site", "portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "1 h ago", howToGet: "Stripe → Developers → API keys" },
-    { key: "STRIPE_WEBHOOK_SIGNING_SECRET", service: "Stripe", purpose: "Confirms payment notifications really come from Stripe", secret: true, requiredBy: ["api"], environments: { development: "set", preview: "missing", production: "set" }, lastVerified: "1 h ago", howToGet: "Stripe → Developers → Webhooks → endpoint → Signing secret" },
-    { key: "CLOUDINARY_CLOUD_NAME", service: "Cloudinary", purpose: "Image hosting account", secret: false, requiredBy: ["portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Sep 26", howToGet: "Cloudinary → Dashboard → Cloud name" },
-    { key: "CLOUDINARY_API_KEY", service: "Cloudinary", purpose: "Uploading images", secret: true, requiredBy: ["portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Sep 26", howToGet: "Cloudinary → Settings → API Keys" },
-    { key: "CLOUDINARY_API_SECRET", service: "Cloudinary", purpose: "Uploading images", secret: true, requiredBy: ["portal"], environments: { development: "set", preview: "set", production: "stale" }, lastVerified: "Sep 26", howToGet: "Cloudinary → Settings → API Keys" },
-    { key: "SENDGRID_API_KEY", service: "SendGrid", purpose: "Sending guest and marketing email", secret: true, requiredBy: ["api"], environments: { development: "not-needed", preview: "not-needed", production: "set" }, lastVerified: "Sep 24", howToGet: "SendGrid → Settings → API Keys" },
-    { key: "NEXT_PUBLIC_API_URL", service: "Platform", purpose: "Where the site and portal reach the API", secret: false, requiredBy: ["site", "portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Today", howToGet: "Set by the engine per environment" },
-    { key: "NEXT_PUBLIC_PORTAL_URL", service: "Platform", purpose: "Links from the site into the guest portal", secret: false, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Today", howToGet: "Set by the engine per environment" },
-    { key: "NEXT_PUBLIC_SITE_URL", service: "Platform", purpose: "The site's own address (canonical links, sharing)", secret: false, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Today", howToGet: "Set by the engine per environment" },
-    { key: "NEXT_PUBLIC_ORG_SLUG", service: "Platform", purpose: "Which organization this site belongs to", secret: false, requiredBy: ["site", "portal"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Today", howToGet: "Set by the engine at onboarding" },
-    { key: "ALLOW_LIVE_PAYMENT_QA_TESTS", service: "Platform", purpose: "Lets payment tests write Stripe test records. Never in production.", secret: false, requiredBy: ["tests"], environments: { development: "set", preview: "set", production: "not-needed" }, lastVerified: "Sep 20", howToGet: "Set by the engine; blocked in production by policy" },
+    { key: "MONGODB_URI", service: "MongoDB", purpose: "The product catalog (read-only)", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "MongoDB Atlas → Database → Connect → Drivers" },
+    { key: "MONGODB_DB", service: "MongoDB", purpose: "Catalog database name", secret: false, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "2 min ago", howToGet: "The database that holds the product collection" },
+    { key: "ANTHROPIC_API_KEY", service: "Anthropic", purpose: "The shopping assistant", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "1 h ago", howToGet: "console.anthropic.com → API keys" },
+    { key: "OPENAI_API_KEY", service: "OpenAI", purpose: "Talk mode (live voice) only", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "1 h ago", howToGet: "platform.openai.com → Project → API keys (with a monthly limit)" },
+    { key: "VOICE_MONGODB_URI", service: "MongoDB", purpose: "Talk mode's own database for calls and 30-day transcripts", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "missing", production: "set" }, lastVerified: "Oct 12", howToGet: "MongoDB Atlas → a user with readWrite on the voice database only" },
+    { key: "VOICE_ACCESS_CODE", service: "Platform", purpose: "Code shoppers enter before a voice call", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Oct 12", howToGet: "Chosen by the owner" },
+    { key: "VOICE_SECRET", service: "Platform", purpose: "Signs voice session tokens", secret: true, requiredBy: ["site"], environments: { development: "set", preview: "set", production: "set" }, lastVerified: "Oct 12", howToGet: "openssl rand -hex 32, one per environment" },
   ],
   connections: [
-    { id: "github", name: "GitHub", status: "connected", detail: "Cypress-Resort/ts-platform. Branch protection on; changes go through staging.", lastTested: "2 min ago" },
-    { id: "vercel", name: "Vercel", status: "connected", detail: "3 projects. Previews for every change; one-click undo.", lastTested: "2 min ago" },
-    { id: "db-test", name: "Database · test", status: "connected", detail: "Supabase. The builder may read and write here.", lastTested: "2 min ago" },
-    { id: "db-live", name: "Database · live", status: "connected", detail: "Read-only for AI. Changes only through approved data fixes.", lastTested: "2 min ago" },
-    { id: "stripe", name: "Stripe", status: "connected", detail: "Test + live. Live keys never reach the builder.", lastTested: "1 h ago" },
-    { id: "cloudinary", name: "Images · Cloudinary", status: "connected", detail: "Resizes on the fly.", lastTested: "Sep 26" },
-    { id: "dns", name: "Domain · Namecheap", status: "warning", detail: "cypressresort.com redirects to www, but the site calls itself cypressresort.com.", lastTested: "Today" },
-    { id: "anthropic", name: "Claude · Anthropic", status: "connected", detail: "Builder. Org key with workspace ID set.", lastTested: "Today" },
-    { id: "openai", name: "GPT · OpenAI", status: "connected", detail: "Judge and voice consultations.", lastTested: "Today" },
+    { id: "github", name: "GitHub", status: "connected", detail: "example/machine-shop. main is protected; the crew works on its own branches and stage.", lastTested: "2 min ago" },
+    { id: "vercel", name: "Vercel", status: "connected", detail: "A preview for every change; production deploys from main; one-click rollback.", lastTested: "2 min ago" },
+    { id: "catalog", name: "Catalog · MongoDB", status: "connected", detail: "Read-only. The crew can never write to the catalog.", lastTested: "2 min ago" },
+    { id: "voice-db", name: "Voice database · MongoDB", status: "warning", detail: "No test copy for previews yet: voice is checked on development only.", lastTested: "Oct 12" },
+    { id: "anthropic", name: "Claude · Anthropic", status: "connected", detail: "The crew and the shopping assistant.", lastTested: "Today" },
+    { id: "openai", name: "GPT · OpenAI", status: "connected", detail: "Live voice only.", lastTested: "Today" },
   ],
   rolePermissions: [
-    { role: "Builder", code: "Write (branches)", testData: "Read · write", liveData: "None", goLive: "No", money: "No" },
+    { role: "Builder", code: "Write (its own branch)", testData: "Read", liveData: "None", goLive: "No", money: "No" },
     { role: "Judge", code: "Read", testData: "Read", liveData: "None", goLive: "No", money: "No" },
-    { role: "Data investigator", code: "Read", testData: "Read", liveData: "Read-only", goLive: "No", money: "No" },
-    { role: "Consulting agent", code: "Read", testData: "None", liveData: "None", goLive: "No", money: "No" },
-    { role: "Release manager", code: "Merge", testData: "None", liveData: "Approved fixes only", goLive: "After your OK", money: "No" },
+    { role: "Team Lead", code: "Read", testData: "None", liveData: "None", goLive: "No", money: "No" },
+    { role: "Release", code: "Merge (fast-forward only)", testData: "None", liveData: "None", goLive: "After your OK, or Low-tier policy", money: "No" },
   ],
   members: MEMBERS,
 };
@@ -470,68 +456,60 @@ export const SKILLS: Skill[] = [
 
 export const ACCOUNT: Account = {
   org: ORG,
-  plan: { id: "operate", name: "Operate", monthlyUsd: 9000, installFeeUsd: 20000, installPaid: true, renewsOn: "Oct 1, 2026" },
+  plan: { id: "operate", name: "Operate", monthlyUsd: 1500, installFeeUsd: 2500, installPaid: true, renewsOn: "Nov 1, 2026" },
   card: { brand: "Visa", last4: "4242", expires: "08/28" },
   invoices: [
-    { id: "inv_003", date: "Sep 1, 2026", description: "Operate · September", amountUsd: 9000, status: "paid" },
-    { id: "inv_002", date: "Aug 1, 2026", description: "Operate · August", amountUsd: 9000, status: "paid" },
-    { id: "inv_001", date: "Jul 6, 2026", description: "Commissioning (one-time installation)", amountUsd: 45000, status: "paid" },
+    { id: "inv_002", date: "Oct 1, 2026", description: "Operate · October", amountUsd: 1500, status: "paid" },
+    { id: "inv_001", date: "Sep 20, 2026", description: "Boarding (fixed price)", amountUsd: 2500, status: "paid" },
   ],
   meters: [
-    { provider: "Anthropic", model: "claude-opus-5", role: "Builder", tokensIn: 41_200_000, tokensOut: 3_900_000, costUsd: 148.4, limitUsd: 300 },
-    { provider: "OpenAI", model: "gpt-5", role: "Judge", tokensIn: 12_600_000, tokensOut: 610_000, costUsd: 38.9, limitUsd: 100 },
-    { provider: "OpenAI", model: "gpt-realtime", role: "Voice consultations", tokensIn: 1_100_000, tokensOut: 420_000, costUsd: 19.3, limitUsd: 60 },
-    { provider: "Anthropic", model: "claude-haiku-4-5", role: "Routing & triage", tokensIn: 5_300_000, tokensOut: 290_000, costUsd: 7.4, limitUsd: 40 },
+    { provider: "Anthropic", model: "claude-opus-5-5", role: "Builder", tokensIn: 9_400_000, tokensOut: 820_000, costUsd: 31.2, limitUsd: 150 },
+    { provider: "Anthropic", model: "claude-sonnet-5", role: "Team Lead and Designer", tokensIn: 3_100_000, tokensOut: 240_000, costUsd: 9.8, limitUsd: 60 },
+    { provider: "OpenAI", model: "gpt-realtime", role: "Voice", tokensIn: 400_000, tokensOut: 160_000, costUsd: 4.1, limitUsd: 30 },
   ],
-  dailyCapUsd: 25,
-  monthToDateUsd: 214,
+  dailyCapUsd: 20,
+  monthToDateUsd: 45,
 };
 
 export const FILE_TREE: FileNode[] = [
   {
-    name: "apps",
-    path: "apps",
+    name: "app",
+    path: "app",
     type: "dir",
     children: [
-      { name: "api", path: "apps/api", type: "dir", children: [{ name: "app/api/reservations/route.ts", path: "apps/api/app/api/reservations/route.ts", type: "file" }] },
-      { name: "portal", path: "apps/portal", type: "dir", children: [{ name: "components/FolioView.tsx", path: "apps/portal/components/FolioView.tsx", type: "file" }] },
-      { name: "site-cypress-resort", path: "apps/site-cypress-resort", type: "dir", children: [{ name: "app/layout.tsx", path: "apps/site-cypress-resort/app/layout.tsx", type: "file" }] },
+      { name: "page.tsx", path: "app/page.tsx", type: "file" },
+      { name: "p/[id]/page.tsx", path: "app/p/[id]/page.tsx", type: "file" },
+      { name: "api/assistant/route.ts", path: "app/api/assistant/route.ts", type: "file" },
     ],
   },
   {
-    name: "packages",
-    path: "packages",
+    name: "lib",
+    path: "lib",
     type: "dir",
     children: [
-      { name: "domain/src/ledger/index.ts", path: "packages/domain/src/ledger/index.ts", type: "file" },
-      { name: "domain/src/reports/folio-report.ts", path: "packages/domain/src/reports/folio-report.ts", type: "file" },
+      { name: "catalog.ts", path: "lib/catalog.ts", type: "file" },
+      { name: "product.ts", path: "lib/product.ts", type: "file" },
     ],
   },
   { name: "CLAUDE.md", path: "CLAUDE.md", type: "file" },
 ];
 
 export const FILE_CONTENTS: Record<string, string> = {
-  "packages/domain/src/reports/folio-report.ts": `import type { LedgerEntry, FolioLine } from "../ledger";
-
-/**
- * Guest-facing folio lines. On an all-inclusive package (D-31), every line
- * carrying the package's reservation_package_id collapses into one all-in
- * line, taxes included. Staff views call buildStaffFolio() instead.
+  "lib/catalog.ts": `/**
+ * The catalog: the only code that touches MongoDB, and read-only.
+ * Pages, the assistant and anything added later go through these functions.
  */
-export function groupPackageLines(entries: LedgerEntry[]): FolioLine[] {
-  const pkg = entries.filter((e) => e.reservation_package_id);
-  const rest = entries.filter((e) => !e.reservation_package_id);
-  if (pkg.length === 0) return rest.map(toLine);
+export const PAGE_SIZE = 24;
 
-  const total = pkg.reduce((sum, e) => sum + e.amount, 0);
-  return [{ label: pkg[0].package_name + ", all-inclusive", amount: total }, ...rest.map(toLine)];
+export async function searchProducts(query: string, page = 1) {
+  const col = await products();
+  return col.find(textFilter(query)).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).toArray();
 }
 `,
-  "packages/domain/src/ledger/index.ts": `/** assembleFolio(entries): reduces posted rows to one FolioSummary. See CLAUDE.md §4. */
-export function assembleFolio(entries: LedgerEntry[]): FolioSummary {
-  const posted = entries.filter((e) => e.status === "posted" && e.entry_type !== "credit_issued");
-  return { balanceDue: posted.reduce((s, e) => s + e.amount, 0), lines: posted.map(toLine) };
+  "lib/product.ts": `/** Catalog documents → clean product data. Pure (no database), so it's unit tested and shared by pages and the assistant. */
+export function toCard(raw: RawProduct): ProductCard {
+  return { id: String(raw._id), name: text(raw.name), price: price(raw.price), inStock: raw.in_stock === true };
 }
 `,
-  "CLAUDE.md": "# Cypress / Thin Spaces Platform — Claude Code Working Rules\n\n## 0. The one rule\n\nBusiness logic and business-data access live in exactly one place: apps/api, backed by the pure engines in packages/domain.\n",
+  "CLAUDE.md": "# Machine Shop — working rules\n\n## The rules\n\n- The catalog is read-only. Every page and the assistant read it through lib/catalog.ts.\n- The assistant mentions only products its tools returned.\n- Every change adds tests; typecheck and the full suite pass before it ships.\n",
 };

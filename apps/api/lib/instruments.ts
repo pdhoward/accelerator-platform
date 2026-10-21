@@ -11,7 +11,7 @@ import {
 
 import { demoMode } from "./auth";
 import { CodeError } from "./codes";
-import { instrumentsSample } from "./studio-sample";
+import { instrumentsSample, sampleItems } from "./studio-sample";
 import { db, rows } from "./supabase";
 import { listWork, pendingDecisions } from "./work";
 
@@ -30,7 +30,7 @@ export async function readInstruments(site: Site, number?: number): Promise<Inst
 
   if (demoMode()) {
     if (!site.demo) throw new CodeError("Live instruments require the database.");
-    if (number != null && number !== 1) throw new CodeError("That sample work item does not exist.");
+    if (number != null && !sampleItems().some((d) => d.work.number === number)) throw new CodeError("That sample work item does not exist.");
     return { ...buildInstruments({ ...instrumentsSample(now), scope }), source: "sample", siteName: site.name };
   }
 

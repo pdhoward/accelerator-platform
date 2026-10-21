@@ -47,7 +47,7 @@ export function timelineDays(entries: TimelineEntry[], filter: TimelineFilter = 
   return [...days.entries()].map(([day, list]) => ({ day, entries: list }));
 }
 
-export type TimelineResponse = { entries: TimelineEntry[]; next: number | null; filter: TimelineFilter };
+export type TimelineResponse = { entries: TimelineEntry[]; next: number | null; filter: TimelineFilter; sample?: boolean };
 
 // ── The Work item record (T5) ────────────────────────────────────────────────
 export type RecordInput = {

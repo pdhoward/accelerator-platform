@@ -14,7 +14,14 @@ export default async function BoardingPage({ params }: { params: Promise<{ site:
   return (
     <>
       <PageHeader title="Boarding" sub="One guided flow to get the site ready. Each step is checked against the real records." />
-      <Page>{data ? <BoardingView siteId={site} initial={data} canAnswer={!staff && can("request.create")} canLog={can("request.create")} /> : <Note text={note ?? "Not available."} />}</Page>
+      <Page>
+        {data?.sample && (
+        <p className="text-sm text-warn" data-sample>
+          Sample: Example Machine Shop, an illustrative site. Every record here is synthetic; a real site shows its own.
+        </p>
+        )}
+        {data ? <BoardingView siteId={site} initial={data} canAnswer={!data.sample && !staff && can("request.create")} canLog={!data.sample && can("request.create")} /> : <Note text={note ?? "Not available."} />}
+      </Page>
     </>
   );
 }

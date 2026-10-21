@@ -15,7 +15,14 @@ export default async function TimelinePage({ params, searchParams }: { params: P
   return (
     <>
       <PageHeader title="Site Timeline" sub={n ? `Work item #${n}: every decision, check and handoff, in order.` : "Every decision, check, handoff and change on this site, in order."} />
-      <Page>{data ? <TimelineView siteId={site} initial={data} work={n} /> : <Note text={note ?? "Not available."} />}</Page>
+      <Page>
+        {data?.sample && (
+        <p className="text-sm text-warn" data-sample>
+          Sample: Example Machine Shop, an illustrative site. Every record here is synthetic; a real site shows its own.
+        </p>
+        )}
+        {data ? <TimelineView siteId={site} initial={data} work={n} /> : <Note text={note ?? "Not available."} />}
+      </Page>
     </>
   );
 }

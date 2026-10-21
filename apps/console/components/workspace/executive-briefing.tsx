@@ -239,7 +239,6 @@ export function ExecutiveBriefing({
               </h2>
               <ul className="mt-3 list-disc space-y-2 pl-4 text-sm text-fog">
                 <li>Live customer-journey health and strategic KPI outcomes</li>
-                <li>Accepted capability inventory and coverage</li>
                 <li>
                   Current budget, token consumption and remaining exposure
                 </li>

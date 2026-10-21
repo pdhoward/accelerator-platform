@@ -123,6 +123,8 @@ export type Boarding = {
   /** The first unfinished step's first unmet check, and who must act. */
   next: { step: string; label: string; who: string } | null;
   interventions: { at: string; step: string; note: string; by: string }[];
+  /** The keyless demo's sample. */
+  sample?: boolean;
 };
 
 const WHO: Record<"client" | "strategic_machines" | "crew", string> = { client: "You", strategic_machines: "Strategic Machines", crew: "The crew" };

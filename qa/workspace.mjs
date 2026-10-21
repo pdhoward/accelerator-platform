@@ -64,10 +64,10 @@ function check(value, message) {
 try {
   start("api", 4101);
   start("console", 4100);
-  await ready("http://127.0.0.1:4101/api/sites/cypress-resort/briefing");
-  await ready("http://127.0.0.1:4100/s/cypress-resort");
+  await ready("http://127.0.0.1:4101/api/sites/demo-shop/briefing");
+  await ready("http://127.0.0.1:4100/s/demo-shop");
   const sample = await (
-    await fetch("http://127.0.0.1:4101/api/sites/cypress-resort/briefing")
+    await fetch("http://127.0.0.1:4101/api/sites/demo-shop/briefing")
   ).json();
   check(
     sample.source === "sample",
@@ -86,7 +86,7 @@ try {
     if (request.url().includes("/api/") && request.method() !== "GET")
       writes.push(request.url());
   });
-  await page.goto("http://127.0.0.1:4100/s/cypress-resort");
+  await page.goto("http://127.0.0.1:4100/s/demo-shop");
   await page
     .getByRole("heading", { name: "Executive Briefing", exact: true })
     .waitFor();
@@ -138,8 +138,8 @@ try {
     "dial rests on state integrity when nothing needs attention",
   );
   check(
-    (await dial.getAttribute("aria-valuetext"))?.startsWith("State integrity: Not established"),
-    "no release yet is reported as not established, not as a score",
+    /^State integrity: (?!Not established)/.test((await dial.getAttribute("aria-valuetext")) ?? ""),
+    "a recorded release gives state integrity a real reading",
   );
   await dial.focus();
   await page.keyboard.press("ArrowRight");
@@ -147,7 +147,7 @@ try {
     () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Tests",
   );
   check(
-    (await dial.getAttribute("aria-valuetext")) === "Tests: 18 of 18 passing, verified",
+    (await dial.getAttribute("aria-valuetext")) === "Tests: 46 of 46 passing, verified",
     "arrow key turns the dial to Tests and the card follows",
   );
   await page.keyboard.press("End");
@@ -194,11 +194,11 @@ try {
     () => document.querySelector("article[aria-labelledby^='reading-'] h3")?.textContent === "Builder",
   );
   check(
-    await page.getByRole("img", { name: /Work landed vs usual pace: 2 \/ 1; First-pass success: 67%/ }).isVisible(),
+    await page.getByRole("img", { name: /Work landed vs usual pace: 3 \/ 1; First-pass success: 75%/ }).isVisible(),
     "crew card shows activity rings from ledger results",
   );
   check(
-    await page.getByRole("img", { name: "Builder: 2 evidence-backed contributions in 28 days" }).isVisible(),
+    await page.getByRole("img", { name: "Builder: 3 evidence-backed contributions in 28 days" }).isVisible(),
     "crew card shows the contribution row",
   );
   await page.waitForTimeout(800);
@@ -220,7 +220,7 @@ try {
   await page.waitForTimeout(800);
   await page.screenshot({ path: path.join(artifacts, "cockpit-390.png"), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1050 });
-  await page.getByRole("link", { name: /Review the preview/ }).click();
+  await page.getByRole("link", { name: /Approve the preview for release/ }).click();
   await page
     .getByRole("button", { name: "Replay this improvement", exact: true })
     .waitFor();
@@ -288,7 +288,7 @@ try {
   checks++;
   await page.getByRole("button", { name: "Open Design v1", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "Design v1" });
-  await drawer.getByRole("heading", { name: "Mobile quote journey", exact: true }).waitFor();
+  await drawer.getByRole("heading", { name: "Email me this sheet", exact: true }).waitFor();
   checks++;
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(artifacts, "work-drawer.png") });
@@ -341,7 +341,7 @@ try {
   check(
     await page
       .getByRole("dialog", { name: "Design v1" })
-      .getByRole("heading", { name: "Mobile quote journey", exact: true })
+      .getByRole("heading", { name: "Email me this sheet", exact: true })
       .isVisible(),
     "documents stay one click away after lens switching",
   );
@@ -405,15 +405,15 @@ try {
       .count()) === 0,
     "reload returns to live workspace rather than replay",
   );
-  await page.goto("http://127.0.0.1:4100/s/cypress-resort/work");
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/work");
   check(
     (await page
-      .getByRole("link", { name: /Make mobile quote requests easier/ })
+      .getByRole("link", { name: /Let shoppers email a product sheet/ })
       .count()) === 1,
     "work list opens the same sample record",
   );
   // G2.4: the four screens lead the navigation; Gen 1 pages wait behind Engineer view.
-  await page.goto("http://127.0.0.1:4100/s/cypress-resort");
+  await page.goto("http://127.0.0.1:4100/s/demo-shop");
   const nav = page.getByRole("navigation", { name: "Control Room" });
   for (const label of ["Overview", "Work", "Site", "Crew & Knowledge"]) {
     check((await nav.getByRole("link", { name: label, exact: true }).count()) === 1, `navigation shows ${label}`);
@@ -421,7 +421,7 @@ try {
   check((await nav.getByRole("link", { name: "Proof", exact: true }).count()) === 0, "Gen 1 pages stay behind Engineer view");
 
   // G2.3 Crew & Knowledge: the keyless demo shows the catalog, labelled, and nothing can be changed.
-  await page.goto("http://127.0.0.1:4100/s/cypress-resort/crew");
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/crew");
   await page.locator("[data-team-lead]").waitFor();
   check((await page.locator("[data-sample]").count()) === 1, "the demo crew is labelled as a sample");
   check((await page.locator("[data-specialist]").count()) === 8, "the crew shows its eight specialists beside the Team Lead");
@@ -437,11 +437,33 @@ try {
   );
   await page.setViewportSize({ width: 1440, height: 1050 });
 
-  // Site, Boarding and the Timeline need records: the demo says so plainly instead of inventing them.
-  for (const screen of ["site", "boarding", "timeline"]) {
-    await page.goto(`http://127.0.0.1:4100/s/cypress-resort/${screen}`);
-    check((await page.locator("main").innerText()).includes("needs the database"), `${screen} says it needs the database in the demo`);
-  }
+  // The demo tells Machine Shop's story on every screen, labelled as a sample and read-only.
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/site");
+  await page.locator("[data-scorecard]").waitFor();
+  check((await page.locator("[data-sample]").count()) === 1, "the Site sample is labelled");
+  check((await page.locator("[data-capability]").count()) === 4, "four accepted capabilities with condition and progress");
+  check((await page.locator("[data-proposed] article").count()) >= 3, "the Survey's other findings wait as proposals");
+  check((await page.getByRole("button", { name: "Survey the code" }).count()) === 0, "the sample inventory can't be changed");
+  await page.screenshot({ path: path.join(artifacts, "site.png"), fullPage: true });
+
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/timeline");
+  await page.locator("[data-entry]").first().waitFor();
+  const kinds = await page.locator("[data-entry]").evaluateAll((els) => els.map((e) => e.getAttribute("data-entry")));
+  check(["decision", "handoff", "repair", "prove", "release"].every((k) => kinds.includes(k)), "the timeline traces decisions, handoffs, a repair, proof and the release");
+  await page.getByRole("radio", { name: "Decisions" }).click();
+  check((await page.locator("[data-entry]").count()) === 4, "the Decisions filter shows who decided what, including the Low-tier policy");
+  await page.screenshot({ path: path.join(artifacts, "timeline.png"), fullPage: true });
+
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/boarding");
+  await page.locator("[data-boarding-summary]").waitFor();
+  check((await page.locator("[data-step]").count()) === 7, "Boarding shows its seven steps");
+  check((await page.locator("[data-step='agreement'][data-state='current']").count()) === 1, "the sample is at its last step, the Agreement");
+  check((await page.locator("[data-interventions] li").count()) === 2, "Boarding lists where a person stepped in");
+  await page.screenshot({ path: path.join(artifacts, "boarding.png"), fullPage: true });
+
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/work/2");
+  await page.getByText("every check in the TDD plane passed, so this ships now").first().waitFor();
+  checks++;
   check(
     errors.length === 0,
     `no uncaught browser errors: ${errors.join("; ")}`,

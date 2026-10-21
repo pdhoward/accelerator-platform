@@ -76,7 +76,7 @@ export function CrewView({
     <>
       {crew.sample && (
         <p className="text-sm text-warn" data-sample>
-          Sample: the crew catalog and its Commerce skills, with no site records. A real site shows its own crew version, activity and proposals.
+          Sample: Example Machine Shop's crew, from the catalog with the Commerce pack. A real site shows its own crew version, activity and proposals.
         </p>
       )}
       <Card>
