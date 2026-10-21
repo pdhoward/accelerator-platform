@@ -359,7 +359,7 @@ export function WorkRoom({
               onChanged={() => refresh()}
               onPause={!closed && d.work.kind === "change" && canAsk ? () => act(() => api.work.ship(siteId, n, d.work.paused ? "resume" : "pause"), d.work.paused ? "The crew resumed." : "The crew is paused.") : undefined}
               card={
-                studio.source !== "sample" && (
+                (
                   <NeedsYou
                     d={d}
                     canAsk={canAsk && !closed}
@@ -377,7 +377,7 @@ export function WorkRoom({
             />
             <aside aria-label="Where the work stands" className="flex flex-col gap-4">
               {!install && <WhereWeAre milestones={progressFor(d)} complexity={d.work.complexity} />}
-              {!install && studio.source !== "sample" && (
+              {!install && (
                 <MandateCard siteId={siteId} d={d} canEdit={canApprove && access.via === "member" && !closed} onSaved={refresh} />
               )}
               {!install && instruments && <CockpitPanel siteId={siteId} number={n} initial={instruments} compact />}

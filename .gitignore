@@ -11,3 +11,4 @@ next-env.d.ts
 
 .next-qa
 .qa-artifacts
+qa/.video/

@@ -1,0 +1,14 @@
+{
+  "title": "Sally adds Buy and ship with Stripe",
+  "voice": { "model": "gpt-4o-mini-tts", "voice": "nova", "instructions": "Warm, confident and unhurried, like a founder telling a customer's story. Plain American English. Slight smile in the voice. Pause briefly at each sentence end." },
+  "scenes": [
+    { "id": "before", "text": "Meet Sally. She sells home and hardware products online, and she has grown her site one step at a time with the Accelerator from Strategic Machines. She doesn't write code. She knows how to sell." },
+    { "id": "discuss", "text": "Today's step: let shoppers buy a product, pay with Stripe, and have it shipped. Sally just says so. Her Team Lead rates it High, because money moves, and tells her exactly where she will be asked to decide." },
+    { "id": "design", "text": "The Designer writes it up in plain English: Stripe Checkout, prices always from the catalog, shipping, and test mode only. Sally reads it, and approves." },
+    { "id": "plan", "text": "She sets the mandate: what's in scope, what must never break, and a forty-dollar budget. The Planner breaks the work into three small steps, each with its own tests. Approved." },
+    { "id": "build", "text": "Now the crew works. Every step adds tests. When one fails, a tampered price slipped through, the Builder catches it, repairs it, and proves it again. Nobody had to ask." },
+    { "id": "try", "text": "Fifty-eight tests passing, up from forty-one. The Judge proves the exact candidate and opens a preview. Sally buys a drill with Stripe's test card. It works. She approves the release." },
+    { "id": "live", "text": "It's live. And every decision, every test run and every handoff is on the record: on Sally's timeline, and in her own repository." },
+    { "id": "after", "text": "Sally sells. The crew builds. And nothing ships without her say-so. The Accelerator, from Strategic Machines." }
+  ]
+}

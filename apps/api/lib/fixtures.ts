@@ -20,7 +20,7 @@ export const HOUSE_PARTNER: Partner = {
 export const ORG: Org = { id: "org_example_shop", name: "Example Machine Shop Co.", plan: "operate" };
 
 export const MEMBERS: Member[] = [
-  { id: "m_morgan", name: "Morgan", email: "owner@example.com", role: "owner" },
+  { id: "m_sally", name: "Sally", email: "owner@example.com", role: "owner" },
   { id: "m_sam", name: "Sam", email: "operator@example.com", role: "operator" },
   { id: "m_riley", name: "Riley", email: "tester@example.com", role: "tester" },
   { id: "m_jordan", name: "Jordan", email: "viewer@example.com", role: "viewer" },
