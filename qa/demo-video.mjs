@@ -4,6 +4,9 @@
  *   node qa/demo-video.mjs              record every scene (webm, 1920×1080)
  *   node qa/demo-video.mjs --voice      also make the narration (needs OPENAI_API_KEY)
  *   node qa/demo-video.mjs --only try   record one scene
+ *   node qa/demo-video.mjs --only before   record the real shop's "before" (then keep it:
+ *                                          copy qa/.video/before.webm to before-saved.webm;
+ *                                          later runs reuse it unless --rerecord-before)
  *
  * The platform scenes run the keyless demo (Example Machine Shop, synthetic and
  * labelled) on production builds, stepping Work item #3 through its stages with
@@ -30,7 +33,7 @@ const SIZE = { width: 1920, height: 1080 };
 const CONSOLE = "http://127.0.0.1:4200";
 const API = "http://127.0.0.1:4201";
 const SHOP = (process.env.MACHINESHOP_URL ?? "http://localhost:3100").replace(/\/$/, "");
-const PRODUCT = process.env.MACHINESHOP_PRODUCT ?? null;
+const PRODUCT = process.env.MACHINESHOP_PRODUCT ? `/${process.env.MACHINESHOP_PRODUCT.replace(/^[/]+/, "")}` : null;
 mkdirSync(out, { recursive: true });
 
 const env = {
@@ -300,6 +303,16 @@ try {
   const clips = [];
   for (const scene of SCENES) {
     if (only && scene.id !== only) continue;
+    // The "before" is recorded once, before the change ships, and kept: qa/.video/before-saved.webm.
+    const saved = path.join(out, "before-saved.webm");
+    if (scene.id === "before" && existsSync(saved) && !args.includes("--rerecord-before")) {
+      console.log("Using the saved before clip.");
+      const video = path.join(out, "before.webm");
+      writeFileSync(video, readFileSync(saved));
+      const audio = wantVoice ? await voice(scene) : existsSync(path.join(out, "before.mp3")) ? path.join(out, "before.mp3") : null;
+      clips.push(hasFfmpeg ? finishScene("before", video, audio) : video);
+      continue;
+    }
     if (scene.shop && !shopUp) continue;
     if (!scene.shop) {
       stop(api);
