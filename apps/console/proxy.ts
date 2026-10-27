@@ -6,7 +6,7 @@ import { createServerClient } from "@supabase/ssr";
  * Supabase session cookie and sends signed-out visitors to /login.
  * /api/* is excluded: the API verifies tokens itself.
  */
-const PUBLIC = ["/login", "/auth"];
+const PUBLIC = ["/login", "/auth", "/vision"];
 
 export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
