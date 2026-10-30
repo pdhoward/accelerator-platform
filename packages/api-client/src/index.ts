@@ -3,6 +3,8 @@ import type {
   Boarding,
   BriefingResponse,
   CapabilitiesResponse,
+  CradleResponse,
+  Ruling,
   CrewConfig,
   CrewResponse,
   FormValues,
@@ -177,6 +179,18 @@ export function createApiClient({
       add: (siteId: string, values: FormValues) => post<{ id: string }>(`${site(siteId)}/capabilities`, { action: "add", values }),
       review: (siteId: string, id: string, action: { action: "accept" | "restore" } | { action: "retire"; reason: string } | { action: "edit"; values: FormValues }) =>
         post<{ ok: true }>(`${site(siteId)}/capabilities/${id}`, action),
+    },
+
+    /** Gen 3, the Cradle: the policy book, its findings, and the ingest run with its live log. */
+    cradle: {
+      get: (siteId: string) => call<CradleResponse>(`${site(siteId)}/cradle`),
+      events: (siteId: string, jobId: string, after: number) =>
+        call<{ events: { id: number; at: string; kind: "status" | "tool" | "log" | "check"; text: string }[] }>(`${site(siteId)}/cradle?events=${encodeURIComponent(jobId)}&after=${after}`),
+      start: (siteId: string, pack: Domain) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "start", pack }),
+      ingest: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "ingest" }),
+      rule: (siteId: string, key: string, ruling: Ruling) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "rule", key, ruling }),
+      resolve: (siteId: string, id: string, ruling: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "resolve", id, ruling }),
+      reset: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "reset" }),
     },
 
     /** The Site Timeline (§18, G2.5); the export is a download at exportUrl. */

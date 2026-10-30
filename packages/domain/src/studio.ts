@@ -42,6 +42,7 @@ export const JOB_ROLE: Record<JobKind, ModelRole> = {
   checkout: "build",
   prove: "judge",
   release: "build",
+  ingest: "design",
 };
 export type ActivityEvent = {
   id: string;

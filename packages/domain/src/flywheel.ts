@@ -28,7 +28,7 @@ export const RAIL_LABEL: Record<RailStop, string> = {
 };
 
 export type StepStatus = "todo" | "running" | "done" | "blocked" | "skipped";
-export type JobKind = "discuss" | "design" | "plan" | "build_step" | "checkout" | "prove" | "release";
+export type JobKind = "discuss" | "design" | "plan" | "build_step" | "checkout" | "prove" | "release" | "ingest";
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 // ── Models: the customer picks one per job (F15) ─────────────────────────────

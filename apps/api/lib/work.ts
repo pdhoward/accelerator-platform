@@ -9,6 +9,7 @@ import {
   consultSystem,
   lapsedFate,
   trailerFilter,
+  type IngestReport,
   type LeadStreamEvent,
   canApprove,
   canSite,
@@ -68,6 +69,7 @@ import { createHash } from "node:crypto";
 
 import { leadTurns, streamAnthropic } from "./anthropic-stream";
 import { linkCapabilities, workCapabilities } from "./capabilities";
+import { applyIngest } from "./cradle";
 import { crewConfig, crewContext, runSkillsmith } from "./crew";
 import { signJobToken } from "./job-token";
 import { siteInterview, workRecord } from "./library";
@@ -939,6 +941,13 @@ export async function runCheckout(site: Site, identity: Identity) {
   await enqueue(site, null, "checkout", "build", identity.userId);
 }
 
+/** Gen 3: the crew reads the site's code, read-only, into its policy book (gen3-cradle.md §5). */
+export async function runIngest(site: Site, identity: Identity, pack: Domain) {
+  const busy = await rows(db().from("acc_jobs").select("id").eq("site_id", site.id).eq("kind", "ingest").in("status", ["queued", "running"]).limit(1));
+  if (busy.length) throw new CodeError("The crew is already reading the site.");
+  await enqueue(site, null, "ingest", "design", identity.userId, { pack });
+}
+
 export async function signAgreement(site: Site, identity: Identity, body: string) {
   const [top] = await rows(db().from("acc_agreements").select("version").eq("site_id", site.id).order("version", { ascending: false }).limit(1));
   const { error } = await db().from("acc_agreements").insert({
@@ -1112,6 +1121,7 @@ export type JobResult =
       manifest?: { key: string; purpose: string; howToGet: string }[];
     }
   | { kind: "prove"; facts: Omit<ProveFacts, "baseline">; branch: string; commit: string | null; previewUrl: string | null; previewStatus: number | null; census?: Census }
+  | { kind: "ingest"; report: IngestReport }
   | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
@@ -1270,6 +1280,9 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
           { onConflict: "site_id,key" },
         );
     }
+  } else if (r.kind === "ingest") {
+    // Gen 3: what the site's code implies lands on its policy book, unconfirmed (gen3-cradle.md §5).
+    await applyIngest({ id: job.site_id as string, orgId: job.org_id as string }, r.report);
   }
 
   await db().from("acc_jobs").update({ status: "done", result: r, finished_at: now() }).eq("id", jobId);

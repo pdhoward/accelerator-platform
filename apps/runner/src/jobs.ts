@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { census, cleanDocument, isCensusSource, readAssessment, type Census, type JobContext } from "@accelerator/domain";
+import { census, cleanDocument, ingestInstruction, isCensusSource, isDomain, packFor, readAssessment, readIngest, type Census, type JobContext } from "@accelerator/domain";
 
 import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
@@ -398,4 +398,29 @@ export async function checkout(ctx: JobContext, log: Log) {
   items.push({ code: "C3", status: "waiting", note: "Needs the test database (I5)." });
   items.push({ code: "C5", status: "waiting", note: "Proven once the GitHub App and branch protection are in (I1, I2)." });
   return { kind: "checkout", items, baselineTests, manifest };
+}
+
+/**
+ * Gen 3 ingest (gen3-cradle.md §5): the Policy Extractor reads the site's
+ * repository, read-only, and reports the policies its code implies, matched to
+ * the industry pack. The API lands them on the site's book, unconfirmed.
+ */
+export async function ingest(ctx: JobContext, log: Log) {
+  const repo = ctx.site.repoPath;
+  if (!repo || !existsSync(join(repo, ".git"))) throw new Error("No repository connected yet (Setup → repository path).");
+  const chosen = (ctx.job.input as { pack?: unknown } | undefined)?.pack;
+  const pack = packFor(isDomain(chosen) ? chosen : null);
+  if (!pack) throw new Error("This site has no industry pack yet. Start the cradle first.");
+  if (ctx.job.provider !== "anthropic") throw new Error("Ingest reads the code with Claude; choose an Anthropic model for the Design role.");
+  log.status(`lead> cradle ingest ${ctx.site.slug} · pack ${pack.id} ${pack.version} · read-only`);
+  const r = await agent({
+    cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 60, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
+    append: "You are a member of the Accelerator crew. You never change files.",
+    prompt: ingestInstruction(pack),
+  });
+  spent(ctx, r.costUsd);
+  if (!r.ok || !r.text.trim()) throw new Error(`The extractor stopped early (${r.reason ?? "no answer"}).`);
+  const report = readIngest(r.text);
+  log.status(`lead> ${report.candidates.length} policies found in code · ${report.conflicts.length} contradictions · ready for the Policy Walk`);
+  return { kind: "ingest" as const, report };
 }
