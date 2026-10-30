@@ -22,7 +22,7 @@ const COMMERCE: Pack = {
     { key: "product", label: "Product", events: ["publish", "change", "retire"], floor: "routine" },
     { key: "price", label: "Price", events: ["display", "discount"], floor: "important" },
     { key: "checkout", label: "Checkout", events: ["start", "pay", "fail"], floor: "critical" },
-    { key: "order", label: "Order", events: ["create", "confirm", "cancel"], floor: "critical" },
+    { key: "order", label: "Order", events: ["create", "confirm", "cancel"], floor: "critical", eventFloors: { confirm: "important" } },
     { key: "shipping", label: "Shipping", events: ["quote", "ship"], floor: "important" },
     { key: "refund", label: "Return and refund", events: ["request", "issue"], floor: "critical" },
     { key: "tax", label: "Sales tax", events: ["calculate"], floor: "critical" },

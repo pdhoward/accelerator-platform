@@ -35,8 +35,10 @@ export type Concept = {
   label: string;
   /** The lifecycle events a complete book must govern; a missing one is a hole. */
   events: string[];
-  /** No policy on this concept may be rated below this. */
+  /** No policy on this concept may be rated below this... */
   floor: Criticality;
+  /** ...unless its lifecycle event has its own floor (an order's confirmation email isn't its creation). */
+  eventFloors?: Partial<Record<string, Criticality>>;
 };
 
 export type Kernel = {
@@ -124,8 +126,9 @@ export type Conflict = {
 const ALL_EVENTS = (pack: Pack) => new Map(pack.concepts.map((c) => [c.key, c]));
 
 /** The floor of the concept, raised by the policy's own rating; never lowered. */
-export function criticalityOf(pack: Pack, concept: string, rated: Criticality | undefined): Criticality {
-  const floor = ALL_EVENTS(pack).get(concept)?.floor ?? "routine";
+export function criticalityOf(pack: Pack, concept: string, rated: Criticality | undefined, event?: string): Criticality {
+  const c = ALL_EVENTS(pack).get(concept);
+  const floor = (event ? c?.eventFloors?.[event] : undefined) ?? c?.floor ?? "routine";
   const r = rated ?? floor;
   return CRITICALITY_RANK[r] >= CRITICALITY_RANK[floor] ? r : floor;
 }
@@ -144,7 +147,7 @@ export function assembleBook(pack: Pack, site: SitePolicy[]): BookPolicy[] {
       concept: p.concept,
       event: p.event,
       parameters,
-      criticality: criticalityOf(pack, p.concept, s?.criticality ?? p.criticality),
+      criticality: criticalityOf(pack, p.concept, s?.criticality ?? p.criticality, p.event),
       binding: overridden ? "overridden" : "adopted",
       packParameters: overridden ? p.parameters : null,
       reason: s?.reason ?? null,
@@ -166,7 +169,7 @@ export function assembleBook(pack: Pack, site: SitePolicy[]): BookPolicy[] {
       event: s.event ?? "other",
       title: s.title ?? s.key,
       statement: s.statement ?? "",
-      criticality: criticalityOf(pack, s.concept ?? "other", s.criticality),
+      criticality: criticalityOf(pack, s.concept ?? "other", s.criticality, s.event),
       form: s.form ?? "parametric",
       parameters: s.parameters ?? {},
       kernel: s.kernel ?? null,
@@ -236,7 +239,7 @@ export function findings(pack: Pack, book: BookPolicy[], conflicts: Conflict[]):
   for (const concept of pack.concepts) {
     for (const event of concept.events) {
       if (!book.some((p) => p.concept === concept.key && p.event === event)) {
-        out.push({ kind: "hole", criticality: concept.floor, title: `${concept.label}: ${event.replace(/_/g, " ")}`, detail: `No policy governs "${event.replace(/_/g, " ")}" for ${concept.label.toLowerCase()}.`, keys: [], at: { concept: concept.key, event } });
+        out.push({ kind: "hole", criticality: concept.eventFloors?.[event] ?? concept.floor, title: `${concept.label}: ${event.replace(/_/g, " ")}`, detail: `No policy governs "${event.replace(/_/g, " ")}" for ${concept.label.toLowerCase()}.`, keys: [], at: { concept: concept.key, event } });
       }
     }
   }
@@ -248,8 +251,9 @@ export function findings(pack: Pack, book: BookPolicy[], conflicts: Conflict[]):
     if (p.status === "unreviewed" || p.status === "disputed") out.push({ kind: "unreviewed", criticality: p.criticality, title: p.title, detail: p.status === "disputed" ? "Disputed: the steward must rule." : p.binding === "adopted" ? "A pack default the steward hasn't confirmed." : "Found in the code; the steward hasn't confirmed it.", keys: [p.key] });
     if (!p.reviewBy) out.push({ kind: "no_review_date", criticality: "routine", title: p.title, detail: "Every policy needs a review-by date.", keys: [p.key] });
   }
-  const order: FindingKind[] = ["conflict", "hole", "needs_kernel", "unreviewed", "unproven", "no_review_date"];
-  return out.sort((a, b) => CRITICALITY_RANK[b.criticality] - CRITICALITY_RANK[a.criticality] || order.indexOf(a.kind) - order.indexOf(b.kind));
+  // The steward's decisions first (contradictions, rulings, holes), then the crew's own work (kernels, examples).
+  const order: FindingKind[] = ["conflict", "unreviewed", "hole", "needs_kernel", "unproven", "no_review_date"];
+  return out.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || CRITICALITY_RANK[b.criticality] - CRITICALITY_RANK[a.criticality]);
 }
 
 const maxCrit = (a: Criticality, b: Criticality): Criticality => (CRITICALITY_RANK[a] >= CRITICALITY_RANK[b] ? a : b);

@@ -44,8 +44,12 @@ export function CradleLive({ siteId, jobId, siteUrl, running, onDone }: { siteId
       try {
         const r = await api.cradle.events(siteId, jobId, after.current);
         if (r.events.length) {
-          after.current = r.events.at(-1)!.id;
-          setEvents((prev) => [...prev, ...r.events]);
+          after.current = Math.max(after.current, r.events.at(-1)!.id);
+          // Two polls can overlap (React runs effects twice in development): keep each event once.
+          setEvents((prev) => {
+            const seen = new Set(prev.map((e) => e.id));
+            return [...prev, ...r.events.filter((e) => !seen.has(e.id))];
+          });
         }
       } catch {
         /* a missed poll is fine; the next one catches up */

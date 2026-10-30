@@ -80,7 +80,7 @@ try {
   check(await page.locator("[data-policy^='S-']").count() >= 3, "the site's own policies are keyed and listed");
 
   const conflict = page.locator("[data-finding='conflict']").first();
-  await conflict.getByPlaceholder(/Your ruling/).fill("Keep transcripts 30 days, then delete; callers can ask for deletion any time.");
+  await conflict.getByPlaceholder(/Your ruling/).fill("Buy now is live: the assistant must offer it, and its test must change.");
   await conflict.getByRole("button", { name: "Rule" }).click();
   await page.waitForTimeout(800);
   check((await page.locator("[data-finding='conflict']").count()) === 1, "a ruling closes the contradiction");

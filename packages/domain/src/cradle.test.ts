@@ -19,10 +19,10 @@ describe("the starter book", () => {
     expect(holes).not.toContain("checkout/pay");
   });
 
-  it("flags critical policies whose kernel isn't built, and orders findings critical first", () => {
+  it("flags critical policies whose kernel isn't built, and starts with critical rulings", () => {
     const found = findings(commerce, assembleBook(commerce, []), []);
     expect(found.some((f) => f.kind === "needs_kernel" && f.keys[0] === "C-ORD-1")).toBe(true);
-    expect(found[0]!.criticality).toBe("critical");
+    expect(found[0]).toMatchObject({ kind: "unreviewed", criticality: "critical" });
   });
 
   it("isn't complete until every critical policy is confirmed", () => {
@@ -39,6 +39,17 @@ describe("criticality", () => {
   it("never drops below the concept's floor", () => {
     expect(criticalityOf(commerce, "checkout", "routine")).toBe("critical");
     expect(criticalityOf(commerce, "assistant", "important")).toBe("important");
+  });
+
+  it("lets a lifecycle event set its own floor", () => {
+    expect(criticalityOf(commerce, "order", undefined, "confirm")).toBe("important");
+    expect(criticalityOf(commerce, "order", undefined, "create")).toBe("critical");
+    expect(assembleBook(commerce, []).find((p) => p.key === "C-ORD-2")!.criticality).toBe("important");
+  });
+
+  it("puts the steward's decisions before the crew's kernel work", () => {
+    const kinds = findings(commerce, assembleBook(commerce, []), []).map((f) => f.kind);
+    expect(kinds.indexOf("unreviewed")).toBeLessThan(kinds.indexOf("needs_kernel"));
   });
 });
 

@@ -104,7 +104,7 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
             <button type="button" className={button("ghost")} onClick={() => setWatch(false)}>Hide</button>
           </CardHead>
           <CardBody>
-            <CradleLive siteId={siteId} jobId={r.ingest.jobId} siteUrl={siteUrl} running={running} onDone={() => void api.cradle.get(siteId).then(setR)} />
+            <CradleLive key={r.ingest.jobId} siteId={siteId} jobId={r.ingest.jobId} siteUrl={siteUrl} running={running} onDone={() => void api.cradle.get(siteId).then(setR)} />
           </CardBody>
         </Card>
       )}
