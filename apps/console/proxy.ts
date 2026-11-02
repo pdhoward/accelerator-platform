@@ -38,5 +38,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/).*)"],
+  // Static files (the logo on /login, icons) are served to signed-out visitors too.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/|brand/|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|txt|xml)$).*)"],
 };
