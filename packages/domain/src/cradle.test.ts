@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyRuling, assembleBook, criticalityOf, findings, ingestInstruction, mergeIngest, readiness, readIngest, starterSteps, type SitePolicy } from "./cradle";
+import { applyRuling, assembleBook, criticalityOf, findings, ingestInstruction, liveBook, mergeIngest, readiness, readIngest, starterSteps, type SitePolicy } from "./cradle";
 import { PACKS } from "./cradle-packs";
 
 const commerce = PACKS.commerce;
@@ -105,6 +105,7 @@ describe("ingest", () => {
     const text = ingestInstruction(commerce);
     expect(text).toContain("C-SHIP-1");
     expect(text).toContain("```json");
+    expect(text).toContain("extractor> new:");
   });
 });
 
@@ -119,5 +120,56 @@ describe("rulings", () => {
   it("drops a retired policy from the book", () => {
     const retired = applyRuling(commerce, undefined, "C-SHIP-2", { action: "retire", reason: "We ship same day" }, "Sally", "2026-10-30");
     expect(assembleBook(commerce, [retired]).some((p) => p.key === "C-SHIP-2")).toBe(false);
+  });
+});
+
+describe("the live book", () => {
+  const starter = assembleBook(commerce, []);
+  const script = [
+    "lead> cradle ingest machine-shop · pack commerce 0.1.0 · read-only",
+    "extractor> Read lib/checkout.ts",
+    "extractor> C-SHIP-1 flat shipping · code says $9.95 · pack says $7.95 → override found in code",
+    "extractor> new: US addresses only · lib/checkout.ts:15",
+    "extractor> C-CHK-1 Stripe Checkout · matches the pack ✓",
+    "extractor> new: call transcripts deleted after 30 days · new: order received page",
+    "clerk> CONFLICT the assistant says the store takes no orders vs C-CHK-1 Buy now",
+    '```json {"candidates": [{"packKey": "C-AST-1"}]} ```',
+  ];
+
+  it("starts with the book on hand, every policy waiting", () => {
+    const live = liveBook(starter, [], [], false);
+    expect(live.policies).toHaveLength(starter.length);
+    expect(live.policies.every((p) => p.state === "waiting")).toBe(true);
+    expect(live.latest).toBeNull();
+  });
+
+  it("binds the pack's policies as the crew names them, and marks an override", () => {
+    const live = liveBook(starter, [], script.slice(0, 3), false);
+    expect(live.policies.find((p) => p.key === "C-SHIP-1")).toMatchObject({ state: "found", kind: "override", line: 2 });
+    expect(live.latest?.key).toBe("C-SHIP-1");
+  });
+
+  it("adds the site's own policies as they're found, several to a line", () => {
+    const live = liveBook(starter, [], script, false);
+    const added = live.policies.filter((p) => p.key.startsWith("new-")).map((p) => p.title);
+    expect(added).toEqual(["US addresses only", "Call transcripts deleted after 30 days", "Order received page"]);
+  });
+
+  it("marks both sides of a contradiction, and ignores the final report", () => {
+    const live = liveBook(starter, [], script, false);
+    expect(live.conflicts).toBe(1);
+    expect(live.policies.find((p) => p.key === "C-CHK-1")?.state).toBe("conflict");
+    expect(live.policies.find((p) => p.key === "C-AST-1")?.state).toBe("waiting");
+  });
+
+  it("once landed, shows the book itself: found in code, waiting, or disputed", () => {
+    const { policies } = mergeIngest(commerce, [], { summary: "", candidates: [{ packKey: "C-SHIP-1", concept: "shipping", event: "quote", title: "Flat shipping", statement: "Shipping is $9.95.", parameters: { flatFeeUsd: 9.95 }, form: "parametric", sources: [{ path: "lib/checkout.ts" }] }], conflicts: [] });
+    const book = assembleBook(commerce, policies);
+    const live = liveBook(book, [{ id: "1", kind: "surface", keys: ["C-CHK-1"], why: "", status: "open" }, { id: "2", kind: "policy", keys: ["C-SHIP-1"], why: "", status: "resolved" }], script, true);
+    expect(live.policies.find((p) => p.key === "C-SHIP-1")).toMatchObject({ state: "found", kind: "override", line: null });
+    expect(live.policies.find((p) => p.key === "C-CHK-1")?.state).toBe("conflict");
+    expect(live.policies.find((p) => p.key === "C-CHK-2")?.state).toBe("waiting");
+    expect(live.policies.some((p) => p.key.startsWith("new-"))).toBe(false);
+    expect(live.conflicts).toBe(1);
   });
 });

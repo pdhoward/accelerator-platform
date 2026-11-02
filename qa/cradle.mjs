@@ -69,11 +69,15 @@ try {
   await page.locator("[data-cradle-live]").waitFor();
   await page.waitForTimeout(16000);
   check(await page.locator("[data-cradle-live] .cl-in").count() >= 5, "the crew's log streams while it reads");
+  check(await page.locator("[data-half='crew']").isVisible() && await page.locator("[data-half='book']").isVisible(), "the live view shows the crew working beside the book taking shape");
+  check(await page.locator("[data-ring='found'], [data-ring='conflict']").count() >= 3, "the book binds policies as the crew names them");
   await page.screenshot({ path: path.join(shots, "3-live.png"), fullPage: false });
 
   await page.getByRole("button", { name: "Ingest again" }).waitFor({ timeout: 60000 });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(shots, "4-ingested.png"), fullPage: true });
+  check(await page.getByRole("button", { name: /Start the Policy Walk/ }).isVisible(), "the landed book hands over to the Policy Walk");
+  check(await page.locator("[data-ring='conflict']").count() >= 2, "the ring marks the contradictions");
   check((await page.locator("[data-finding='conflict']").count()) === 2, "two contradictions found in Machine Shop");
   await page.locator("[data-policy='C-SHIP-1'] button").first().click();
   check(await page.locator("[data-policy='C-SHIP-1']").getByText("pack: 7.95").isVisible(), "the $9.95 shipping found in code overrides the pack's $7.95");

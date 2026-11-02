@@ -339,9 +339,84 @@ Rules:
 - When two sources disagree (for example the code charges one amount and a page states another), report a conflict with both keys and why.
 - Use the pack's concept and event names. For something the pack lacks, use concept "other" and a short event name.
 
+Narrate as you go, so the owner can watch the book take shape. Each time you find a policy, write one short line on its own, in exactly one of these forms:
+extractor> C-SHIP-1 flat shipping · matches the pack ✓
+extractor> C-SHIP-1 flat shipping · code says $9.95 · pack says $7.95 → override
+extractor> new: US addresses only · lib/checkout.ts:15
+clerk> CONFLICT <one policy> vs <the other>
+gapfinder> holes: <event> · <event>
+
 Finish with exactly one fenced \`\`\`json block shaped like:
 {"summary": "...", "candidates": [{"packKey": "C-SHIP-1" | null, "concept": "...", "event": "...", "title": "...", "statement": "...", "parameters": {}, "form": "parametric" | "structural", "criticality": "critical" | "important" | "routine", "sources": [{"path": "...", "lines": "10-14", "quote": "..."}], "surfaces": ["..."]}], "conflicts": [{"keys": ["...", "..."], "why": "...", "kind": "policy" | "regulation" | "surface"}]}
 For a candidate with no packKey, the key is assigned later; refer to it in conflicts by its title.`;
+}
+
+// ── The live book: the policy book taking shape while the crew reads ───────
+
+export type LivePolicy = {
+  key: string;
+  title: string;
+  concept: string;
+  kind: "pack" | "override" | "site";
+  state: "waiting" | "found" | "conflict";
+  /** The crew line that bound it, while the run is live; null once the book has landed. */
+  line: number | null;
+};
+
+const KIND: Record<Binding, LivePolicy["kind"]> = { adopted: "pack", overridden: "override", site: "site" };
+const NEW_CONCEPT = "new";
+
+/**
+ * The book as the crew binds it (gen3-cradle.md §3.2): while the run is live,
+ * the book on hand lights up as the crew's narrated lines name its keys, and
+ * policies the pack lacks join as they're found. Once the run has landed, the
+ * book itself is the truth: found in code or not, and the open contradictions.
+ */
+export function liveBook(book: BookPolicy[], conflicts: Conflict[], lines: string[], landed: boolean): { policies: LivePolicy[]; latest: LivePolicy | null; conflicts: number } {
+  if (landed) {
+    const disputed = new Set(conflicts.filter((c) => c.status === "open").flatMap((c) => c.keys));
+    const policies = book.filter((p) => p.status !== "retired").map((p): LivePolicy => ({
+      key: p.key, title: p.title, concept: p.concept, kind: KIND[p.binding], line: null,
+      state: disputed.has(p.key) ? "conflict" : p.extraction && p.extraction !== "unsupported" ? "found" : "waiting",
+    }));
+    return { policies, latest: null, conflicts: conflicts.filter((c) => c.status === "open").length };
+  }
+  const policies = book.filter((p) => p.status !== "retired").map((p): LivePolicy => ({ key: p.key, title: p.title, concept: p.concept, kind: KIND[p.binding], state: "waiting", line: null }));
+  const byKey = new Map(policies.map((p) => [p.key, p]));
+  const byTitle = new Map(policies.map((p) => [p.title.toLowerCase(), p]));
+  let latest: LivePolicy | null = null;
+  let disputes = 0;
+  lines.forEach((line, i) => {
+    if (/```|"packKey"/.test(line)) return; // the final report, not narration
+    const conflict = /\bCONFLICT\b/.test(line);
+    if (conflict) disputes++;
+    for (const [key] of line.matchAll(/\b[CS]-[A-Z]+-\d+\b/g)) {
+      const p = byKey.get(key);
+      if (!p) continue;
+      if (conflict) p.state = "conflict";
+      else if (p.state === "waiting") p.state = "found";
+      if (!conflict && /\boverride\b/i.test(line)) p.kind = "override";
+      p.line ??= i;
+      latest = p;
+    }
+    if (conflict) return;
+    for (const m of line.matchAll(/\bnew:\s*([^·\n]+)/gi)) {
+      const title = m[1]!.trim().replace(/[.;,]$/, "");
+      if (!title) continue;
+      const known = byTitle.get(title.toLowerCase());
+      if (known) {
+        if (known.state === "waiting") known.state = "found";
+        known.line ??= i;
+        latest = known;
+        continue;
+      }
+      const p: LivePolicy = { key: `new-${policies.length + 1}`, title: title.charAt(0).toUpperCase() + title.slice(1), concept: NEW_CONCEPT, kind: "site", state: "found", line: i };
+      policies.push(p);
+      byTitle.set(title.toLowerCase(), p);
+      latest = p;
+    }
+  });
+  return { policies, latest, conflicts: disputes };
 }
 
 /** The extractor's report, from its final answer. Throws when there's no usable JSON. */

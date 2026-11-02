@@ -38,6 +38,7 @@ export const MACHINE_SHOP_INGEST_SCRIPT: { s: number; kind: "status" | "tool" | 
   { s: 12, kind: "tool", text: "extractor> Read app/api/checkout/route.ts · lib/stripe.ts" },
   { s: 14, kind: "check", text: "extractor> C-CHK-1 Stripe Checkout · matches the pack ✓" },
   { s: 16, kind: "check", text: "extractor> C-CHK-2 the catalog sets the price · matches the pack ✓" },
+  { s: 17, kind: "check", text: "extractor> C-PRICE-1 prices in dollars and cents · matches the pack ✓" },
   { s: 18, kind: "tool", text: "extractor> Read app/layout.tsx · app/order/success/page.tsx · app/p/[id]/sheet/page.tsx" },
   { s: 20, kind: "log", text: "extractor> new: test mode only · stated on 3 pages" },
   { s: 22, kind: "tool", text: "extractor> Read lib/assistant-tools.ts · lib/assistant-skills.ts" },

@@ -104,12 +104,14 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
             <button type="button" className={button("ghost")} onClick={() => setWatch(false)}>Hide</button>
           </CardHead>
           <CardBody>
-            <CradleLive key={r.ingest.jobId} siteId={siteId} jobId={r.ingest.jobId} siteUrl={siteUrl} running={running} onDone={() => void api.cradle.get(siteId).then(setR)} />
+            <CradleLive key={r.ingest.jobId} siteId={siteId} jobId={r.ingest.jobId} siteUrl={siteUrl} running={running} book={r.book} conflicts={r.conflicts} concepts={r.pack?.concepts ?? []} onDone={() => void api.cradle.get(siteId).then(setR)} />
           </CardBody>
         </Card>
       )}
 
-      <Findings r={r} canManage={canManage} busy={busy} onResolve={(id, ruling) => act(() => api.cradle.resolve(siteId, id, ruling), "Ruling recorded.")} onConfirm={(key) => rule(key, { action: "confirm" }, "Confirmed.")} />
+      <div id="policy-walk" className="scroll-mt-4">
+        <Findings r={r} canManage={canManage} busy={busy} onResolve={(id, ruling) => act(() => api.cradle.resolve(siteId, id, ruling), "Ruling recorded.")} onConfirm={(key) => rule(key, { action: "confirm" }, "Confirmed.")} />
+      </div>
       <Book r={r} canManage={canManage} busy={busy} onRule={rule} />
     </div>
   );
