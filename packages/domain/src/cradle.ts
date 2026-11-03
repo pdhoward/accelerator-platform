@@ -322,8 +322,8 @@ export type IngestReport = {
   filesRead?: number;
 };
 
-/** What the extractor is told: the pack's concepts and policies, and the exact shape to report. */
-export function ingestInstruction(pack: Pack): string {
+/** What the extractor is told: the pack's concepts and policies, how to read the technology (an adapter's guidance), and the exact shape to report. */
+export function ingestInstruction(pack: Pack, technology?: string): string {
   return `You are the crew's Policy Extractor. Read this repository (read-only) and report the business policies its code, content and pages already imply.
 
 The site is in the ${pack.label} industry. The industry pack's concepts and lifecycle events:
@@ -339,7 +339,7 @@ Rules:
 - When a page, email or the assistant states a policy, list that file under surfaces.
 - When two sources disagree (for example the code charges one amount and a page states another), report a conflict with both keys and why.
 - Use the pack's concept and event names. For something the pack lacks, use concept "other" and a short event name.
-
+${technology ? `\n${technology}\n` : ""}
 Narrate as you go, so the owner can watch the book take shape. Each time you find a policy, write one short line on its own, in exactly one of these forms:
 extractor> C-SHIP-1 flat shipping · matches the pack ✓
 extractor> C-SHIP-1 flat shipping · code says $9.95 · pack says $7.95 → override

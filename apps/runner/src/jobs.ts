@@ -1,6 +1,25 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { census, cleanDocument, ingestInstruction, isCensusSource, isDomain, packFor, readAssessment, readIngest, type Census, type JobContext } from "@accelerator/domain";
+import {
+  census,
+  cleanDocument,
+  cobolSliceGuidance,
+  estateOf,
+  ingestInstruction,
+  isCensusSource,
+  isDomain,
+  mergeReports,
+  packFor,
+  readAssessment,
+  readIngest,
+  readReconcile,
+  reconcileInstruction,
+  roleOf,
+  type Census,
+  type IngestReport,
+  type JobContext,
+  type Pack,
+} from "@accelerator/domain";
 
 import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
@@ -403,7 +422,9 @@ export async function checkout(ctx: JobContext, log: Log) {
 /**
  * Gen 3 ingest (gen3-cradle.md §5): the Policy Extractor reads the site's
  * repository, read-only, and reports the policies its code implies, matched to
- * the industry pack. The API lands them on the site's book, unconfirmed.
+ * the industry pack. The API lands them on the site's book, unconfirmed. A
+ * mainframe estate is read in slices, one extractor each, then reconciled
+ * (§11.2, the COBOL adapter in cradle-estate.ts); a web app in one pass.
  */
 export async function ingest(ctx: JobContext, log: Log) {
   const repo = ctx.site.repoPath;
@@ -413,6 +434,8 @@ export async function ingest(ctx: JobContext, log: Log) {
   if (!pack) throw new Error("This site has no industry pack yet. Start the cradle first.");
   if (ctx.job.provider !== "anthropic") throw new Error("Ingest reads the code with Claude; choose an Anthropic model for the Design role.");
   log.status(`lead> cradle ingest ${ctx.site.slug} · pack ${pack.id} ${pack.version} · read-only`);
+  const estate = estateOf(await trackedFiles(repo));
+  if (estate.kind === "cobol") return ingestEstate(ctx, log, repo, pack, estate);
   const r = await agent({
     cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 60, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
     append: "You are a member of the Accelerator crew. You never change files.",
@@ -422,5 +445,60 @@ export async function ingest(ctx: JobContext, log: Log) {
   if (!r.ok || !r.text.trim()) throw new Error(`The extractor stopped early (${r.reason ?? "no answer"}).`);
   const report = readIngest(r.text);
   log.status(`lead> ${report.candidates.length} policies found in code · ${report.conflicts.length} contradictions · ready for the Policy Walk`);
+  return { kind: "ingest" as const, report };
+}
+
+/** Tracked files with their line counts (members the adapter slices by size); data files are listed, never read. */
+async function trackedFiles(repo: string) {
+  const listed = await git("ls-files", repo);
+  if (listed.code !== 0) throw new Error(`Couldn't list the repository: ${tail(listed.out, 200)}`);
+  return listed.out.split(/\r?\n/).map((p) => p.trim()).filter(Boolean).slice(0, 50_000).map((path) => {
+    const full = join(repo, path);
+    const read = roleOf(path) !== "data" && existsSync(full) && statSync(full).size <= 2_000_000;
+    return { path, lines: read ? readFileSync(full, "latin1").split("\n").length : 0 };
+  });
+}
+
+/** A mainframe estate: one extractor per slice, then the Clerk and Gap Finder across them. A failed slice is logged, never fatal. */
+async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack, estate: ReturnType<typeof estateOf>) {
+  const c = estate.counts;
+  log.status(`surveyor> mainframe estate: ${c.program ?? 0} programs · ${c.copybook ?? 0} copybooks · ${c.job ?? 0} jobs · ${c.screen ?? 0} screens · ${c.transaction ?? 0} transaction files · ${c.data_definition ?? 0} data definitions`);
+  log.status(`lead> ${estate.slices.length} slices, one extractor each, then reconciliation`);
+  const reports: IngestReport[] = [];
+  for (const [i, slice] of estate.slices.entries()) {
+    log.status(`lead> slice ${i + 1}/${estate.slices.length} · ${slice.title} · ${slice.files.length} files · ${slice.lines} lines`);
+    const r = await agent({
+      cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 45, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
+      append: "You are a member of the Accelerator crew. You never change files.",
+      prompt: ingestInstruction(pack, cobolSliceGuidance(estate, slice, i)),
+    });
+    spent(ctx, r.costUsd);
+    try {
+      if (!r.ok || !r.text.trim()) throw new Error(r.reason ?? "no answer");
+      const report = readIngest(r.text);
+      reports.push({ ...report, filesRead: slice.files.length });
+      log.check(`judge> slice ${i + 1} read: ${report.candidates.length} policies · ${report.conflicts.length} contradictions`);
+    } catch (err) {
+      log.check(`judge> slice ${i + 1} FAIL: ${err instanceof Error ? err.message : String(err)}. The other slices go on.`);
+    }
+  }
+  if (!reports.length) throw new Error("No slice of the estate could be read.");
+  const merged = mergeReports(reports);
+  log.status(`clerk> reconciling ${merged.candidates.length} policies across ${reports.length} slices`);
+  const r = await agent({
+    cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 25, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
+    append: "You are a member of the Accelerator crew. You never change files.",
+    prompt: reconcileInstruction(pack, merged),
+  });
+  spent(ctx, r.costUsd);
+  const found = r.ok ? readReconcile(r.text) : [];
+  const seen = new Set(merged.conflicts.map((x) => [...x.keys].sort().join("|")));
+  const conflicts = [...merged.conflicts, ...found.filter((x) => !seen.has([...x.keys].sort().join("|")))];
+  const report: IngestReport = {
+    ...merged,
+    conflicts,
+    summary: `A mainframe estate read in ${reports.length} of ${estate.slices.length} slices: ${merged.candidates.length} policies, ${conflicts.length} contradictions. ${merged.summary}`.slice(0, 2000),
+  };
+  log.status(`lead> ${report.candidates.length} policies found in code · ${conflicts.length} contradictions · ready for the Policy Walk`);
   return { kind: "ingest" as const, report };
 }
