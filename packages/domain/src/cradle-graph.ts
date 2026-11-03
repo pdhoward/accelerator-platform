@@ -71,7 +71,14 @@ export function graphAt(h: CradleHistory, asOf: string): GraphView {
       edges.push({ id: `${p.key}>kernel`, source: p.key, target: `kernel:${p.kernel}`, kind: "runs_through" });
     }
   }
-  for (const k of pack.kernels.filter((k) => kernels.has(k.key))) nodes.push({ id: `kernel:${k.key}`, kind: "kernel", label: k.label, kernelStatus: k.status });
+  // Policies the crew found can name a concept or kernel the pack doesn't have (e.g. "other"): they get a node of their own.
+  for (const c of new Set(book.map((p) => p.concept))) {
+    if (!pack.concepts.some((x) => x.key === c)) nodes.push({ id: `concept:${c}`, kind: "concept", label: c.replace(/_/g, " ").replace(/^./, (m) => m.toUpperCase()) });
+  }
+  for (const k of kernels) {
+    const known = pack.kernels.find((x) => x.key === k);
+    nodes.push({ id: `kernel:${k}`, kind: "kernel", label: known?.label ?? k, kernelStatus: known?.status ?? "planned" });
+  }
   // A hole is a lifecycle event of a concept that no policy governs: drawn as a ghost node on its concept.
   for (const f of findings(pack, book, conflicts).filter((f) => f.kind === "hole")) {
     const id = `hole:${f.at!.concept}/${f.at!.event}`;

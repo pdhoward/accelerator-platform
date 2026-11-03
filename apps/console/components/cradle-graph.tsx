@@ -156,7 +156,8 @@ export function CradleGraph({ siteId, initial, canManage }: { siteId: string; in
       const pos = layout(union);
       const elements: ElementDefinition[] = [
         ...union.nodes.map((n) => ({ group: "nodes" as const, data: { id: n.id, label: labelOf(n) }, position: pos.get(n.id) ?? { x: 0, y: 0 }, classes: nodeClasses(n) })),
-        ...union.edges.map((e) => ({ group: "edges" as const, data: { id: e.id, source: e.source, target: e.target }, classes: edgeClasses(e) })),
+        // An edge whose end isn't drawn is skipped, never fatal: the screen must open whatever the crew found.
+        ...union.edges.filter((e) => pos.has(e.source) && pos.has(e.target)).map((e) => ({ group: "edges" as const, data: { id: e.id, source: e.source, target: e.target }, classes: edgeClasses(e) })),
       ];
       cy.current?.destroy();
       const c = cytoscape({ container: box.current, elements, style: STYLE, layout: { name: "preset" }, wheelSensitivity: 0.25, minZoom: 0.15, maxZoom: 3, autoungrabify: false });

@@ -52,6 +52,16 @@ describe("the graph at a moment", () => {
   });
 });
 
+describe("a graph from what the crew found", () => {
+  it("gives a concept or kernel the pack doesn't have its own node, so every edge has both ends", () => {
+    const odd: PolicyVersion = { key: "S-OTHER-1", version: 1, from: T(9), to: null, by: "Policy Extractor", body: { key: "S-OTHER-1", binding: "site", status: "unreviewed", version: 1, concept: "other", event: "other", title: "Something else", statement: "x", kernel: "mystery-engine" } };
+    const g = graphAt({ ...history, versions: [...history.versions, odd] }, T(13));
+    const ids = new Set(g.nodes.map((n) => n.id));
+    expect(ids.has("concept:other") && ids.has("kernel:mystery-engine")).toBe(true);
+    expect(g.edges.every((e) => ids.has(e.source) && ids.has(e.target))).toBe(true);
+  });
+});
+
 describe("the timeline", () => {
   it("stops at the start, the ingest, each ruling and each decision, in order", () => {
     const m = graphMoments(history);
