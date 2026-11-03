@@ -3,6 +3,7 @@ import type {
   Boarding,
   BriefingResponse,
   CapabilitiesResponse,
+  CradleHistory,
   CradleResponse,
   Ruling,
   CrewConfig,
@@ -192,6 +193,8 @@ export function createApiClient({
       resolve: (siteId: string, id: string, ruling: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "resolve", id, ruling }),
       fill: (siteId: string, concept: string, event: string, statement: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "fill", concept, event, statement }),
       align: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "align" }),
+      history: (siteId: string) => call<{ history: CradleHistory | null }>(`${site(siteId)}/cradle?history=1`),
+      restore: (siteId: string, key: string, version: number) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "restore", key, version }),
       reset: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "reset" }),
     },
 

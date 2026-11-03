@@ -4,6 +4,7 @@ import {
   assembleBook,
   findings,
   holePolicy,
+  restoreVersion,
   isDomain,
   mergeIngest,
   packFor,
@@ -13,11 +14,14 @@ import {
   type BookPolicy,
   type Caller,
   type Conflict,
+  type CradleHistory,
+  type HistoryConflict,
   type CradleResponse,
   type Domain,
   type Identity,
   type IngestReport,
   type Pack,
+  type PolicyVersion,
   type Ruling,
   type Site,
   type SitePolicy,
@@ -215,25 +219,86 @@ export async function ingestEvents(site: Site, jobId: string, after: number): Pr
   return ev.map((e) => ({ id: e.id as number, at: e.at as string, kind: e.kind as CradleEvent["kind"], text: e.text as string }));
 }
 
+// ── The graph's history (time travel, gen3-cradle.md §12) ────────────────────
+
+/** Postgres timestamps ("2026-11-03 10:00:00.12+00") as ISO, so moments compare as strings. */
+const iso = (t: unknown) => (t ? new Date(String(t).replace(" ", "T").replace(/([+-]\d\d)$/, "$1:00")).toISOString() : null);
+const boundsOf = (range: unknown) => {
+  const m = String(range ?? "").match(/^[[(]"?([^",]*)"?,"?([^")\]]*)"?[)\]]$/);
+  return { from: iso(m?.[1]) ?? now(), to: m?.[2] ? iso(m[2]) : null };
+};
+
+/** Every version of every policy, every contradiction and every decision: the graph at any moment is computed from this. */
+export async function cradleHistory(site: Site): Promise<CradleHistory | null> {
+  const [[c], nodes, edges, alignments] = await Promise.all([
+    rows(db().from("acc_cradles").select("pack, started_at").eq("site_id", site.id)),
+    rows(db().from("acc_cradle_nodes").select("key, version, effective, created_label, body").eq("site_id", site.id).eq("kind", "policy").order("version")),
+    rows(db().from("acc_cradle_edges").select("id, status, body, created_at").eq("site_id", site.id).eq("kind", "conflicts_with").order("created_at")),
+    alignmentsOf(site.id),
+  ]);
+  const pack = packFor(isDomain(c?.pack) ? c!.pack : null);
+  if (!c || !pack) return null;
+  const versions: PolicyVersion[] = nodes.map((n) => ({ key: n.key as string, version: n.version as number, ...boundsOf(n.effective), by: (n.created_label as string) ?? null, body: { ...(n.body as SitePolicy), key: n.key as string } }));
+  const conflicts: HistoryConflict[] = edges.map((e) => {
+    const b = e.body as Row;
+    return { ...(b as Omit<Conflict, "id" | "status">), id: e.id as string, status: e.status as Conflict["status"], createdAt: iso(e.created_at)!, ruledAt: iso(b.ruledAt), ruledBy: (b.ruledBy as string) ?? null };
+  });
+  return { pack, startedAt: iso(c.started_at)!, versions, conflicts, alignments: alignments.map((a) => ({ ...a, at: iso(a.at)! })) };
+}
+
+const restoreSentence = (pack: Pack, old: PolicyVersion) => {
+  const title = old.body.title ?? pack.policies.find((p) => p.key === old.key)?.title ?? old.key;
+  const params = Object.entries(old.body.parameters ?? {}).map(([k, v]) => `${k} = ${v}`).join(", ");
+  return `Roll "${title}" back to version ${old.version}${old.body.statement ? `: ${old.body.statement}` : ""}${params ? ` (${params})` : ""}`;
+};
+
+/** Roll one policy back to an earlier version: written as the next version, and sent to the crew like any decision. */
+export async function restorePolicy(site: Site, identity: Identity, caller: Caller, key: string, version: number) {
+  const pack = await packOf(site.id);
+  const h = await cradleHistory(site);
+  const old = h?.versions.find((v) => v.key === key && v.version === version);
+  if (!old) throw new CodeError("No such version.");
+  const layer = await siteLayer(site.id);
+  await writeVersion(site, restoreVersion(layer.find((p) => p.key === key), old, caller.name, now()), { id: identity.userId, label: caller.name });
+  const book = assembleBook(pack, await siteLayer(site.id));
+  await align(site, identity, caller, pack, book, { decision: "restore", sentence: restoreSentence(pack, old), keys: [key], concepts: old.body.concept ? [old.body.concept] : (book.find((p) => p.key === key)?.concept ? [book.find((p) => p.key === key)!.concept] : []), context: `Roll back ${key} to version ${old.version}.` });
+}
+
 // ── The keyless demo: the same flow, in memory ───────────────────────────────
 
-type DemoState = { cradle: CradleResponse["cradle"]; layer: SitePolicy[]; conflicts: Conflict[]; alignments: Alignment[]; ingest: { startedAt: number; done: boolean } | null };
+/** The demo keeps history the way the tables do: every version with its range, every contradiction with its dates. */
+type DemoState = {
+  cradle: CradleResponse["cradle"];
+  layer: SitePolicy[];
+  versions: PolicyVersion[];
+  conflicts: HistoryConflict[];
+  alignments: Alignment[];
+  ingest: { startedAt: number; done: boolean } | null;
+};
 const g = globalThis as unknown as { __cradleDemo?: Map<string, DemoState> };
 const demoStates: Map<string, DemoState> = (g.__cradleDemo ??= new Map<string, DemoState>());
 /** The demo's ingest takes the script's length at real speed. */
 const DEMO_INGEST_MS = (MACHINE_SHOP_INGEST_SCRIPT.at(-1)!.s + 2) * 1000;
 
+/** Write a version in memory: close the one in force, open the next (writeVersion's twin). */
+function demoWrite(s: DemoState, row: SitePolicy, by: string, at = now()) {
+  const cur = s.versions.filter((v) => v.key === row.key).sort((a, b) => b.version - a.version)[0];
+  if (cur && cur.to == null) cur.to = at;
+  const version = Math.max(row.version, (cur?.version ?? 0) + 1);
+  s.versions.push({ key: row.key, version, from: at, to: null, by, body: { ...row, version } });
+  s.layer = [...s.layer.filter((p) => p.key !== row.key), { ...row, version }];
+}
+
 function demoState(site: Site): DemoState {
   let s = demoStates.get(site.id);
-  if (!s) demoStates.set(site.id, (s = { cradle: null, layer: [], conflicts: [], alignments: [], ingest: null }));
+  if (!s) demoStates.set(site.id, (s = { cradle: null, layer: [], versions: [], conflicts: [], alignments: [], ingest: null }));
   if (s.ingest && !s.ingest.done && Date.now() - s.ingest.startedAt >= DEMO_INGEST_MS) {
     const pack = packFor(s.cradle!.pack)!;
     const merged = mergeIngest(pack, s.layer, MACHINE_SHOP_INGEST);
-    const byKey = new Map<string, SitePolicy>(s.layer.map((p: SitePolicy) => [p.key, p]));
-    for (const p of merged.policies) byKey.set(p.key, p);
-    s.layer = [...byKey.values()];
-    s.conflicts = [...s.conflicts, ...merged.conflicts.map((c, i) => ({ ...c, id: `demo-${s!.conflicts.length + i + 1}` }))];
-    s.cradle = { ...s.cradle!, ingestedAt: new Date().toISOString() };
+    const at = now();
+    for (const p of merged.policies) demoWrite(s, p, "Policy Extractor", at);
+    s.conflicts = [...s.conflicts, ...merged.conflicts.map((c, i) => ({ ...c, id: `demo-${s!.conflicts.length + i + 1}`, createdAt: at, ruledAt: null }))];
+    s.cradle = { ...s.cradle!, ingestedAt: at };
     s.ingest.done = true;
   }
   return s;
@@ -243,6 +308,12 @@ export function demoCradle(site: Site): CradleResponse {
   const s = demoState(site);
   const ingest = s.ingest ? { status: s.ingest.done ? ("done" as const) : ("running" as const), jobId: "demo", startedAt: new Date(s.ingest.startedAt).toISOString(), error: null, summary: s.ingest.done ? MACHINE_SHOP_INGEST.summary : null } : null;
   return { ...respond("commerce", s.cradle, s.layer, s.conflicts, ingest, s.alignments), sample: true };
+}
+
+export function demoHistory(site: Site): CradleHistory | null {
+  const s = demoState(site);
+  if (!s.cradle) return null;
+  return { pack: packFor(s.cradle.pack)!, startedAt: s.cradle.startedAt, versions: s.versions, conflicts: s.conflicts, alignments: s.alignments, sample: true };
 }
 
 export function demoAction(site: Site, name: string, input: DemoInput) {
@@ -260,20 +331,24 @@ export function demoAction(site: Site, name: string, input: DemoInput) {
     s.ingest = { startedAt: Date.now(), done: false };
   } else if (input.action === "rule") {
     const before = assembleBook(pack, s.layer).find((p) => p.key === input.key);
-    const next = applyRuling(pack, s.layer.find((p) => p.key === input.key), input.key, input.ruling, name, now());
-    s.layer = [...s.layer.filter((p) => p.key !== input.key), next];
+    demoWrite(s, applyRuling(pack, s.layer.find((p) => p.key === input.key), input.key, input.ruling, name, now()), name);
     const r = input.ruling;
     if (r.action === "restate" || r.action === "retire" || r.action === "set") {
       demoAlign(s, name, { decision: r.action, sentence: r.action === "restate" ? r.statement : r.reason, keys: [input.key], concepts: before ? [before.concept] : [], context: before?.title ?? input.key });
     }
   } else if (input.action === "resolve") {
-    s.conflicts = s.conflicts.map((c) => (c.id === input.id ? { ...c, status: "resolved", ruling: input.ruling } : c));
+    s.conflicts = s.conflicts.map((c) => (c.id === input.id ? { ...c, status: "resolved", ruling: input.ruling, ruledAt: now(), ruledBy: name } : c));
     const c = s.conflicts.find((x) => x.id === input.id);
-    if (c) demoAlign(s, name, { decision: "ruling", sentence: input.ruling, keys: c.keys, concepts: [], context: c.why });
+    if (c) demoAlign(s, name, { decision: "ruling", sentence: input.ruling, keys: c.keys, concepts: [], context: c.why, conflictId: c.id });
   } else if (input.action === "fill") {
     const row = holePolicy(pack, s.layer, input.concept, input.event, input.statement, name, now());
-    s.layer = [...s.layer, row];
+    demoWrite(s, row, name);
     demoAlign(s, name, { decision: "new", sentence: input.statement, keys: [row.key], concepts: [input.concept], context: row.title! });
+  } else if (input.action === "restore") {
+    const old = s.versions.find((v) => v.key === input.key && v.version === input.version);
+    if (!old) throw new CodeError("No such version.");
+    demoWrite(s, restoreVersion(s.layer.find((p) => p.key === input.key), old, name, now()), name);
+    demoAlign(s, name, { decision: "restore", sentence: restoreSentence(pack, old), keys: [input.key], concepts: old.body.concept ? [old.body.concept] : [], context: `Roll back ${input.key} to version ${old.version}.` });
   }
 }
 
@@ -295,5 +370,6 @@ export type DemoInput =
   | { action: "rule"; key: string; ruling: Ruling }
   | { action: "resolve"; id: string; ruling: string }
   | { action: "fill"; concept: string; event: string; statement: string }
+  | { action: "restore"; key: string; version: number }
   | { action: "align" }
   | { action: "reset" };

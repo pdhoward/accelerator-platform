@@ -20,6 +20,7 @@ export default async function SiteLayout({ children, params }: { children: React
       items: [
         { href: base, label: "Overview", icon: "activity", exact: true },
         { href: `${base}/policy`, label: "Policy", icon: "scroll" },
+        { href: `${base}/graph`, label: "Graph", icon: "graph" },
         { href: `${base}/work`, label: "Work", icon: "work" },
         { href: `${base}/site`, label: "Site", icon: "building" },
         { href: `${base}/crew`, label: "Crew & Knowledge", icon: "users" },

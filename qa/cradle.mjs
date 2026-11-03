@@ -110,6 +110,30 @@ try {
   await page.waitForTimeout(800);
   check(await page.locator("[data-policy='C-SHIP-1']").getByText("confirmed").isVisible(), "the steward confirms a policy");
   await page.screenshot({ path: path.join(shots, "5-ruled.png"), fullPage: true });
+
+  // The Graph: the same history, drawn, with time travel and rollback.
+  await page.getByRole("link", { name: "Graph" }).first().click();
+  await page.locator("[data-canvas] canvas").first().waitFor();
+  await page.waitForTimeout(800);
+  check(await page.locator("[data-canvas] canvas").count() > 0 && await page.getByText(/\d+ policies/).first().isVisible(), "the Graph draws the policy graph");
+  const nowOpen = await page.getByText(/open contradictions/).first().textContent();
+  await page.locator("[data-scrub]").fill("0");
+  await page.waitForTimeout(400);
+  check((await page.locator("[data-moment]").textContent()).includes("Cradle started"), "the timeline goes back to the cradle's start");
+  const thenOpen = await page.getByText(/open contradictions/).first().textContent();
+  check(thenOpen.startsWith("0") && nowOpen !== thenOpen, `the graph at the start differs from now (${thenOpen} vs ${nowOpen})`);
+  await page.screenshot({ path: path.join(shots, "6-graph-start.png"), fullPage: true });
+  await page.getByRole("button", { name: "Now", exact: true }).click();
+  await page.getByPlaceholder("Find a policy…").fill("C-SHIP-1");
+  await page.getByPlaceholder("Find a policy…").press("Enter");
+  await page.locator("[data-detail='policy'] [data-history] li").nth(1).waitFor();
+  check((await page.locator("[data-detail='policy'] [data-history] li").count()) >= 2, "a policy shows every version it has had");
+  await page.locator("[data-restore='1']").click();
+  await page.waitForTimeout(1200);
+  check((await page.locator("[data-detail='policy'] [data-history] li").count()) >= 3, "rolling back writes the old version as a new one");
+  await page.screenshot({ path: path.join(shots, "7-graph-now.png"), fullPage: true });
+  await page.goto("http://127.0.0.1:4100/s/demo-shop/policy");
+  check(await page.locator("[data-alignment='restore']").isVisible(), "a rollback goes to the crew like any decision");
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
 
   const phone = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();

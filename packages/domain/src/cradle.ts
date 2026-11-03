@@ -547,8 +547,8 @@ export function applyRuling(pack: Pack, current: SitePolicy | undefined, key: st
  * a hole filled) is sent to the crew as a work item; the crew finds the code,
  * changes it and proves it, or reports that the code already agrees.
  */
-export type AlignDecision = "ruling" | "restate" | "retire" | "set" | "new";
-export const ALIGN_LABEL: Record<AlignDecision, string> = { ruling: "Contradiction ruled", restate: "Policy restated", retire: "Policy retired", set: "Value changed", new: "New policy" };
+export type AlignDecision = "ruling" | "restate" | "retire" | "set" | "new" | "restore";
+export const ALIGN_LABEL: Record<AlignDecision, string> = { ruling: "Contradiction ruled", restate: "Policy restated", retire: "Policy retired", set: "Value changed", new: "New policy", restore: "Policy rolled back" };
 
 export type Alignment = {
   id: string;
