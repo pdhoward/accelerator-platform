@@ -58,6 +58,8 @@ export const CAPABILITY_TEMPLATES: CapabilityTemplate[] = [...GENERIC, ...COMMER
 export const CRITICAL_JOURNEYS: Record<Domain, { name: string; steps: string[] }[]> = {
   commerce: [{ name: "Buy", steps: ["catalog.search", "catalog.browse", "catalog.product", "sales.quotes", "sales.cart", "sales.checkout", "sales.orders"] }],
   hospitality: [{ name: "Stay", steps: ["stay.availability", "stay.rates", "stay.booking", "stay.payment"] }],
+  // A card estate's journeys come from its system map (gen3-cradle.md §11.2), not web-route templates.
+  cards: [],
 };
 
 const SOURCE = /\.(t|j)sx?$|\.(mjs|cjs|vue|svelte|py|rb|go|php)$/;

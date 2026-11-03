@@ -391,7 +391,7 @@ export function liveBook(book: BookPolicy[], conflicts: Conflict[], lines: strin
     if (/```|"packKey"/.test(line)) return; // the final report, not narration
     const conflict = /\bCONFLICT\b/.test(line);
     if (conflict) disputes++;
-    for (const [key] of line.matchAll(/\b[CS]-[A-Z]+-\d+\b/g)) {
+    for (const [key] of line.matchAll(/\b[A-Z]{1,2}-[A-Z]+-\d+\b/g)) {
       const p = byKey.get(key);
       if (!p) continue;
       if (conflict) p.state = "conflict";

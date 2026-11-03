@@ -211,3 +211,25 @@ describe("alignment: a decision becomes the crew's work", () => {
     expect(assembleBook(commerce, [row]).find((p) => p.key === "C-CHK-1")!.statement).toBe("Stripe takes every payment.");
   });
 });
+
+describe("every pack is well formed", () => {
+  for (const pack of Object.values(PACKS)) {
+    it(`${pack.label}: unique keys, known concepts, events and kernels, and keys the live book can read`, () => {
+      const keys = pack.policies.map((p) => p.key);
+      expect(new Set(keys).size).toBe(keys.length);
+      for (const p of pack.policies) {
+        const c = pack.concepts.find((x) => x.key === p.concept);
+        expect(c, `${p.key} concept`).toBeTruthy();
+        expect(c!.events, `${p.key} event`).toContain(p.event);
+        if (p.kernel) expect(pack.kernels.some((k) => k.key === p.kernel), `${p.key} kernel`).toBe(true);
+        expect(liveBook(assembleBook(pack, []), [], [`extractor> ${p.key} found · matches the pack ✓`], false).policies.find((x) => x.key === p.key)!.state).toBe("found");
+      }
+      for (const c of pack.components) for (const k of c.expresses) expect(keys, `${c.key} expresses ${k}`).toContain(k);
+    });
+  }
+
+  it("Cards grounds its policies in regulation: Regulation Z, PCI DSS and GLBA", () => {
+    const regs = PACKS.cards.policies.map((p) => p.regulation ?? "");
+    for (const r of ["Regulation Z", "PCI DSS", "GLBA"]) expect(regs.some((x) => x.includes(r)), r).toBe(true);
+  });
+});

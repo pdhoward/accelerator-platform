@@ -6,7 +6,7 @@
  * arrive with the crew in G2.3.
  */
 
-export const DOMAINS = ["commerce", "hospitality"] as const;
+export const DOMAINS = ["commerce", "hospitality", "cards"] as const;
 export type Domain = (typeof DOMAINS)[number];
 
 export type DomainPack = {
@@ -45,6 +45,19 @@ export const DOMAIN_PACKS: Record<Domain, DomainPack> = {
       { area: "deposits, payments and refunds", why: "money moves" },
       { area: "cancellation and booking policies", why: "contractual terms with guests" },
       { area: "guest profiles", why: "personal data" },
+    ],
+  },
+  cards: {
+    id: "cards",
+    label: "Cards",
+    summary: "Credit-card issuing: accounts, cards, authorizations, posting, interest, fees, statements and payments.",
+    vocabulary: ["account", "card", "cardholder", "credit limit", "authorization", "transaction", "posting", "cycle", "APR", "interest", "fee", "statement", "minimum payment", "due date"],
+    hotspots: [
+      { area: "authorization and credit limits", why: "approving or declining spends real credit" },
+      { area: "posting, interest and fees", why: "every account's balance and every statement depend on them" },
+      { area: "statements and payments", why: "Regulation Z sets timing, content and allocation" },
+      { area: "card numbers and cardholder data", why: "PCI DSS and privacy law" },
+      { area: "batch jobs", why: "one change runs against every account overnight" },
     ],
   },
 };
