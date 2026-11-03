@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyRuling, assembleBook, criticalityOf, findings, ingestInstruction, liveBook, mergeIngest, readiness, readIngest, starterSteps, type SitePolicy } from "./cradle";
+import { alignmentRequest, applyRuling, assembleBook, criticalityOf, findings, holePolicy, ingestInstruction, liveBook, mergeIngest, readiness, readIngest, starterSteps, type SitePolicy } from "./cradle";
 import { PACKS } from "./cradle-packs";
 
 const commerce = PACKS.commerce;
@@ -171,5 +171,43 @@ describe("the live book", () => {
     expect(live.policies.find((p) => p.key === "C-CHK-2")?.state).toBe("waiting");
     expect(live.policies.some((p) => p.key.startsWith("new-"))).toBe(false);
     expect(live.conflicts).toBe(1);
+  });
+});
+
+describe("alignment: a decision becomes the crew's work", () => {
+  const book = assembleBook(commerce, []);
+
+  it("tells the crew the steward's words, the policies and where they are, and to change nothing else", () => {
+    const r = alignmentRequest(commerce, book, { decision: "ruling", sentence: "Shoppers can order through Buy now.", keys: ["C-CHK-1"], context: "Assistant says no orders vs Card payments go through Stripe" });
+    expect(r.title).toBe("Align: Shoppers can order through Buy now.");
+    expect(r.message).toContain('Decision: "Shoppers can order through Buy now."');
+    expect(r.message).toContain("- C-CHK-1 Card payments go through Stripe");
+    expect(r.message).toContain("Change nothing else.");
+  });
+
+  it("sends anything touching a built integration to the Owner; the rest is ordinary code", () => {
+    expect(alignmentRequest(commerce, book, { decision: "ruling", sentence: "x", keys: ["C-CHK-1"], context: "c" })).toMatchObject({ risk: ["code", "money"], kernels: ["Stripe Checkout"] });
+    expect(alignmentRequest(commerce, book, { decision: "new", sentence: "x", keys: [], context: "Product: publish" })).toMatchObject({ risk: ["code"], kernels: [] });
+  });
+
+  it("shortens a long decision for the title", () => {
+    const r = alignmentRequest(commerce, book, { decision: "retire", sentence: "a".repeat(120), keys: [], context: "c" });
+    expect(r.title.length).toBeLessThanOrEqual(76);
+    expect(r.title.endsWith("…")).toBe(true);
+  });
+
+  it("fills a hole with a confirmed site policy that closes it", () => {
+    const row = holePolicy(commerce, [], "product", "publish", "Products are published only by importing the catalog.", "Sally", "2026-11-03");
+    expect(row).toMatchObject({ key: "S-PRODUCT-101", binding: "site", status: "confirmed", concept: "product", event: "publish" });
+    const after = assembleBook(commerce, [row]);
+    expect(findings(commerce, after, []).some((f) => f.kind === "hole" && f.at?.event === "publish" && f.at.concept === "product")).toBe(false);
+    expect(holePolicy(commerce, [row], "product", "retire", "x", "Sally", "2026-11-03").key).toBe("S-PRODUCT-102");
+    expect(() => holePolicy(commerce, [], "product", "fly", "x", "Sally", "2026-11-03")).toThrow();
+  });
+
+  it("restating a policy confirms it in the steward's words", () => {
+    const row = applyRuling(commerce, undefined, "C-CHK-1", { action: "restate", statement: "Stripe takes every payment." }, "Sally", "2026-11-03");
+    expect(row).toMatchObject({ status: "confirmed", statement: "Stripe takes every payment." });
+    expect(assembleBook(commerce, [row]).find((p) => p.key === "C-CHK-1")!.statement).toBe("Stripe takes every payment.");
   });
 });

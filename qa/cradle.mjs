@@ -88,6 +88,24 @@ try {
   await conflict.getByRole("button", { name: "Rule" }).click();
   await page.waitForTimeout(800);
   check((await page.locator("[data-finding='conflict']").count()) === 1, "a ruling closes the contradiction");
+  check(await page.locator("[data-alignments] [data-alignment='ruling']").isVisible(), "the ruling goes to the crew to align the code");
+  check(await page.locator("[data-crew-list]").isVisible() && (await page.locator("[data-finding='needs_kernel']").count()) === 0, "kernels are the crew's build list, not the steward's walk");
+
+  await page.getByRole("button", { name: /Show all/ }).click().catch(() => {});
+  const unreviewed = page.locator("[data-finding='unreviewed']").first();
+  await unreviewed.getByRole("button", { name: "Retire" }).click();
+  await unreviewed.locator("[data-ask='retire']").fill("Superseded by my ruling: shoppers can order.");
+  await unreviewed.getByRole("button", { name: "Retire it" }).click();
+  await page.waitForTimeout(800);
+  check(await page.locator("[data-alignments] [data-alignment='retire']").isVisible(), "retiring a policy sends its removal to the crew");
+
+  const holes = await page.locator("[data-finding='hole']").count();
+  const hole = page.locator("[data-finding='hole']").first();
+  await hole.locator("[data-ask='fill']").fill("Products are published only by importing the catalog.");
+  await hole.getByRole("button", { name: "Add the policy" }).click();
+  await page.waitForTimeout(800);
+  check((await page.locator("[data-finding='hole']").count()) === holes - 1 && (await page.locator("[data-alignment='new']").isVisible()), "the steward fills a hole with a policy in a sentence");
+
   await page.locator("[data-policy='C-SHIP-1']").getByRole("button", { name: "Confirm" }).click();
   await page.waitForTimeout(800);
   check(await page.locator("[data-policy='C-SHIP-1']").getByText("confirmed").isVisible(), "the steward confirms a policy");

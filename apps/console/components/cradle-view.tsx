@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  ALIGN_LABEL,
   CRITICALITY_LABEL,
   cradleReadings,
   DOMAIN_PACKS,
@@ -110,8 +111,16 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
       )}
 
       <div id="policy-walk" className="scroll-mt-4">
-        <Findings r={r} canManage={canManage} busy={busy} onResolve={(id, ruling) => act(() => api.cradle.resolve(siteId, id, ruling), "Ruling recorded.")} onConfirm={(key) => rule(key, { action: "confirm" }, "Confirmed.")} />
+        <Findings
+          r={r}
+          canManage={canManage}
+          busy={busy}
+          onResolve={(id, ruling) => act(() => api.cradle.resolve(siteId, id, ruling), "Ruled. The crew is bringing the code into line.")}
+          onRule={rule}
+          onFill={(concept, event, statement) => act(() => api.cradle.fill(siteId, concept, event, statement), "Policy added. The crew is checking the code follows it.")}
+        />
       </div>
+      <Alignments r={r} siteId={siteId} canManage={canManage} busy={busy} onAlign={() => act(() => api.cradle.align(siteId), "Sent to the crew.")} />
       <Book r={r} canManage={canManage} busy={busy} onRule={rule} />
     </div>
   );
@@ -172,40 +181,132 @@ function Starter({ defaultPack, canManage, busy, onStart }: { defaultPack: Domai
 
 // ── Findings: what the Policy Walk works through, critical first ────────────
 
-function Findings({ r, canManage, busy, onResolve, onConfirm }: { r: CradleResponse; canManage: boolean; busy: boolean; onResolve: (id: string, ruling: string) => void; onConfirm: (key: string) => void }) {
+type WalkActions = {
+  onResolve: (id: string, ruling: string) => void;
+  onRule: (key: string, ruling: Ruling, done: string) => void;
+  onFill: (concept: string, event: string, statement: string) => void;
+};
+
+/** Which sentence a row is asking for: a ruling, a restatement, a reason to retire, or a policy for a hole. */
+type Ask = { mode: "rule" | "restate" | "retire" | "fill"; text: string };
+const ASK_PLACEHOLDER: Record<Ask["mode"], string> = {
+  rule: "Your ruling, in a sentence. It becomes precedent, and the crew brings the code into line.",
+  restate: "What the policy should say instead, in a sentence. The crew changes the code to match.",
+  retire: "Why the site should stop doing this. The crew removes it from the code.",
+  fill: "The policy, in a sentence (or say it doesn't apply here). The crew checks the code follows it.",
+};
+const ASK_BUTTON: Record<Ask["mode"], string> = { rule: "Rule", restate: "Change it", retire: "Retire it", fill: "Add the policy" };
+
+function Findings({ r, canManage, busy, onResolve, onRule, onFill }: { r: CradleResponse; canManage: boolean; busy: boolean } & WalkActions) {
   const [all, setAll] = useState(false);
-  const [ruling, setRuling] = useState<Record<string, string>>({});
-  const main = r.findings.filter((f) => f.kind !== "no_review_date" && f.kind !== "unproven");
+  const [ask, setAsk] = useState<Record<string, Ask>>({});
+  // Kernels are the crew's build list, not the steward's: they are counted below, not walked.
+  const main = r.findings.filter((f) => f.kind !== "no_review_date" && f.kind !== "unproven" && f.kind !== "needs_kernel");
+  const kernels = r.findings.filter((f) => f.kind === "needs_kernel");
   const list = all ? main : main.slice(0, 8);
-  if (!main.length) return null;
+  if (!main.length && !kernels.length) return null;
+  const idOf = (f: Finding, i: number) => f.conflictId ?? (f.at ? `${f.at.concept}/${f.at.event}` : f.keys[0] ?? String(i));
+  const open = (id: string, mode: Ask["mode"]) => setAsk({ ...ask, [id]: { mode, text: ask[id]?.mode === mode ? ask[id]!.text : "" } });
+  const submit = (f: Finding, id: string) => {
+    const a = ask[id]!;
+    const text = a.text.trim();
+    if (a.mode === "rule") onResolve(f.conflictId!, text);
+    else if (a.mode === "fill") onFill(f.at!.concept, f.at!.event, text);
+    else if (a.mode === "restate") onRule(f.keys[0]!, { action: "restate", statement: text }, "Changed. The crew is aligning the code.");
+    else onRule(f.keys[0]!, { action: "retire", reason: text }, "Retired. The crew is taking it out of the code.");
+    setAsk(Object.fromEntries(Object.entries(ask).filter(([k]) => k !== id)));
+  };
   return (
     <Card>
-      <CardHead title="The Policy Walk" hint={`${main.length} to work through, critical first. Contradictions go to their owner; holes need a policy; the rest wait for your ruling.`} />
+      <CardHead title="The Policy Walk" hint={`${main.length} to work through, critical first. Confirm what's right, change or retire what isn't, and fill the holes. The crew brings the code into line with every decision.`} />
       <CardBody className="flex flex-col gap-2">
-        {list.map((f, i) => (
-          <div key={`${f.kind}-${f.keys.join()}-${f.at?.event ?? i}`} className={cx("rounded-lg border px-3 py-2.5", f.kind === "conflict" ? "border-bad/40 bg-bad/5" : "border-line")} data-finding={f.kind}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Chip tone={f.kind === "conflict" ? "bad" : f.kind === "hole" ? "warn" : f.kind === "needs_kernel" ? "violet" : "default"}>{FINDING_LABEL[f.kind]}</Chip>
-              <Chip tone={CRIT_TONE[f.criticality]}>{CRITICALITY_LABEL[f.criticality]}</Chip>
-              <span className="min-w-0 flex-1 text-[14px] font-medium">{f.title}</span>
-              {canManage && f.kind === "unreviewed" && f.keys[0] && <button type="button" className={button("plain")} disabled={busy} onClick={() => onConfirm(f.keys[0]!)}>Confirm</button>}
-            </div>
-            <p className="mt-1 text-[13px] text-fog">{f.detail}</p>
-            {canManage && f.kind === "conflict" && f.conflictId && (
-              <div className="mt-2 flex gap-2">
-                <input value={ruling[f.conflictId] ?? ""} onChange={(e) => setRuling({ ...ruling, [f.conflictId!]: e.target.value })} placeholder="Your ruling, in a sentence (it becomes precedent)" className="min-w-0 flex-1 rounded-lg border border-line-2 bg-panel-2 px-3 py-1.5 text-[13px]" />
-                <button type="button" className={button("gold")} disabled={busy || !(ruling[f.conflictId] ?? "").trim()} onClick={() => onResolve(f.conflictId!, ruling[f.conflictId!]!.trim())}>Rule</button>
+        {list.map((f, i) => {
+          const id = idOf(f, i);
+          const a = f.kind === "conflict" ? (ask[id] ?? { mode: "rule" as const, text: "" }) : f.kind === "hole" ? (ask[id] ?? { mode: "fill" as const, text: "" }) : ask[id];
+          return (
+            <div key={`${f.kind}-${id}`} className={cx("rounded-lg border px-3 py-2.5", f.kind === "conflict" ? "border-bad/40 bg-bad/5" : "border-line")} data-finding={f.kind}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip tone={f.kind === "conflict" ? "bad" : f.kind === "hole" ? "warn" : "default"}>{FINDING_LABEL[f.kind]}</Chip>
+                <Chip tone={CRIT_TONE[f.criticality]}>{CRITICALITY_LABEL[f.criticality]}</Chip>
+                <span className="min-w-0 flex-1 text-[14px] font-medium">{f.title}</span>
+                {canManage && f.kind === "unreviewed" && f.keys[0] && (
+                  <span className="flex gap-1.5">
+                    <button type="button" className={button("plain")} disabled={busy} onClick={() => onRule(f.keys[0]!, { action: "confirm" }, "Confirmed.")}>Confirm</button>
+                    <button type="button" className={button(a?.mode === "restate" ? "gold" : "ghost")} disabled={busy} onClick={() => open(id, "restate")}>Change</button>
+                    <button type="button" className={button(a?.mode === "retire" ? "gold" : "ghost")} disabled={busy} onClick={() => open(id, "retire")}>Retire</button>
+                  </span>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+              <p className="mt-1 text-[13px] text-fog">{f.detail}</p>
+              {canManage && a && (
+                <div className="mt-2 flex gap-2">
+                  <input value={a.text} onChange={(e) => setAsk({ ...ask, [id]: { ...a, text: e.target.value } })} placeholder={ASK_PLACEHOLDER[a.mode]} className="min-w-0 flex-1 rounded-lg border border-line-2 bg-panel-2 px-3 py-1.5 text-[13px]" data-ask={a.mode} />
+                  <button type="button" className={button("gold")} disabled={busy || !a.text.trim()} onClick={() => submit(f, id)}>{ASK_BUTTON[a.mode]}</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
         {main.length > 8 && <button type="button" className={button("ghost", "self-start")} onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${main.length}`}</button>}
+        {kernels.length > 0 && (
+          <div className="mt-1 rounded-lg border border-dashed border-line px-3 py-2.5 text-[13px] text-fog" data-crew-list>
+            <span className="font-medium text-ink">On the crew&rsquo;s build list, not yours:</span> {kernels.length} critical {kernels.length === 1 ? "policy waits" : "policies wait"} for a kernel ({kernels.map((k) => k.title).join("; ")}). A kernel is tested code that enforces a critical policy, so no model can get it wrong. The crew builds it; you approve it before it goes live.
+          </div>
+        )}
         {r.conflicts.some((c) => c.status === "resolved") && (
           <details className="mt-1 text-[13px] text-fog">
             <summary className="cursor-pointer text-mist">Rulings ({r.conflicts.filter((c) => c.status === "resolved").length})</summary>
             <ul className="mt-2 space-y-1">{r.conflicts.filter((c) => c.status === "resolved").map((c) => <li key={c.id}><span className="font-mono text-[11px] text-mist">{c.keys.join(" × ")}</span> {c.ruling}</li>)}</ul>
           </details>
         )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── Alignment: each decision on its way into the code (policy → work → proof) ─
+
+const ALIGN_STAGE: Record<string, { label: string; tone: "default" | "warn" | "good" | "violet" }> = {
+  discuss: { label: "The lead is reading it", tone: "default" },
+  design: { label: "Brief: waiting for you", tone: "warn" },
+  plan: { label: "Planning", tone: "violet" },
+  build: { label: "Changing the code", tone: "violet" },
+  prove: { label: "Proving it", tone: "violet" },
+  try: { label: "Preview: waiting for you", tone: "warn" },
+  release: { label: "Going live", tone: "violet" },
+  learn: { label: "Live", tone: "good" },
+  done: { label: "In the code", tone: "good" },
+  cancelled: { label: "Closed unfinished", tone: "default" },
+};
+
+function Alignments({ r, siteId, canManage, busy, onAlign }: { r: CradleResponse; siteId: string; canManage: boolean; busy: boolean; onAlign: () => void }) {
+  const sent = new Set(r.alignments.filter((a) => a.work?.stage !== "cancelled").map((a) => a.conflictId).filter(Boolean));
+  const waiting = r.sample ? [] : r.conflicts.filter((c) => c.status === "resolved" && c.ruling && !sent.has(c.id));
+  if (!r.alignments.length && !waiting.length) return null;
+  return (
+    <Card>
+      <CardHead title="Aligning the code" hint="Each decision you make goes to the crew. They find the code, change it, and prove it. Anything touching an integration (payments, orders) waits for the Owner's approval before it goes live." />
+      <CardBody className="flex flex-col gap-2" data-alignments>
+        {waiting.length > 0 && canManage && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gold-2/40 bg-gold-2/5 px-3 py-2.5 text-[13px]">
+            <span className="min-w-0 flex-1">{waiting.length} {waiting.length === 1 ? "ruling was" : "rulings were"} made before the crew took rulings on. Send {waiting.length === 1 ? "it" : "them"} now.</span>
+            <button type="button" className={button("gold")} disabled={busy} onClick={onAlign}>Send to the crew</button>
+          </div>
+        )}
+        {r.alignments.map((a) => {
+          const st = a.work ? (a.work.released && a.work.stage !== "done" ? ALIGN_STAGE.learn! : ALIGN_STAGE[a.work.stage] ?? { label: a.work.stage, tone: "default" as const }) : { label: "Recorded (demo: no crew)", tone: "default" as const };
+          return (
+            <div key={a.id} className="flex flex-wrap items-start gap-2 rounded-lg border border-line px-3 py-2.5" data-alignment={a.decision}>
+              <Chip>{ALIGN_LABEL[a.decision]}</Chip>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px]">&ldquo;{a.sentence}&rdquo;</p>
+                <p className="mt-0.5 text-[12px] text-mist">{a.by} · {new Date(a.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}{a.keys.length ? ` · ${a.keys.join(", ")}` : ""}</p>
+              </div>
+              <Chip tone={st.tone}>{st.label}</Chip>
+              {a.work && <a href={`/s/${siteId}/work/${a.work.number}`} className={button("ghost")}>Work #{a.work.number} →</a>}
+            </div>
+          );
+        })}
       </CardBody>
     </Card>
   );

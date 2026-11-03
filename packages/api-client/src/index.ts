@@ -190,6 +190,8 @@ export function createApiClient({
       ingest: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "ingest" }),
       rule: (siteId: string, key: string, ruling: Ruling) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "rule", key, ruling }),
       resolve: (siteId: string, id: string, ruling: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "resolve", id, ruling }),
+      fill: (siteId: string, concept: string, event: string, statement: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "fill", concept, event, statement }),
+      align: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "align" }),
       reset: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "reset" }),
     },
 

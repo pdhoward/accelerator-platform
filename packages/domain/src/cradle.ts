@@ -9,6 +9,7 @@
 
 import type { Domain } from "./domains";
 import type { Reading } from "./instruments";
+import type { RiskClass } from "./types";
 
 // ── The graph's vocabulary ───────────────────────────────────────────────────
 
@@ -514,7 +515,9 @@ export type Ruling =
   | { action: "confirm" }
   | { action: "dispute"; reason: string }
   | { action: "retire"; reason: string }
-  | { action: "set"; parameters: Record<string, ParamValue>; reason: string };
+  | { action: "set"; parameters: Record<string, ParamValue>; reason: string }
+  /** The steward says what the policy should be instead, in a sentence. */
+  | { action: "restate"; statement: string };
 
 /** The site row after a ruling; the API stores it as the next version. */
 export function applyRuling(pack: Pack, current: SitePolicy | undefined, key: string, ruling: Ruling, by: string, at: string): SitePolicy {
@@ -527,12 +530,82 @@ export function applyRuling(pack: Pack, current: SitePolicy | undefined, key: st
   if (ruling.action === "confirm") row.status = "confirmed";
   else if (ruling.action === "dispute") Object.assign(row, { status: "disputed", reason: ruling.reason });
   else if (ruling.action === "retire") Object.assign(row, { status: "retired", reason: ruling.reason });
+  else if (ruling.action === "restate") Object.assign(row, { statement: ruling.statement, status: "confirmed", reason: "Restated by the steward." });
   else {
     const parameters = { ...(base?.parameters ?? {}), ...(row.parameters ?? {}), ...ruling.parameters };
     Object.assign(row, { parameters, reason: ruling.reason, status: "confirmed" });
     if (base) row.binding = sameParams(parameters, base.parameters) ? "adopted" : "overridden";
   }
   return row;
+}
+
+// ── Alignment: a ruling becomes the crew's work (§3.2, policy → work → proof) ─
+
+/**
+ * A steward's decision the code must now follow. Every decision that changes
+ * what the site should do (a contradiction ruled, a policy restated or retired,
+ * a hole filled) is sent to the crew as a work item; the crew finds the code,
+ * changes it and proves it, or reports that the code already agrees.
+ */
+export type AlignDecision = "ruling" | "restate" | "retire" | "set" | "new";
+export const ALIGN_LABEL: Record<AlignDecision, string> = { ruling: "Contradiction ruled", restate: "Policy restated", retire: "Policy retired", set: "Value changed", new: "New policy" };
+
+export type Alignment = {
+  id: string;
+  decision: AlignDecision;
+  /** The steward's own words: the ruling, the new statement, or the reason. */
+  sentence: string;
+  keys: string[];
+  concepts: string[];
+  /** What the decision was about (the contradiction, the policy, the hole). */
+  context: string;
+  by: string;
+  at: string;
+  /** The contradiction it rules on, if any. */
+  conflictId?: string | null;
+  /** The work item carrying it, with where it stands; null in the keyless demo. */
+  work: { number: number; stage: string; released: boolean } | null;
+};
+
+/** The work item for a decision: what the crew is told, and its risk (an integration means the Owner approves). */
+export function alignmentRequest(pack: Pack, book: BookPolicy[], a: Pick<Alignment, "decision" | "sentence" | "keys" | "context">): { title: string; message: string; risk: RiskClass[]; kernels: string[] } {
+  const involved = a.keys.map((k) => book.find((p) => p.key === k)).filter((p): p is BookPolicy => !!p);
+  const kernels = [...new Set(involved.map((p) => p.kernel).filter((k): k is string => !!k))].map((k) => pack.kernels.find((x) => x.key === k)?.label ?? k);
+  const policies = involved.map((p) => {
+    const where = p.sources.map((s) => `${s.path}${s.lines ? `:${s.lines}` : ""}`).join(", ");
+    return `- ${p.key} ${p.title}: ${p.statement}${where ? ` (in the code: ${where})` : ""}`;
+  });
+  const message = [
+    `The steward made a decision in the Policy Walk. Align the code with it. (${ALIGN_LABEL[a.decision]}.)`,
+    "",
+    `Decision: "${a.sentence}"`,
+    `About: ${a.context}`,
+    ...(policies.length ? ["", "Policies involved:", ...policies] : []),
+    "",
+    "What to do:",
+    "1. Find every place the code, pages, emails, assistant prompts and tests say or do something different from the decision.",
+    "2. Change them so they agree with it. Rewrite any test that locks in the old behavior so it locks in the decided behavior; never just delete it.",
+    "3. If the code already agrees, say so and change nothing.",
+    "4. Change nothing else.",
+    ...(kernels.length ? ["", `This touches ${kernels.join(" and ")}, an integration, so the site Owner approves the plan and the preview before it ships.`] : []),
+  ].join("\n");
+  const short = a.sentence.length > 70 ? `${a.sentence.slice(0, 67).trimEnd()}…` : a.sentence;
+  return { title: `Align: ${short}`, message, risk: kernels.length ? ["code", "money"] : ["code"], kernels };
+}
+
+/** A hole filled by the steward: a new site policy on that concept and event, confirmed as stated. */
+export function holePolicy(pack: Pack, layer: SitePolicy[], concept: string, event: string, statement: string, by: string, at: string): SitePolicy {
+  const c = pack.concepts.find((x) => x.key === concept);
+  if (!c || !c.events.includes(event)) throw new Error(`No hole at ${concept}: ${event}.`);
+  const prefix = `S-${concept.toUpperCase().replace(/[^A-Z]/g, "")}-`;
+  const used = layer.map((p) => p.key).filter((k) => k.startsWith(prefix)).map((k) => Number(k.slice(prefix.length)) || 0);
+  return {
+    key: `${prefix}${Math.max(100, ...used) + 1}`,
+    binding: "site", concept, event,
+    title: `${c.label}: ${event.replace(/_/g, " ")}`,
+    statement, status: "confirmed", reason: "Stated by the steward to fill a hole.",
+    owner: "Steward", version: 1, ruledBy: by, ruledAt: at,
+  };
 }
 
 // ── The starter: what "create" sets up, like a framework's scaffold ──────────
@@ -559,6 +632,8 @@ export type CradleResponse = {
   conflicts: Conflict[];
   findings: Finding[];
   readiness: BookReadiness | null;
+  /** The steward's decisions on their way into the code. */
+  alignments: Alignment[];
   ingest: { status: "queued" | "running" | "done" | "failed"; jobId: string; startedAt: string; error: string | null; summary: string | null } | null;
   sample?: boolean;
 };

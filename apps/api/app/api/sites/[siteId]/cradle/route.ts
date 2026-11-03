@@ -2,7 +2,7 @@ import { DOMAINS } from "@accelerator/domain";
 import { z } from "zod";
 
 import { demoMode } from "@/lib/auth";
-import { demoAction, demoCradle, demoEvents, ingestEvents, readCradle, resolveConflict, rulePolicy, startCradle } from "@/lib/cradle";
+import { alignOpenRulings, demoAction, demoCradle, demoEvents, fillHole, ingestEvents, readCradle, resolveConflict, rulePolicy, startCradle } from "@/lib/cradle";
 import { body, fail, json, siteRoute } from "@/lib/http";
 import { runIngest } from "@/lib/work";
 
@@ -28,19 +28,27 @@ const ruling = z.union([
   z.object({ action: z.literal("dispute"), reason: z.string().min(1) }),
   z.object({ action: z.literal("retire"), reason: z.string().min(1) }),
   z.object({ action: z.literal("set"), parameters: z.record(z.string(), param), reason: z.string().min(1) }),
+  z.object({ action: z.literal("restate"), statement: z.string().min(1).max(1000) }),
 ]);
 const schema = z.union([
   z.object({ action: z.literal("start"), pack: z.enum(DOMAINS) }),
   z.object({ action: z.literal("ingest") }),
   z.object({ action: z.literal("rule"), key: z.string().min(1), ruling }),
   z.object({ action: z.literal("resolve"), id: z.string().min(1), ruling: z.string().min(1) }),
+  z.object({ action: z.literal("fill"), concept: z.string().min(1), event: z.string().min(1), statement: z.string().min(1).max(1000) }),
+  z.object({ action: z.literal("align") }),
   z.object({ action: z.literal("reset") }),
 ]);
 
-/** Start from a pack, ingest the site's code, rule on a policy, or resolve a contradiction. */
+/**
+ * Start from a pack, ingest the site's code, rule on a policy, resolve a
+ * contradiction or fill a hole. Every decision that changes what the site
+ * should do is sent to the crew as a work item ("align" sends rulings made
+ * before that existed).
+ */
 export const POST = siteRoute(async ({ request, identity, caller, site }) => {
   const input = await body(request, schema);
-  if (!input) return fail("Start, ingest, rule or resolve.", 400);
+  if (!input) return fail("Start, ingest, rule, resolve or fill.", 400);
   if (demoMode()) {
     if (!site.demo) return fail("This needs the database.", 503);
     demoAction(site, caller.name, input);
@@ -52,7 +60,9 @@ export const POST = siteRoute(async ({ request, identity, caller, site }) => {
     const now = await readCradle(site);
     if (!now.cradle) return fail("Start the cradle before ingesting.", 409);
     await runIngest(site, identity, now.cradle.pack);
-  } else if (input.action === "rule") await rulePolicy(site, identity, caller.name, input.key, input.ruling);
-  else await resolveConflict(site, caller.name, input.id, input.ruling);
+  } else if (input.action === "rule") await rulePolicy(site, identity, caller, input.key, input.ruling);
+  else if (input.action === "resolve") await resolveConflict(site, identity, caller, input.id, input.ruling);
+  else if (input.action === "fill") await fillHole(site, identity, caller, input.concept, input.event, input.statement);
+  else await alignOpenRulings(site, identity, caller);
   return json(await readCradle(site));
 }, "config.manage");
