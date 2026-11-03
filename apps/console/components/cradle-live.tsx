@@ -6,6 +6,8 @@ import { liveBook, type BookPolicy, type Concept, type Conflict, type LivePolicy
 
 import { browserApi } from "@/lib/browser-api";
 
+import { RobotHead, type Sensor } from "./robot-head";
+
 /**
  * The live ingest (gen3-cradle.md §3.2, §5), in two halves: the crew working
  * (the /vision scene) and the book taking shape (the /studio scene), both fed
@@ -19,14 +21,15 @@ type Ev = { id: number; at: string; kind: "status" | "tool" | "log" | "check"; t
 type Line = Ev & { key: string; who: BotId };
 type BotId = "lead" | "surveyor" | "extractor" | "clerk" | "gapfinder" | "judge";
 
-const BOTS: { id: BotId; name: string; role: string; color: string; path: string }[] = [
-  { id: "lead", name: "Team Lead", role: "leads", color: "#f3f3f6", path: "M50 8a42 42 0 1 1 0 84a42 42 0 1 1 0-84z" },
-  { id: "surveyor", name: "Surveyor", role: "maps code", color: "#2dd4bf", path: "M50 4l11 22 24-6-6 24 17 14-21 11 4 24-23-7-13 21-12-21-24 7 4-24-21-11 17-14-6-24 24 6z" },
-  { id: "extractor", name: "Extractor", role: "finds rules", color: "#8b6cff", path: "M30 84c-16 0-24-12-22-24 2-11 11-16 19-15 2-15 15-26 30-24 13 2 22 12 22 24 11 1 17 10 15 20-2 11-11 19-23 19z" },
-  { id: "clerk", name: "Clerk", role: "conflicts", color: "#f472b6", path: "M50 90C18 66 6 50 6 33 6 19 17 9 30 9c9 0 16 5 20 12 4-7 11-12 20-12 13 0 24 10 24 24 0 17-12 33-44 57z" },
-  { id: "gapfinder", name: "Gap Finder", role: "holes", color: "#f5b843", path: "M50 6c14 20 36 38 36 58a36 36 0 0 1-72 0C14 44 36 26 50 6z" },
-  { id: "judge", name: "Judge", role: "checks", color: "#f43f5e", path: "M50 6c4 0 7 2 9 6l35 66c4 8-1 16-10 16H16c-9 0-14-8-10-16l35-66c2-4 5-6 9-6z" },
+const BOTS: { id: BotId; name: string; role: string; color: string; sensor: Sensor }[] = [
+  { id: "lead", name: "Team Lead", role: "leads", color: "#e4e4ea", sensor: "bar" },
+  { id: "surveyor", name: "Surveyor", role: "maps code", color: "#2dd4bf", sensor: "lens" },
+  { id: "extractor", name: "Extractor", role: "finds rules", color: "#8b6cff", sensor: "eyes" },
+  { id: "clerk", name: "Clerk", role: "conflicts", color: "#f472b6", sensor: "split" },
+  { id: "gapfinder", name: "Gap Finder", role: "holes", color: "#f5b843", sensor: "dots" },
+  { id: "judge", name: "Judge", role: "checks", color: "#f43f5e", sensor: "slit" },
 ];
+
 const BOT = Object.fromEntries(BOTS.map((b) => [b.id, b])) as Record<BotId, (typeof BOTS)[number]>;
 const SPEAKER = /^(lead|surveyor|extractor|clerk|gapfinder|judge)>\s*/;
 
@@ -122,8 +125,6 @@ export function CradleLive({ siteId, jobId, siteUrl, running, book, conflicts, c
   return (
     <div className="flex flex-col gap-3" data-cradle-live>
       <style>{`
-        .cl-bob { animation: cl-bob .9s ease-in-out infinite }
-        @keyframes cl-bob { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-3px) } }
         .cl-in { animation: cl-in .3s ease-out both }
         @keyframes cl-in { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
         .cl-blink { animation: cl-blink 1s steps(2) infinite } @keyframes cl-blink { 50% { opacity: 0 } }
@@ -145,11 +146,7 @@ export function CradleLive({ siteId, jobId, siteUrl, running, book, conflicts, c
               const busy = s.busy === b.id;
               return (
                 <div key={b.id} className="flex flex-col items-center rounded-xl border px-1 pb-2 pt-2.5 transition-colors" style={{ borderColor: busy ? b.color : "var(--color-line)", background: busy ? `${b.color}14` : "var(--color-panel)" }}>
-                  <svg viewBox="0 0 100 100" width={36} height={36} aria-hidden className={busy ? "cl-bob" : undefined}>
-                    <path d={b.path} fill={b.color} />
-                    <ellipse cx={busy ? 42 : 38} cy="52" rx="6" ry={busy ? 9 : 7} fill="#0a0a0c" />
-                    <ellipse cx={busy ? 64 : 60} cy="52" rx="6" ry={busy ? 9 : 7} fill="#0a0a0c" />
-                  </svg>
+                  <RobotHead sensor={b.sensor} color={b.color} busy={busy} />
                   <span className="mt-1 w-full truncate text-center text-[12px] font-semibold">{b.name}</span>
                   <span className="w-full truncate text-center font-mono text-[10px] text-mist">{b.role}</span>
                   <span className="mt-1 w-full truncate text-center font-mono text-[10px]" style={{ color: busy ? b.color : "var(--color-mist)" }}>● {busy ? "working" : running ? "idle" : "done"} · {s.ops[b.id]}</span>

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { RobotHead, type Sensor } from "@/components/robot-head";
+
 /**
  * /vision — a prototype for reflection, not a product screen.
  *
@@ -17,43 +19,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type BotId = "lead" | "surveyor" | "builder" | "tester" | "judge" | "release";
 type BotState = "idle" | "planning" | "reading" | "editing" | "testing" | "checking" | "shipping" | "done";
 
-const BOTS: { id: BotId; name: string; role: string; color: string; shape: "circle" | "star" | "cloud" | "heart" | "triangle" | "drop" }[] = [
-  { id: "lead", name: "Team Lead", role: "plans", color: "#f3f3f6", shape: "circle" },
-  { id: "surveyor", name: "Surveyor", role: "reads code", color: "#2dd4bf", shape: "star" },
-  { id: "builder", name: "Builder", role: "edits", color: "#8b6cff", shape: "cloud" },
-  { id: "tester", name: "Tester", role: "runs tests", color: "#f472b6", shape: "heart" },
-  { id: "judge", name: "Judge", role: "verifies", color: "#f43f5e", shape: "triangle" },
-  { id: "release", name: "Release", role: "ships", color: "#f5b843", shape: "drop" },
+const BOTS: { id: BotId; name: string; role: string; color: string; sensor: Sensor }[] = [
+  { id: "lead", name: "Team Lead", role: "plans", color: "#f3f3f6", sensor: "bar" },
+  { id: "surveyor", name: "Surveyor", role: "reads code", color: "#2dd4bf", sensor: "lens" },
+  { id: "builder", name: "Builder", role: "edits", color: "#8b6cff", sensor: "eyes" },
+  { id: "tester", name: "Tester", role: "runs tests", color: "#f472b6", sensor: "split" },
+  { id: "judge", name: "Judge", role: "verifies", color: "#f43f5e", sensor: "slit" },
+  { id: "release", name: "Release", role: "ships", color: "#f5b843", sensor: "dots" },
 ];
 const BOT = Object.fromEntries(BOTS.map((b) => [b.id, b])) as Record<BotId, (typeof BOTS)[number]>;
 
 function Bot({ id, state, size = 64 }: { id: BotId; state: BotState; size?: number }) {
   const b = BOT[id];
-  const busy = state !== "idle" && state !== "done";
-  const path: Record<(typeof BOTS)[number]["shape"], string> = {
-    circle: "M50 8a42 42 0 1 1 0 84a42 42 0 1 1 0-84z",
-    star: "M50 4l11 22 24-6-6 24 17 14-21 11 4 24-23-7-13 21-12-21-24 7 4-24-21-11 17-14-6-24 24 6z",
-    cloud: "M30 84c-16 0-24-12-22-24 2-11 11-16 19-15 2-15 15-26 30-24 13 2 22 12 22 24 11 1 17 10 15 20-2 11-11 19-23 19z",
-    heart: "M50 90C18 66 6 50 6 33 6 19 17 9 30 9c9 0 16 5 20 12 4-7 11-12 20-12 13 0 24 10 24 24 0 17-12 33-44 57z",
-    triangle: "M50 6c4 0 7 2 9 6l35 66c4 8-1 16-10 16H16c-9 0-14-8-10-16l35-66c2-4 5-6 9-6z",
-    drop: "M50 6c14 20 36 38 36 58a36 36 0 0 1-72 0C14 44 36 26 50 6z",
-  };
-  return (
-    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden className={busy ? "vision-bob" : undefined}>
-      <path d={path[b.shape]} fill={b.color} />
-      {state === "done" ? (
-        <g fill="#0a0a0c">
-          <path d="M33 52q6-8 12 0" stroke="#0a0a0c" strokeWidth="5" fill="none" strokeLinecap="round" />
-          <path d="M55 52q6-8 12 0" stroke="#0a0a0c" strokeWidth="5" fill="none" strokeLinecap="round" />
-        </g>
-      ) : (
-        <g fill="#0a0a0c">
-          <ellipse cx={busy ? 42 : 38} cy="52" rx="6" ry={busy ? 9 : 7} />
-          <ellipse cx={busy ? 64 : 60} cy="52" rx="6" ry={busy ? 9 : 7} />
-        </g>
-      )}
-    </svg>
-  );
+  return <RobotHead sensor={b.sensor} color={b.color} busy={state !== "idle"} size={size} />;
 }
 
 // ── The backlog: Sally's work orders, rated by what is at stake ─────────────
