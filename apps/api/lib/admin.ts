@@ -1,5 +1,7 @@
 import {
   canPlatform,
+  githubRepo,
+  type AccountEdit,
   type AccountStatus,
   type AdminAccountDetail,
   type AdminAccountRow,
@@ -9,6 +11,8 @@ import {
   type NewAccountInput,
   type PlatformStaff,
   type Role,
+  type SiteEdit,
+  type SiteSource,
 } from "@accelerator/domain";
 
 import { CodeError } from "./codes";
@@ -125,19 +129,23 @@ export async function accountDetail(id: string): Promise<AdminAccountDetail | un
   const row = (await listAccounts()).find((a) => a.id === id);
   if (!row) return undefined;
   const [org, people, invites, siteList, auditTrail] = await Promise.all([
-    rows(db().from("acc_orgs").select("suspended_at, suspended_reason").eq("id", id)),
+    rows(db().from("acc_orgs").select("suspended_at, suspended_reason, website").eq("id", id)),
     rows(db().from("acc_members").select("id, name, email, role").eq("org_id", id).order("created_at")),
     rows(db().from("acc_invites").select("id, email, role, created_at").eq("org_id", id).is("accepted_at", null).is("revoked_at", null)),
-    rows(db().from("acc_sites").select("id, slug, name, url").eq("org_id", id).order("created_at")),
+    rows(db().from("acc_sites").select("id, slug, name, url, repo, repo_path, sources").eq("org_id", id).order("created_at")),
     auditList(id, 50),
   ]);
   return {
     ...row,
+    website: (org[0]?.website as string) ?? null,
     suspendedAt: (org[0]?.suspended_at as string) ?? null,
     suspendedReason: (org[0]?.suspended_reason as string) ?? null,
     people: people.map((p) => ({ id: p.id as string, name: p.name as string, email: (p.email as string) ?? null, role: p.role as Role })),
     invites: invites.map((i) => ({ id: i.id as string, email: i.email as string, role: i.role as Role, createdAt: i.created_at as string })),
-    siteList: siteList as AdminAccountDetail["siteList"],
+    siteList: siteList.map((s) => ({
+      id: s.id as string, slug: s.slug as string, name: s.name as string, url: s.url as string,
+      repo: (s.repo as string) || null, repoPath: (s.repo_path as string) ?? null, sources: sourcesOf(s.sources),
+    })),
     audit: auditTrail,
   };
 }
@@ -164,6 +172,7 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
       plan: input.plan,
       billing_mode: input.billingMode,
       install_fee_quote_usd: input.installFeeQuoteUsd ?? null,
+      website: webAddress(input.website),
       status: "onboarding",
       created_by: identity.userId,
       // Accounts opened in Platform Admin are Strategic Machines' direct clients (the house partner).
@@ -173,13 +182,80 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
     .single();
   if (error || !org) throw new Error(error?.message ?? "Couldn't create the account.");
 
-  const url = /^https?:\/\//.test(input.siteUrl) ? input.siteUrl : `https://${input.siteUrl}`;
-  const site = await db().from("acc_sites").insert({ org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, repo: "", status: "onboarding" });
+  const repo = input.repo ? githubRepo(input.repo) : null;
+  if (input.repo && !repo) throw new CodeError("The code repository should be a GitHub address, like github.com/owner/name.");
+  // A system with no live address (a mainframe estate, an internal tool) is known by its code.
+  const url = webAddress(input.siteUrl) ?? (repo ? `https://github.com/${repo}` : webAddress(input.website));
+  if (!url) throw new CodeError("Give the system's live address, its code repository, or the company website.");
+  const site = await db().from("acc_sites").insert({
+    org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, repo: repo ?? "", repo_path: input.repoPath?.trim() || null, status: "onboarding",
+  });
   if (site.error) throw new Error(site.error.message);
 
   await audit(identity, "account.create", org.id, { name: input.name, plan: input.plan, billingMode: input.billingMode, owner: input.ownerEmail.toLowerCase() });
   const sent = await invite(identity, org.id, input.ownerEmail, "owner");
   return { id: org.id, emailed: sent.emailed };
+}
+
+/** "https://…" from what people type ("acme.com", "https://acme.com/"); null when blank. */
+function webAddress(input: string | null | undefined): string | null {
+  const s = (input ?? "").trim().replace(/\/+$/, "");
+  if (!s) return null;
+  return /^https?:\/\//i.test(s) ? s : `https://${s}`;
+}
+
+/** A site's extra code sources, read leniently from the jsonb column. */
+function sourcesOf(raw: unknown): SiteSource[] {
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return (Array.isArray(raw) ? raw : []).flatMap((x: Record<string, unknown>) => {
+    const label = str(x?.label);
+    return label ? [{ label, repo: str(x.repo), path: str(x.path), url: str(x.url) }] : [];
+  });
+}
+
+/** Platform Admin edits an account's details after it is created. */
+export async function updateAccount(identity: Identity, orgId: string, input: AccountEdit) {
+  const patch = {
+    ...(input.name?.trim() && { name: input.name.trim() }),
+    ...(input.plan && { plan: input.plan }),
+    ...(input.billingMode && { billing_mode: input.billingMode }),
+    ...(input.installFeeQuoteUsd !== undefined && { install_fee_quote_usd: input.installFeeQuoteUsd }),
+    ...(input.website !== undefined && { website: webAddress(input.website) }),
+  };
+  const { data, error } = await db().from("acc_orgs").update(patch).eq("id", orgId).select("id");
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new CodeError("Account not found.");
+  await audit(identity, "account.update", orgId, patch);
+}
+
+/**
+ * Platform Admin edits a site: its name, live address, primary repository and
+ * the other code the system lives in. Each extra source needs a label and a
+ * repository or a local path; a GitHub address is stored as owner/name.
+ */
+export async function updateSite(identity: Identity, orgId: string, siteId: string, input: SiteEdit) {
+  const [site] = await rows(db().from("acc_sites").select("id, slug").eq("org_id", orgId).eq("id", siteId));
+  if (!site) throw new CodeError("That site isn't on this account.");
+  const repo = input.repo === undefined ? undefined : input.repo?.trim() ? githubRepo(input.repo) : null;
+  if (input.repo?.trim() && !repo) throw new CodeError("The code repository should be a GitHub address, like github.com/owner/name.");
+  const sources = input.sources?.map((x, i) => {
+    const r = x.repo?.trim() ? githubRepo(x.repo) : null;
+    if (x.repo?.trim() && !r) throw new CodeError(`Source ${i + 1}: the repository should be a GitHub address.`);
+    if (!x.label.trim() || (!r && !x.path?.trim())) throw new CodeError(`Source ${i + 1}: give it a name, and a repository or a local path.`);
+    return { label: x.label.trim(), repo: r, path: x.path?.trim() || null, url: webAddress(x.url) };
+  });
+  const url = input.url === undefined ? undefined : webAddress(input.url);
+  if (input.url !== undefined && !url) throw new CodeError("The site needs an address: its live address, or its code's.");
+  const patch = {
+    ...(input.name?.trim() && { name: input.name.trim() }),
+    ...(url && { url }),
+    ...(repo !== undefined && { repo: repo ?? "" }),
+    ...(input.repoPath !== undefined && { repo_path: input.repoPath?.trim() || null }),
+    ...(sources && { sources }),
+  };
+  const { error } = await db().from("acc_sites").update(patch).eq("id", siteId);
+  if (error) throw new Error(error.message);
+  await audit(identity, "site.update", orgId, { site: site.slug, ...patch });
 }
 
 export async function setAccountStatus(identity: Identity, id: string, action: "suspend" | "resume", reason: string) {

@@ -21,14 +21,23 @@ export default async function NewAccountPage() {
                 <Field label="Company">
                   <input name="name" required className={inputClass} placeholder="Cypress Resort" />
                 </Field>
+                <Field label="Company website" hint="The business itself.">
+                  <input name="website" className={inputClass} placeholder="cypressresort.com" />
+                </Field>
                 <Field label="Owner email">
                   <input name="ownerEmail" type="email" required className={inputClass} placeholder="owner@company.com" />
                 </Field>
-                <Field label="Site name">
-                  <input name="siteName" required className={inputClass} placeholder="cypressresort.com" />
+                <Field label="System name" hint="The app or system the crew works on.">
+                  <input name="siteName" required className={inputClass} placeholder="Booking site" />
                 </Field>
-                <Field label="Site URL">
-                  <input name="siteUrl" type="url" required className={inputClass} placeholder="https://cypressresort.com" />
+                <Field label="Live address" hint="Where the system runs, if it does. Leave blank for code with no live app (a COBOL estate).">
+                  <input name="siteUrl" className={inputClass} placeholder="https://book.cypressresort.com" />
+                </Field>
+                <Field label="Code repository" hint="The system's main code on GitHub. More repositories (API, auth…) can be added on the account page.">
+                  <input name="repo" className={inputClass} placeholder="github.com/owner/name" />
+                </Field>
+                <Field label="Local copy (runner)" hint="Where the runner's machine keeps that code. Optional; also in Setup.">
+                  <input name="repoPath" className={inputClass} placeholder="C:\code\name" />
                 </Field>
                 <Field label="Plan">
                   <select name="plan" defaultValue="operate" className={inputClass}>

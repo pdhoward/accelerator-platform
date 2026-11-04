@@ -1,11 +1,13 @@
 import { readSse, type LeadStreamEvent } from "@accelerator/domain";
 import type {
+  AccountEdit,
   Boarding,
   BriefingResponse,
   CapabilitiesResponse,
   CradleHistory,
   CradleResponse,
   Ruling,
+  SiteEdit,
   CrewConfig,
   CrewResponse,
   FormValues,
@@ -385,6 +387,8 @@ export function createApiClient({
         call<AdminAccountDetail>(`/admin/accounts/${id}`),
       createAccount: (input: NewAccountInput) =>
         post<{ id: string; emailed: boolean }>("/admin/accounts", input),
+      updateAccount: (id: string, input: AccountEdit) => post<{ ok: true }>(`/admin/accounts/${id}`, input, "PATCH"),
+      updateSite: (id: string, siteId: string, input: SiteEdit) => post<{ ok: true }>(`/admin/accounts/${id}/sites/${siteId}`, input, "PATCH"),
       setStatus: (id: string, action: "suspend" | "resume", reason: string) =>
         post<{ ok: true }>(`/admin/accounts/${id}/status`, { action, reason }),
       updateMember: (

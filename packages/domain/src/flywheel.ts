@@ -1,7 +1,7 @@
 import type { Complexity } from "./complexity";
 import { MAX_PROOF_REPAIRS, MAX_STEP_REPAIRS, type PendingDecision } from "./decisions";
 import type { Domain } from "./domains";
-import type { RiskClass } from "./types";
+import type { RiskClass, SiteSource } from "./types";
 
 /**
  * The Flywheel (work/flywheel.md v0.3). Pure rules: the rail, what the
@@ -499,7 +499,7 @@ export type SiteSetup = {
 export type JobContext = {
   /** generation: this claim's number; the runner renews and finishes with it, and a lapsed claim's result is refused (§14.1). */
   job: Job & { role: ModelRole; input: Record<string, unknown>; generation: number };
-  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null };
+  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null; sources?: SiteSource[] };
   /** agentSessionId: the Work item's agent session, resumed instead of cold-starting (§17 F4). */
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[]; agentSessionId: string | null }) | null;
   /** The job's Toolbelt token (§1.2): the agent reaches the API's /mcp with it; it holds no other key. */

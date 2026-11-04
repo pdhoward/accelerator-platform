@@ -54,6 +54,7 @@ import {
   type RiskClass,
   type Role,
   type Site,
+  type SiteSource,
   type SiteModel,
   type SiteSetup,
   type StepChecks,
@@ -1093,6 +1094,8 @@ async function context(job: Row): Promise<JobContext> {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
       repo: (s!.repo as string) || null, domain,
+      // The system's other code (migration 0016); the ingest reads every source.
+      sources: Array.isArray(s!.sources) ? (s!.sources as SiteSource[]) : [],
     },
     work,
     setup,

@@ -421,19 +421,44 @@ export async function checkout(ctx: JobContext, log: Log) {
 
 /**
  * Gen 3 ingest (gen3-cradle.md §5): the Policy Extractor reads the site's
- * repository, read-only, and reports the policies its code implies, matched to
- * the industry pack. The API lands them on the site's book, unconfirmed. A
- * mainframe estate is read in slices, one extractor each, then reconciled
- * (§11.2, the COBOL adapter in cradle-estate.ts); a web app in one pass.
+ * code, read-only, and reports the policies it implies, matched to the
+ * industry pack. The API lands them on the site's book, unconfirmed. A system
+ * can live in several repositories (a web app, an API server, an auth server,
+ * a COBOL estate): each is read its own way (a mainframe estate in slices,
+ * §11.2; a web app in one pass) and, when there are several, a reconciling
+ * pass finds the contradictions between them.
  */
 export async function ingest(ctx: JobContext, log: Log) {
-  const repo = ctx.site.repoPath;
-  if (!repo || !existsSync(join(repo, ".git"))) throw new Error("No repository connected yet (Setup → repository path).");
   const chosen = (ctx.job.input as { pack?: unknown } | undefined)?.pack;
   const pack = packFor(isDomain(chosen) ? chosen : null);
   if (!pack) throw new Error("This site has no industry pack yet. Start the cradle first.");
   if (ctx.job.provider !== "anthropic") throw new Error("Ingest reads the code with Claude; choose an Anthropic model for the Design role.");
-  log.status(`lead> cradle ingest ${ctx.site.slug} · pack ${pack.id} ${pack.version} · read-only`);
+  const sources = [{ label: ctx.site.name, path: ctx.site.repoPath }, ...(ctx.site.sources ?? []).map((s) => ({ label: s.label, path: s.path }))];
+  const ready = sources.filter((s) => s.path && existsSync(join(s.path, ".git")));
+  for (const s of sources.filter((x) => !ready.includes(x))) log.check(`judge> ${s.label}: no local copy at ${s.path ?? "(no path set)"}, so it is skipped`);
+  if (!ready.length) throw new Error("No repository connected yet (Setup → repository path).");
+  log.status(`lead> cradle ingest ${ctx.site.slug} · pack ${pack.id} ${pack.version} · read-only${ready.length > 1 ? ` · ${ready.length} code sources` : ""}`);
+
+  const reports: IngestReport[] = [];
+  for (const s of ready) {
+    if (ready.length > 1) log.status(`lead> reading ${s.label} · ${s.path}`);
+    try {
+      const r = await readSource(ctx, log, s.path!, pack);
+      // With several sources, every citation says which one it is in.
+      reports.push(ready.length > 1 ? { ...r, candidates: r.candidates.map((c) => ({ ...c, sources: c.sources.map((x) => ({ ...x, path: `${s.label}: ${x.path}` })) })) } : r);
+    } catch (err) {
+      if (ready.length === 1) throw err;
+      log.check(`judge> ${s.label} FAIL: ${err instanceof Error ? err.message : String(err)}. The other sources go on.`);
+    }
+  }
+  if (!reports.length) throw new Error("No code source could be read.");
+  const report = reports.length === 1 ? reports[0]! : await reconcile(ctx, log, ready[0]!.path!, pack, mergeReports(reports), `${reports.length} code sources`);
+  log.status(`lead> ${report.candidates.length} policies found in code · ${report.conflicts.length} contradictions · ready for the Policy Walk`);
+  return { kind: "ingest" as const, report };
+}
+
+/** One repository, read the way its technology needs. */
+async function readSource(ctx: JobContext, log: Log, repo: string, pack: Pack): Promise<IngestReport> {
   const estate = estateOf(await trackedFiles(repo));
   if (estate.kind === "cobol") return ingestEstate(ctx, log, repo, pack, estate);
   const r = await agent({
@@ -443,9 +468,7 @@ export async function ingest(ctx: JobContext, log: Log) {
   });
   spent(ctx, r.costUsd);
   if (!r.ok || !r.text.trim()) throw new Error(`The extractor stopped early (${r.reason ?? "no answer"}).`);
-  const report = readIngest(r.text);
-  log.status(`lead> ${report.candidates.length} policies found in code · ${report.conflicts.length} contradictions · ready for the Policy Walk`);
-  return { kind: "ingest" as const, report };
+  return readIngest(r.text);
 }
 
 /** Tracked files with their line counts (members the adapter slices by size); data files are listed, never read. */
@@ -460,7 +483,7 @@ async function trackedFiles(repo: string) {
 }
 
 /** A mainframe estate: one extractor per slice, then the Clerk and Gap Finder across them. A failed slice is logged, never fatal. */
-async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack, estate: ReturnType<typeof estateOf>) {
+async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack, estate: ReturnType<typeof estateOf>): Promise<IngestReport> {
   const c = estate.counts;
   log.status(`surveyor> mainframe estate: ${c.program ?? 0} programs · ${c.copybook ?? 0} copybooks · ${c.job ?? 0} jobs · ${c.screen ?? 0} screens · ${c.transaction ?? 0} transaction files · ${c.data_definition ?? 0} data definitions`);
   log.status(`lead> ${estate.slices.length} slices, one extractor each, then reconciliation`);
@@ -483,10 +506,14 @@ async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack,
     }
   }
   if (!reports.length) throw new Error("No slice of the estate could be read.");
-  const merged = mergeReports(reports);
-  log.status(`clerk> reconciling ${merged.candidates.length} policies across ${reports.length} slices`);
+  return reconcile(ctx, log, repo, pack, mergeReports(reports), `${reports.length} of ${estate.slices.length} slices of a mainframe estate`);
+}
+
+/** The Clerk and Gap Finder across parts read separately (slices, or code sources): what no single part can see. */
+async function reconcile(ctx: JobContext, log: Log, cwd: string, pack: Pack, merged: IngestReport, parts: string): Promise<IngestReport> {
+  log.status(`clerk> reconciling ${merged.candidates.length} policies across ${parts}`);
   const r = await agent({
-    cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 25, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
+    cwd, model: ctx.job.model, mode: "read", log, maxTurns: 25, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
     append: "You are a member of the Accelerator crew. You never change files.",
     prompt: reconcileInstruction(pack, merged),
   });
@@ -494,11 +521,5 @@ async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack,
   const found = r.ok ? readReconcile(r.text) : [];
   const seen = new Set(merged.conflicts.map((x) => [...x.keys].sort().join("|")));
   const conflicts = [...merged.conflicts, ...found.filter((x) => !seen.has([...x.keys].sort().join("|")))];
-  const report: IngestReport = {
-    ...merged,
-    conflicts,
-    summary: `A mainframe estate read in ${reports.length} of ${estate.slices.length} slices: ${merged.candidates.length} policies, ${conflicts.length} contradictions. ${merged.summary}`.slice(0, 2000),
-  };
-  log.status(`lead> ${report.candidates.length} policies found in code · ${conflicts.length} contradictions · ready for the Policy Walk`);
-  return { kind: "ingest" as const, report };
+  return { ...merged, conflicts, summary: `Read in ${parts}: ${merged.candidates.length} policies, ${conflicts.length} contradictions. ${merged.summary}`.slice(0, 2000) };
 }

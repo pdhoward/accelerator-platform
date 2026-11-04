@@ -7,15 +7,18 @@ export const GET = platformRoute("platform.view", async () => json(await listAcc
 
 const schema = z.object({
   name: z.string().trim().min(2).max(120),
+  website: z.string().trim().max(300).optional(),
   siteName: z.string().trim().min(2).max(120),
-  siteUrl: z.string().trim().min(4).max(300),
+  siteUrl: z.string().trim().max(300).optional(),
+  repo: z.string().trim().max(300).optional(),
+  repoPath: z.string().trim().max(500).optional(),
   plan: z.enum(["commission", "operate", "managed"]),
   billingMode: z.enum(["stripe", "invoiced", "comped"]),
   installFeeQuoteUsd: z.number().min(0).max(1_000_000).optional(),
   ownerEmail: z.email(),
 });
 
-/** New account (owner-provisioned): org + first site + the owner's invite. */
+/** New account (owner-provisioned): org + first site (live address and/or code) + the owner's invite. */
 export const POST = platformRoute("accounts.manage", async ({ request, identity }) => {
   const input = await body(request, schema);
   if (!input) return fail("Fill in the account name, site, plan, billing mode and the owner's email.", 400);

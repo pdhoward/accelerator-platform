@@ -139,7 +139,7 @@ export function mergeReports(reports: IngestReport[]): IngestReport {
 /** The reconciling pass: what no single slice can see. */
 export function reconcileInstruction(pack: Pack, merged: IngestReport): string {
   const list = merged.candidates.map((c) => `- ${c.packKey ?? "(site)"} | ${c.title} | ${c.statement} | ${JSON.stringify(c.parameters)} | ${c.sources.map((s) => `${s.path}${s.lines ? `:${s.lines}` : ""}`).join(", ")}`).join("\n");
-  return `You are the crew's Clerk and Gap Finder, reconciling a mainframe estate that several extractors read in slices. You may open files to check a claim; never change anything.
+  return `You are the crew's Clerk and Gap Finder, reconciling a system that several extractors read in parts (slices of a mainframe estate, or separate code repositories such as a web app, an API server and an auth server; a cited path may start with its repository's name). You may open files to check a claim; never change anything.
 
 The ${pack.label} pack's concepts and events:
 ${pack.concepts.map((c) => `- ${c.key}: ${c.events.join(", ")}`).join("\n")}

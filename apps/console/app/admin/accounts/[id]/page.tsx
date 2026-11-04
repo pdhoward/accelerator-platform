@@ -9,7 +9,9 @@ import { platformAccess, titleCase } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { day, usd } from "@/lib/format";
 
-import { inviteMember, removeMember, setAccountStatus, updateMember } from "../../actions";
+import type { AdminAccountDetail } from "@accelerator/domain";
+
+import { inviteMember, removeMember, setAccountStatus, updateAccount, updateMember, updateSite } from "../../actions";
 
 export const metadata = { title: "Account" };
 
@@ -118,20 +120,61 @@ export default async function AdminAccountPage({ params }: { params: Promise<{ i
 
           <div className="flex flex-col gap-4">
             <Card>
-              <CardHead title="Sites" />
+              <CardHead title="Account details" hint={a.website ? a.website.replace(/^https?:\/\//, "") : "No company website yet"} />
+              <CardBody>
+                {manage ? (
+                  <ActionForm action={updateAccount} submit="Save account" variant="plain">
+                    <input type="hidden" name="id" value={a.id} />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Company">
+                        <input name="name" required minLength={2} defaultValue={a.name} className={inputClass} />
+                      </Field>
+                      <Field label="Company website" hint="The business itself.">
+                        <input name="website" defaultValue={a.website ?? ""} className={inputClass} placeholder="company.com" />
+                      </Field>
+                      <Field label="Plan">
+                        <select name="plan" defaultValue={a.plan} className={inputClass}>
+                          <option value="commission">Commission</option>
+                          <option value="operate">Operate</option>
+                          <option value="managed">Managed</option>
+                        </select>
+                      </Field>
+                      <Field label="Billing">
+                        <select name="billingMode" defaultValue={a.billingMode} className={inputClass}>
+                          <option value="invoiced">Invoiced</option>
+                          <option value="stripe">Stripe (card)</option>
+                          <option value="comped">Comped</option>
+                        </select>
+                      </Field>
+                      <Field label="Installation quote (USD)">
+                        <input name="installFeeQuoteUsd" type="number" min={0} step={500} defaultValue={a.installFeeQuoteUsd ?? ""} className={inputClass} />
+                      </Field>
+                    </div>
+                  </ActionForm>
+                ) : (
+                  <p className="text-[13px] text-fog">{a.website ?? "—"}</p>
+                )}
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHead title="Systems" hint="Each one is a site the crew works on: its live address, and the code it lives in" />
               <CardBody className="flex flex-col gap-1.5">
                 {a.siteList.map((s) => (
-                  <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1 py-1.5 text-[13px]">
-                    <span className="font-medium">{s.name}</span>
-                    <a href={s.url} target="_blank" rel="noreferrer" className="truncate text-mist hover:text-cyan">
-                      {s.url.replace(/^https?:\/\//, "")}
-                    </a>
-                    <span className="ml-auto flex gap-3">
-                      <Link href={`/s/${s.slug}/setup`} className="text-cyan hover:underline">Setup</Link>
-                      <Link href={`/s/${s.slug}/config`} className="text-cyan hover:underline">Keys</Link>
-                      <Link href={`/s/${s.slug}`} className="text-cyan hover:underline">Control Room</Link>
-                    </span>
-                  </div>
+                  <details key={s.id} className="group rounded-lg px-1 py-1.5 text-[13px]">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="font-medium">{s.name}</span>
+                      <span className="truncate text-mist">{s.url.replace(/^https?:\/\//, "")}</span>
+                      <span className="text-mist">· {1 + s.sources.length} code {s.sources.length ? "sources" : "source"}</span>
+                      <span className="ml-auto flex gap-3">
+                        {manage && <span className="text-[12px] text-mist group-open:hidden">Edit</span>}
+                        <Link href={`/s/${s.slug}/setup`} className="text-cyan hover:underline">Setup</Link>
+                        <Link href={`/s/${s.slug}/config`} className="text-cyan hover:underline">Keys</Link>
+                        <Link href={`/s/${s.slug}`} className="text-cyan hover:underline">Control Room</Link>
+                      </span>
+                    </summary>
+                    {manage && <SiteForm accountId={a.id} site={s} />}
+                  </details>
                 ))}
               </CardBody>
             </Card>
@@ -175,5 +218,48 @@ function RoleSelect({ defaultValue }: { defaultValue: string }) {
       <option value="tester">Tester</option>
       <option value="viewer">Viewer</option>
     </select>
+  );
+}
+
+/**
+ * One system's details: its live address (or, with none, its code's), its main
+ * repository and local copy, and any other code it lives in (an API server, an
+ * auth server…). Two blank rows add sources; clearing a row removes it.
+ */
+function SiteForm({ accountId, site }: { accountId: string; site: AdminAccountDetail["siteList"][number] }) {
+  const rows = [...site.sources, { label: "", repo: null, path: null, url: null }, { label: "", repo: null, path: null, url: null }];
+  return (
+    <div className="mt-3 rounded-xl border border-line bg-panel-2 p-3">
+      <ActionForm action={updateSite} submit="Save system" variant="plain">
+        <input type="hidden" name="id" value={accountId} />
+        <input type="hidden" name="siteId" value={site.id} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="System name">
+            <input name="name" required minLength={2} defaultValue={site.name} className={inputClass} />
+          </Field>
+          <Field label="Live address" hint="Where it runs. With no live app, use its code's address.">
+            <input name="url" required defaultValue={site.url} className={inputClass} />
+          </Field>
+          <Field label="Main code repository" hint="The one the crew changes.">
+            <input name="repo" defaultValue={site.repo ? `github.com/${site.repo}` : ""} className={inputClass} placeholder="github.com/owner/name" />
+          </Field>
+          <Field label="Local copy (runner)">
+            <input name="repoPath" defaultValue={site.repoPath ?? ""} className={inputClass} placeholder="C:\code\name" />
+          </Field>
+        </div>
+        <p className="mt-4 text-[12.5px] font-medium text-fog">Other code this system lives in</p>
+        <p className="text-[11.5px] text-mist">An API server, an auth server, a batch estate… The crew reads them all when it ingests; it changes only the main one.</p>
+        <div className="mt-2 flex flex-col gap-2">
+          {rows.map((r, i) => (
+            <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1.3fr_1.3fr]">
+              <input name={`source_label_${i}`} defaultValue={r.label} className={inputClass} placeholder="Name, e.g. API server" aria-label={`Source ${i + 1} name`} />
+              <input name={`source_repo_${i}`} defaultValue={r.repo ? `github.com/${r.repo}` : ""} className={inputClass} placeholder="github.com/owner/name" aria-label={`Source ${i + 1} repository`} />
+              <input name={`source_path_${i}`} defaultValue={r.path ?? ""} className={inputClass} placeholder="Local copy, e.g. C:\code\api" aria-label={`Source ${i + 1} local copy`} />
+              <input type="hidden" name={`source_url_${i}`} defaultValue={r.url ?? ""} />
+            </div>
+          ))}
+        </div>
+      </ActionForm>
+    </div>
   );
 }

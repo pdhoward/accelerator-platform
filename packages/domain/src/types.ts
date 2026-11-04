@@ -227,21 +227,48 @@ export type AdminOverview = {
 
 export type AuditEntry = { id: number; at: string; actorEmail: string | null; action: string; orgId: string | null; orgName: string | null; detail: Record<string, unknown> };
 
+/**
+ * One system's code beyond its primary repository: a web app, an API server,
+ * an auth server, a COBOL estate. The crew reads every source when it ingests;
+ * it changes only the primary one.
+ */
+export type SiteSource = { label: string; repo: string | null; path: string | null; url: string | null };
+
+/** "owner/name" from what people paste: a GitHub URL, an SSH remote or the short form. Null when it isn't one. */
+export function githubRepo(input: string | null | undefined): string | null {
+  const s = (input ?? "").trim().replace(/\.git$/, "").replace(/\/+$/, "");
+  const m = s.match(/^(?:(?:https?:\/\/)?(?:www\.)?github\.com\/|git@github\.com:)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
 export type AdminAccountDetail = AdminAccountRow & {
+  /** The company's own website (the business). */
+  website: string | null;
   suspendedAt: string | null;
   suspendedReason: string | null;
   people: { id: string; name: string; email: string | null; role: Role }[];
   invites: { id: string; email: string; role: Role; createdAt: string }[];
-  siteList: { id: string; slug: string; name: string; url: string }[];
+  siteList: { id: string; slug: string; name: string; url: string; repo: string | null; repoPath: string | null; sources: SiteSource[] }[];
   audit: AuditEntry[];
 };
+
+/** What Platform Admin can change on an account after it is created. */
+export type AccountEdit = { name?: string; plan?: PlanId; billingMode?: BillingMode; installFeeQuoteUsd?: number | null; website?: string | null };
+/** …and on one of its sites: the live address, the primary repository, and any other code the system lives in. */
+export type SiteEdit = { name?: string; url?: string; repo?: string | null; repoPath?: string | null; sources?: SiteSource[] };
 
 export type PlatformStaff = { userId: string; email: string; role: PlatformRole; addedAt: string };
 
 export type NewAccountInput = {
   name: string;
+  /** The company's website, if it has one. */
+  website?: string;
   siteName: string;
-  siteUrl: string;
+  /** Where the system runs, if it is live; without one, the code's address stands in. */
+  siteUrl?: string;
+  /** The system's primary code repository (GitHub), and the runner's local copy of it. */
+  repo?: string;
+  repoPath?: string;
   plan: PlanId;
   billingMode: BillingMode;
   installFeeQuoteUsd?: number;
