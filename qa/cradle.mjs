@@ -136,6 +136,10 @@ try {
   check(await page.locator("[data-alignment='restore']").isVisible(), "a rollback goes to the crew like any decision");
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
 
+  // An emailed sign-in link: opening it (as a mail scanner does) must not use the one-time token.
+  await page.goto("http://127.0.0.1:4100/auth/confirm?token_hash=abc&next=/accounts");
+  check(page.url().includes("/auth/confirm") && await page.getByRole("button", { name: "Continue to the Control Room" }).isVisible(), "opening a sign-in link waits for Continue (scanners can't spend it)");
+
   const phone = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
   await phone.goto("http://127.0.0.1:4100/s/demo-shop/policy");
   await phone.waitForTimeout(1500);
