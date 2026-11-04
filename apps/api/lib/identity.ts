@@ -45,10 +45,14 @@ async function platformRole(userId: string, email: string): Promise<PlatformRole
 }
 
 // ── Invite-only entry ────────────────────────────────────────────────────────
-/** Outside production: DEV_ALLOWLIST only. In production: staff, partner teams, members and invitees. */
+/**
+ * Staff, partner teams, members and invitees, on every stage: an invite an
+ * admin sent always lets its person in. Outside production DEV_ALLOWLIST adds
+ * the developers' own addresses.
+ */
 export async function mayStartSignIn(email: string): Promise<boolean> {
   const e = email.trim().toLowerCase();
-  if (!isProduction()) return devAllowlist().includes(e);
+  if (!isProduction() && devAllowlist().includes(e)) return true;
   if (platformAdminEmails().includes(e)) return true;
   const [admin, partner, invite, member] = await Promise.all([
     db().from("acc_platform_admins").select("user_id").eq("email", e).limit(1),
