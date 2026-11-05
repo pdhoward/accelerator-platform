@@ -564,7 +564,8 @@ export type Alignment = {
   /** The contradiction it rules on, if any. */
   conflictId?: string | null;
   /** The work item carrying it, with where it stands; null in the keyless demo. */
-  work: { number: number; stage: string; released: boolean } | null;
+  /** blocked: a step the Protocol stopped is waiting on the Work item. */
+  work: { number: number; stage: string; released: boolean; blocked?: boolean } | null;
 };
 
 /** The work item for a decision: what the crew is told, and its risk (an integration means the Owner approves). */

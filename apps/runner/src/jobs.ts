@@ -25,7 +25,7 @@ import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
-import { changedFiles, checks, codeHome, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
+import { baseRef, changedFiles, checks, codeHome, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
 /**
@@ -383,7 +383,7 @@ export async function checkout(ctx: JobContext, log: Log) {
       log.tool(made.code === 0 ? `Created the ${ctx.site.baseBranch} branch from the current commit` : `Couldn't create ${ctx.site.baseBranch}: ${made.out}`);
     }
     const dir = await ensureWorktree(repo, ctx.site.slug, "checkout", `accelerator/checkout`, ctx.site.baseBranch);
-    await git(`reset -q --hard ${ctx.site.baseBranch}`, dir);
+    await git(`reset -q --hard ${await baseRef(repo, ctx.site.baseBranch)}`, dir);
     const env = await devEnv(ctx);
     log.status("C1: install, build, typecheck, tests");
     const c = await checks(dir, env);

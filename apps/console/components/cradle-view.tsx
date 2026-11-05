@@ -44,6 +44,15 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
   const [watch, setWatch] = useState(initial.ingest?.status === "running" || initial.ingest?.status === "queued");
   const running = r.ingest?.status === "running" || r.ingest?.status === "queued";
 
+  // While decisions are on their way into the code, keep their status current.
+  const aligning = r.alignments.some((a) => a.work && !a.work.released && a.work.stage !== "done" && a.work.stage !== "cancelled");
+  useEffect(() => {
+    if (!aligning || running) return;
+    const t = setInterval(() => void api.cradle.get(siteId).then(setR).catch(() => {}), 10_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aligning, running, siteId]);
+
   // While the crew reads the site, refresh the book until the run lands.
   useEffect(() => {
     if (!running) return;
@@ -294,7 +303,7 @@ function Alignments({ r, siteId, canManage, busy, onAlign }: { r: CradleResponse
           </div>
         )}
         {r.alignments.map((a) => {
-          const st = a.work ? (a.work.released && a.work.stage !== "done" ? ALIGN_STAGE.learn! : ALIGN_STAGE[a.work.stage] ?? { label: a.work.stage, tone: "default" as const }) : { label: "Recorded (demo: no crew)", tone: "default" as const };
+          const st = a.work?.blocked && a.work.stage !== "done" && a.work.stage !== "cancelled" ? { label: "Blocked: open the Work item", tone: "warn" as const } : a.work ? (a.work.released && a.work.stage !== "done" ? ALIGN_STAGE.learn! : ALIGN_STAGE[a.work.stage] ?? { label: a.work.stage, tone: "default" as const }) : { label: "Recorded (demo: no crew)", tone: "default" as const };
           return (
             <div key={a.id} className="flex flex-wrap items-start gap-2 rounded-lg border border-line px-3 py-2.5" data-alignment={a.decision}>
               <Chip>{ALIGN_LABEL[a.decision]}</Chip>

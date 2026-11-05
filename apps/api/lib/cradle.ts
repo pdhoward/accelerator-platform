@@ -182,8 +182,11 @@ async function alignmentsOf(siteId: string): Promise<StoredAlignment[]> {
   const nodes = await rows(db().from("acc_cradle_nodes").select("key, body").eq("site_id", siteId).eq("kind", "decision").order("created_at"));
   const list = nodes.filter((n) => (n.body as Row)?.type === "alignment").map((n) => ({ ...(n.body as StoredAlignment), id: n.key as string }));
   const numbers = [...new Set(list.map((a) => a.workNumber).filter((n): n is number => n != null))];
-  const work = numbers.length ? await rows(db().from("acc_work").select("number, stage, released_at").eq("site_id", siteId).in("number", numbers)) : [];
-  const byNumber = new Map(work.map((w) => [w.number as number, { number: w.number as number, stage: w.stage as string, released: !!w.released_at }]));
+  const work = numbers.length ? await rows(db().from("acc_work").select("id, number, stage, released_at").eq("site_id", siteId).in("number", numbers)) : [];
+  // A step the Protocol blocked waits for a person once the crew's own repairs are spent; the page says so.
+  const stuck = work.length ? await rows(db().from("acc_work_steps").select("work_id").in("work_id", work.map((w) => w.id as string)).eq("status", "blocked")) : [];
+  const blocked = new Set(stuck.map((r) => r.work_id as string));
+  const byNumber = new Map(work.map((w) => [w.number as number, { number: w.number as number, stage: w.stage as string, released: !!w.released_at, blocked: blocked.has(w.id as string) }]));
   return list.map((a) => ({ ...a, work: (a.workNumber != null && byNumber.get(a.workNumber)) || null })).reverse();
 }
 

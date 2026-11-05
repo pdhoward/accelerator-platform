@@ -66,28 +66,31 @@ export async function ensureClone(gh: string, dir: string, token: string | undef
 export async function ensureWorktree(repoPath: string, slug: string, name: string, branch: string, base: string): Promise<string> {
   if (!existsSync(join(repoPath, ".git"))) throw new Error(`${repoPath} isn't a git repository.`);
   const dir = join(root(), slug, name);
-  if (existsSync(join(dir, ".git"))) return dir;
-  mkdirSync(join(root(), slug), { recursive: true });
-  await git("worktree prune", repoPath);
-  const hasBranch = (await git(`rev-parse --verify --quiet refs/heads/${branch}`, repoPath)).code === 0;
-  const from = hasBranch ? base : await baseRef(repoPath, base);
-  const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${from}`, repoPath);
-  if (r.code !== 0) throw new Error(`Couldn't create the worktree: ${r.out.trim()}`);
+  const from = await baseRef(repoPath, base);
+  if (!existsSync(join(dir, ".git"))) {
+    mkdirSync(join(root(), slug), { recursive: true });
+    await git("worktree prune", repoPath);
+    const hasBranch = (await git(`rev-parse --verify --quiet refs/heads/${branch}`, repoPath)).code === 0;
+    const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${from}`, repoPath);
+    if (r.code !== 0) throw new Error(`Couldn't create the worktree: ${r.out.trim()}`);
+  }
+  // A Work item's branch with nothing of its own yet catches up with the base, so it never works on stale code.
+  if ((await git(`merge-base --is-ancestor HEAD ${from}`, dir)).code === 0) await git(`merge --ff-only --quiet ${from}`, dir);
   return dir;
 }
 
 /**
- * Where new work starts: the local base branch, else GitHub's copy of it
- * (fetched), else a plain explanation. A missing base used to surface as
- * git's "invalid reference: stage".
+ * Where new work starts: GitHub's copy of the base branch when the local one
+ * is only behind it (a release pushes the base from its own worktree, so the
+ * local branch falls behind), else the local branch, else a plain
+ * explanation. The local branch itself is never moved.
  */
 export async function baseRef(repoPath: string, base: string): Promise<string> {
-  if ((await git(`rev-parse --verify --quiet refs/heads/${base}`, repoPath)).code === 0) return base;
   await gitRemote(`fetch --quiet origin ${base}`, repoPath);
-  if ((await git(`rev-parse --verify --quiet refs/remotes/origin/${base}`, repoPath)).code === 0) {
-    await git(`branch --track ${base} origin/${base}`, repoPath);
-    return base;
-  }
+  const local = (await git(`rev-parse --verify --quiet refs/heads/${base}`, repoPath)).code === 0;
+  const remote = (await git(`rev-parse --verify --quiet refs/remotes/origin/${base}`, repoPath)).code === 0;
+  if (remote && (!local || (await git(`merge-base --is-ancestor ${base} origin/${base}`, repoPath)).code === 0)) return `origin/${base}`;
+  if (local) return base;
   throw new Error(`The site's base branch "${base}" doesn't exist here or on GitHub. Create it from main (git branch ${base} main && git push -u origin ${base}), or change the base branch in Setup.`);
 }
 
