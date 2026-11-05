@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { agentEnv, FORBIDDEN, refusal, SECRET_FILE } from "./models";
-import { codeHome, githubAuthEnv, isTestFile } from "./repo";
+import { codeHome, githubAuthEnv, isTestFile, syncPlan } from "./repo";
 import { parseManifest, parseTests } from "./sh";
 
 // These decide the Protocol verdict, so they're tested like money rules.
@@ -135,5 +135,14 @@ describe("refusal", () => {
     expect(refusal("Bash", { command: "git merge --ff-only main" })).toMatch(/Work stays/);
     expect(refusal("Bash", { command: "git push origin work/11" })).toMatch(/runner pushes/);
     expect(refusal("Bash", { command: "pnpm test" })).toBeNull();
+  });
+});
+
+// The code-state practice: work never runs on a branch behind its base.
+describe("syncPlan", () => {
+  it("leaves a current branch, moves an empty one, merges into one with its own work", () => {
+    expect(syncPlan(0, 3)).toBe("current");
+    expect(syncPlan(9, 0)).toBe("fast-forward");
+    expect(syncPlan(9, 2)).toBe("merge");
   });
 });

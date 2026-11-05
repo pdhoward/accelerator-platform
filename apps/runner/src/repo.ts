@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { githubRepo } from "@accelerator/domain";
 
+import type { Log } from "./api";
 import { scripts, sh, tail, type Run } from "./sh";
 
 /**
@@ -63,36 +64,85 @@ export async function ensureClone(gh: string, dir: string, token: string | undef
   return "cloned";
 }
 
-export async function ensureWorktree(repoPath: string, slug: string, name: string, branch: string, base: string): Promise<string> {
+/** What the runner checked about a working copy, said to the crew so they never reason from stale code. */
+const states = new Map<string, string>();
+export const codeState = (dir: string) => states.get(dir) ?? "";
+
+const count = async (range: string, cwd: string) => Number((await git(`rev-list --count ${range}`, cwd)).out.trim()) || 0;
+const short = async (ref: string, cwd: string) => (await git(`log -1 --format=%h·%s ${ref}`, cwd)).out.trim().slice(0, 90);
+
+/**
+ * How a Work branch meets its base. The runner, not the operator, keeps work
+ * on current code: a branch with nothing of its own moves up; one with its
+ * own commits takes the base in by a merge; one already current is left.
+ */
+export function syncPlan(behind: number, own: number): "current" | "fast-forward" | "merge" {
+  return behind === 0 ? "current" : own === 0 ? "fast-forward" : "merge";
+}
+
+/**
+ * The working copy for a Work item (or a release or checkout), checked before
+ * every job (the code-state practice): the base is GitHub's when the local one
+ * is behind; the branch is brought up to the base; leftovers are reported.
+ * `sync: false` is for worktrees the job resets itself.
+ */
+export async function ensureWorktree(repoPath: string, slug: string, name: string, branch: string, base: string, opts: { log?: Log; sync?: boolean } = {}): Promise<string> {
   if (!existsSync(join(repoPath, ".git"))) throw new Error(`${repoPath} isn't a git repository.`);
+  const { log, sync = true } = opts;
   const dir = join(root(), slug, name);
-  const from = await baseRef(repoPath, base);
+  const b = await baseState(repoPath, base);
+  if (!b.fetched) log?.check(`code> couldn't reach GitHub for ${base}; working from this machine's copy, which may be out of date.`);
+  else if (b.localBehind) log?.status(`code> this machine's ${base} is ${b.localBehind} commit(s) behind GitHub; work starts from GitHub's (the local branch is left as it is).`);
   if (!existsSync(join(dir, ".git"))) {
     mkdirSync(join(root(), slug), { recursive: true });
     await git("worktree prune", repoPath);
     const hasBranch = (await git(`rev-parse --verify --quiet refs/heads/${branch}`, repoPath)).code === 0;
-    const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${from}`, repoPath);
+    const r = hasBranch ? await git(`worktree add "${dir}" ${branch}`, repoPath) : await git(`worktree add -b ${branch} "${dir}" ${b.ref}`, repoPath);
     if (r.code !== 0) throw new Error(`Couldn't create the worktree: ${r.out.trim()}`);
   }
-  // A Work item's branch with nothing of its own yet catches up with the base, so it never works on stale code.
-  if ((await git(`merge-base --is-ancestor HEAD ${from}`, dir)).code === 0) await git(`merge --ff-only --quiet ${from}`, dir);
+  const leftovers = (await git("status --porcelain", dir)).out.trim();
+  if (leftovers) log?.check(`code> the working copy has ${leftovers.split("\n").length} uncommitted change(s) left from an earlier run; they are kept.`);
+  if (sync) {
+    const behind = await count(`HEAD..${b.ref}`, dir);
+    const own = await count(`${b.ref}..HEAD`, dir);
+    const plan = syncPlan(behind, own);
+    if (plan === "fast-forward") {
+      const r = await git(`merge --ff-only --quiet ${b.ref}`, dir);
+      if (r.code !== 0) throw new Error(`The branch is ${behind} commit(s) behind ${base} and couldn't catch up: ${tail(r.out, 300)}`);
+      log?.status(`code> ${branch} caught up with ${base} (+${behind} commits)`);
+    } else if (plan === "merge") {
+      const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" merge --no-edit --quiet ${b.ref}`, dir, {}, 120_000);
+      if (r.code !== 0) {
+        const files = (await git("diff --name-only --diff-filter=U", dir)).out.trim().split(/\r?\n/).filter(Boolean);
+        await git("merge --abort", dir);
+        throw new Error(`${branch} has ${own} change(s) of its own and is ${behind} behind ${base}; taking ${base} in conflicts in ${files.join(", ") || "some files"}. The crew won't work on stale code: resolve the conflict, or cancel and restart the Work item.`);
+      }
+      log?.status(`code> took ${behind} new commit(s) from ${base} into ${branch} (it keeps its own ${own})`);
+    }
+  }
+  const head = await short("HEAD", dir);
+  states.set(dir, [
+    `CODE STATE (the runner checked this just before you started; trust it):`,
+    `- You are on ${branch} at ${head}.`,
+    `- ${sync ? `It includes everything on ${base} as of GitHub's ${await short(b.ref, dir)}.` : `${base} on GitHub is at ${await short(b.ref, dir)}.`}`,
+    `- If the code doesn't contain what the Work item or the conversation assumes, say so plainly as a premise mismatch, naming what you expected and where you looked. Don't change course on it alone.`,
+  ].join("\n"));
   return dir;
 }
 
-/**
- * Where new work starts: GitHub's copy of the base branch when the local one
- * is only behind it (a release pushes the base from its own worktree, so the
- * local branch falls behind), else the local branch, else a plain
- * explanation. The local branch itself is never moved.
- */
-export async function baseRef(repoPath: string, base: string): Promise<string> {
-  await gitRemote(`fetch --quiet origin ${base}`, repoPath);
+/** The base branch: GitHub's copy when the local one is only behind it, else the local one. The local branch is never moved. */
+async function baseState(repoPath: string, base: string): Promise<{ ref: string; fetched: boolean; localBehind: number }> {
+  const fetched = (await gitRemote(`fetch --quiet origin ${base}`, repoPath)).code === 0;
   const local = (await git(`rev-parse --verify --quiet refs/heads/${base}`, repoPath)).code === 0;
   const remote = (await git(`rev-parse --verify --quiet refs/remotes/origin/${base}`, repoPath)).code === 0;
-  if (remote && (!local || (await git(`merge-base --is-ancestor ${base} origin/${base}`, repoPath)).code === 0)) return `origin/${base}`;
-  if (local) return base;
+  if (remote && (!local || (await git(`merge-base --is-ancestor ${base} origin/${base}`, repoPath)).code === 0)) {
+    return { ref: `origin/${base}`, fetched, localBehind: local ? await count(`${base}..origin/${base}`, repoPath) : 0 };
+  }
+  if (local) return { ref: base, fetched, localBehind: 0 };
   throw new Error(`The site's base branch "${base}" doesn't exist here or on GitHub. Create it from main (git branch ${base} main && git push -u origin ${base}), or change the base branch in Setup.`);
 }
+
+export const baseRef = async (repoPath: string, base: string) => (await baseState(repoPath, base)).ref;
 
 export const headSha = async (dir: string) => (await git("rev-parse HEAD", dir)).out.trim();
 

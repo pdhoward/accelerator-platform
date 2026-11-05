@@ -25,7 +25,7 @@ import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
-import { baseRef, changedFiles, checks, codeHome, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
+import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
 /**
@@ -68,7 +68,7 @@ const needWork = (ctx: JobContext): Work => {
 async function workDir(ctx: JobContext, w: Work, log: Log): Promise<string | null> {
   if (!ctx.site.repoPath) return null;
   if (w.kind === "install") return ctx.site.repoPath; // read-only look at the site as it is
-  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch, { log });
   log.status(`Working copy: ${w.branch}`);
   return dir;
 }
@@ -81,7 +81,7 @@ async function think(ctx: JobContext, log: Log, system: string, instruction: str
   log.status(`${model} is ${ctx.job.kind === "discuss" ? "replying" : `writing the ${ctx.job.kind}`}…`);
   if (dir) {
     const r = await agent({
-      cwd: dir, model, append: system, mode: "read", log, prompt: `THE CONVERSATION SO FAR\n\n${transcript(w)}\n\n${instruction}`,
+      cwd: dir, model, append: [system, codeState(dir)].filter(Boolean).join("\n\n"), mode: "read", log, prompt: `THE CONVERSATION SO FAR\n\n${transcript(w)}\n\n${instruction}`,
       resume: w.agentSessionId, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
     });
     if (r.sessionId) sessions.set(ctx, r.sessionId);
@@ -134,7 +134,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   if (!ctx.site.repoPath) throw new Error("This site has no code connected yet: set its GitHub repository (or a local copy) in Setup.");
   if (ctx.job.provider !== "anthropic") throw new Error("Building needs a model with an agent harness (Claude at launch).");
 
-  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch, { log });
   const env = await devEnv(ctx, log);
   log.status(`Step ${step.position}: ${step.title}`);
 
@@ -148,7 +148,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   const repair = Array.isArray(ctx.job.input.repairReasons) ? (ctx.job.input.repairReasons as unknown[]).map(String) : [];
   if (repair.length) log.status(`Repairing: ${repair.join(" ")}`);
   const r = await agent({
-    cwd: dir, model: ctx.job.model, append: buildAppend(ctx), mode: "build", log, prompt: buildPrompt(w, step, repair),
+    cwd: dir, model: ctx.job.model, append: [buildAppend(ctx), codeState(dir)].filter(Boolean).join("\n\n"), mode: "build", log, prompt: buildPrompt(w, step, repair),
     resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
   });
   if (r.sessionId) sessions.set(ctx, r.sessionId);
@@ -236,7 +236,7 @@ export async function prove(ctx: JobContext, log: Log) {
   if (!ctx.site.repoPath) throw new Error("This site has no code connected yet: set its GitHub repository (or a local copy) in Setup.");
   if (!ctx.site.repo) throw new Error("This site has no GitHub repository set (Setup → repository).");
   const branch = w.branch ?? `work/${w.number}`;
-  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, branch, ctx.site.baseBranch);
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, branch, ctx.site.baseBranch, { log });
   const env = await devEnv(ctx);
 
   if (ctx.record) await writeRecord(dir, w.number, ctx.record, log);
@@ -322,7 +322,7 @@ export async function release(ctx: JobContext, log: Log) {
     return { ...out, reasons: [reason] };
   };
 
-  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, "release", "accelerator/release", base);
+  const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, "release", "accelerator/release", base, { log, sync: false });
   const fetched = await gitRemote("fetch origin --prune", dir);
   if (fetched.code !== 0) return stop(`Couldn't fetch from GitHub: ${tail(fetched.out, 300)}`);
   const hasBase = (await git(`rev-parse --verify --quiet origin/${base}`, dir)).code === 0;
@@ -382,7 +382,7 @@ export async function checkout(ctx: JobContext, log: Log) {
       const made = await git(`branch ${ctx.site.baseBranch}`, repo);
       log.tool(made.code === 0 ? `Created the ${ctx.site.baseBranch} branch from the current commit` : `Couldn't create ${ctx.site.baseBranch}: ${made.out}`);
     }
-    const dir = await ensureWorktree(repo, ctx.site.slug, "checkout", `accelerator/checkout`, ctx.site.baseBranch);
+    const dir = await ensureWorktree(repo, ctx.site.slug, "checkout", `accelerator/checkout`, ctx.site.baseBranch, { log, sync: false });
     await git(`reset -q --hard ${await baseRef(repo, ctx.site.baseBranch)}`, dir);
     const env = await devEnv(ctx);
     log.status("C1: install, build, typecheck, tests");
