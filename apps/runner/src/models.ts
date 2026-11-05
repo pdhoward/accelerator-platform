@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { query, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import { query, type HookCallback, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import type { Provider } from "@accelerator/domain";
 
 import type { Log } from "./api";
@@ -68,6 +68,13 @@ export const FORBIDDEN: [RegExp, string][] = [
   [/process\.env\b|\/proc\/[^\s]*\/environ|\$env:|Get-ChildItem\s+env:|\bgci\s+env:/i, "Keys stay out of the model's context."],
 ];
 
+/** Why a tool call is refused, or null: forbidden commands, and key files for any file tool. */
+export function refusal(tool: string, input: Record<string, unknown>): string | null {
+  if (tool === "Bash") return FORBIDDEN.find(([re]) => re.test(String(input.command ?? "")))?.[1] ?? null;
+  if (["Read", "Grep", "Glob", "Write", "Edit"].includes(tool) && SECRET_FILE.test(String(input.file_path ?? input.path ?? input.pattern ?? input.glob ?? ""))) return "Keys stay out of the model's context.";
+  return null;
+}
+
 export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string };
 
 /**
@@ -122,19 +129,19 @@ export async function agent(opts: {
 
 async function runAgent(opts: Parameters<typeof agent>[0], resume: string | undefined): Promise<AgentResult> {
   const readOnly = ["Read", "Glob", "Grep"];
+  // The guard runs as a PreToolUse hook: it sees every tool call, including the
+  // pre-approved ones (allowedTools skip canUseTool, so a guard there never saw Read).
+  const guardHook: HookCallback = async (input) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    const why = refusal(input.tool_name, (input.tool_input ?? {}) as Record<string, unknown>);
+    if (!why) return {};
+    if (input.tool_name === "Bash") opts.log.tool(`Refused: ${String((input.tool_input as { command?: unknown })?.command ?? "").slice(0, 120)} (${why})`);
+    else opts.log.tool(`Refused: ${input.tool_name} (${why})`);
+    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: why } };
+  };
   const guard = async (tool: string, input: Record<string, unknown>): Promise<PermissionResult> => {
-    if (tool === "Bash") {
-      const cmd = String(input.command ?? "");
-      const hit = FORBIDDEN.find(([re]) => re.test(cmd));
-      if (hit) {
-        opts.log.tool(`Refused: ${cmd.slice(0, 120)} (${hit[1]})`);
-        return { behavior: "deny", message: hit[1] };
-      }
-    }
-    if ((tool === "Read" || tool === "Grep") && SECRET_FILE.test(String(input.file_path ?? input.path ?? ""))) {
-      return { behavior: "deny", message: "Keys stay out of the model's context." };
-    }
-    return { behavior: "allow" };
+    const why = refusal(tool, input);
+    return why ? { behavior: "deny", message: why } : { behavior: "allow" };
   };
 
   const stream = query({
@@ -150,6 +157,7 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
       ...(opts.toolbelt && { mcpServers: { accelerator: { type: "http" as const, url: opts.toolbelt.url, headers: { Authorization: `Bearer ${opts.toolbelt.token}` } } } }),
       ...(resume && { resume }),
       canUseTool: guard,
+      hooks: { PreToolUse: [{ hooks: [guardHook] }] },
       maxTurns: opts.maxTurns ?? (opts.mode === "read" ? 20 : 80),
       maxBudgetUsd: opts.maxBudgetUsd ?? (opts.mode === "read" ? 2 : 8),
       effort: "high",

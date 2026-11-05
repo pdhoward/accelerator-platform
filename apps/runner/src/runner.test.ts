@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agentEnv, FORBIDDEN, SECRET_FILE } from "./models";
+import { agentEnv, FORBIDDEN, refusal, SECRET_FILE } from "./models";
 import { codeHome, githubAuthEnv, isTestFile } from "./repo";
 import { parseManifest, parseTests } from "./sh";
 
@@ -118,5 +118,22 @@ describe("githubAuthEnv", () => {
   });
   it("adds nothing without a token (public repositories)", () => {
     expect(githubAuthEnv(undefined)).toEqual({ GIT_TERMINAL_PROMPT: "0" });
+  });
+});
+
+// Every tool call passes this guard (a PreToolUse hook), pre-approved tools included.
+describe("refusal", () => {
+  it("refuses key files to every file tool", () => {
+    for (const tool of ["Read", "Grep", "Glob", "Write", "Edit"]) expect(refusal(tool, { file_path: "C:/w/work-11/.env.local", path: "C:/w/work-11/.env.local" })).toMatch(/Keys/);
+    expect(refusal("Glob", { pattern: "**/.env*" })).toMatch(/Keys/);
+  });
+  it("lets ordinary files and the key list through", () => {
+    expect(refusal("Read", { file_path: "app/order/success/page.tsx" })).toBeNull();
+    expect(refusal("Read", { file_path: ".env.example" })).toBeNull();
+  });
+  it("refuses forbidden commands", () => {
+    expect(refusal("Bash", { command: "git merge --ff-only main" })).toMatch(/Work stays/);
+    expect(refusal("Bash", { command: "git push origin work/11" })).toMatch(/runner pushes/);
+    expect(refusal("Bash", { command: "pnpm test" })).toBeNull();
   });
 });
