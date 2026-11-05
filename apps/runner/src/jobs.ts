@@ -25,7 +25,7 @@ import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
-import { changedFiles, checks, commitAll, ensureWorktree, git, headSha, isTestFile } from "./repo";
+import { changedFiles, checks, codeHome, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
 /**
@@ -131,7 +131,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   const w = needWork(ctx);
   const step = w.steps.find((s) => s.id === ctx.job.input.stepId);
   if (!step) throw new Error("That step is no longer in the plan.");
-  if (!ctx.site.repoPath) throw new Error("This site has no repository connected yet (Setup → repository path).");
+  if (!ctx.site.repoPath) throw new Error("This site has no code connected yet: set its GitHub repository (or a local copy) in Setup.");
   if (ctx.job.provider !== "anthropic") throw new Error("Building needs a model with an agent harness (Claude at launch).");
 
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, w.branch ?? `work/${w.number}`, ctx.site.baseBranch);
@@ -181,9 +181,40 @@ export async function buildStep(ctx: JobContext, log: Log) {
 
 // ── Prove · Release (flywheel.md F14) ─────────────────────────────────────────
 /** Git with this machine's credentials, never prompting (a prompt would hang the runner). */
-const gitRemote = (args: string, cwd: string) => sh(`git ${args}`, cwd, { GIT_TERMINAL_PROMPT: "0" }, 180_000);
 const gitAs = (args: string, cwd: string) => sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" ${args}`, cwd, {}, 120_000);
 const githubToken = (env: Record<string, string>) => process.env.GITHUB_TOKEN || env.GITHUB_TOKEN || undefined;
+
+/**
+ * Point the job at its code before it runs: each repository's local copy when
+ * this machine has one, else the runner's own clone from GitHub (cloned on
+ * the first job, brought up to date on each one after). This is what lets a
+ * hosted runner, with no local copies, work every site. A clone that fails is
+ * logged; the job then reports the missing code in its own words.
+ */
+export async function locateCode(ctx: JobContext, log: Log) {
+  let token: string | undefined;
+  const tokenFor = async () => (token ??= githubToken(await devEnv(ctx)));
+  const find = async (label: string, path: string | null, repo: string | null) => {
+    const home = codeHome(path, repo);
+    if (!home) return path;
+    if (!home.clone) return home.dir;
+    try {
+      const how = await ensureClone(home.clone, home.dir, await tokenFor());
+      log.status(`${how === "cloned" ? "Cloned" : "Updated"} ${home.clone} from GitHub (${label}: no local copy on this runner)`);
+      return home.dir;
+    } catch (err) {
+      log.check(`${label}: ${(err as Error).message}`);
+      return path;
+    }
+  };
+  // A reply with no code (the API leaves the path empty on purpose) stays that way.
+  if (ctx.site.repoPath || ctx.job.kind !== "discuss") ctx.site.repoPath = await find(ctx.site.name, ctx.site.repoPath, ctx.site.repo);
+  if (ctx.site.sources?.length) {
+    const located = [];
+    for (const s of ctx.site.sources) located.push({ ...s, path: await find(s.label, s.path, s.repo) });
+    ctx.site.sources = located;
+  }
+}
 
 /** Typecheck, tests and the production build, as the site defines them. */
 async function fullChecks(dir: string, env: Record<string, string>, log: Log) {
@@ -202,7 +233,7 @@ async function fullChecks(dir: string, env: Record<string, string>, log: Log) {
 /** Prove: the full checks, then push work/<n> and wait for its Vercel preview. The API judges the result. */
 export async function prove(ctx: JobContext, log: Log) {
   const w = needWork(ctx);
-  if (!ctx.site.repoPath) throw new Error("This site has no repository connected yet (Setup → repository path).");
+  if (!ctx.site.repoPath) throw new Error("This site has no code connected yet: set its GitHub repository (or a local copy) in Setup.");
   if (!ctx.site.repo) throw new Error("This site has no GitHub repository set (Setup → repository).");
   const branch = w.branch ?? `work/${w.number}`;
   const dir = await ensureWorktree(ctx.site.repoPath, ctx.site.slug, `work-${w.number}`, branch, ctx.site.baseBranch);
@@ -342,7 +373,7 @@ export async function checkout(ctx: JobContext, log: Log) {
   let manifest: ReturnType<typeof parseManifest> = [];
 
   if (!repo || !existsSync(join(repo, ".git"))) {
-    items.push({ code: "C1", status: "failed", note: repo ? `${repo} isn't a git repository.` : "No repository connected yet (Setup → repository path)." });
+    items.push({ code: "C1", status: "failed", note: repo ? `${repo} isn't a git repository.` : "No code connected yet: set the GitHub repository (or a local copy) in Setup." });
   } else if ((await git("rev-parse --verify HEAD", repo)).code !== 0) {
     items.push({ code: "C1", status: "failed", note: "The repository has no commits yet. Commit the code, then run checkout again." });
   } else {
@@ -436,7 +467,7 @@ export async function ingest(ctx: JobContext, log: Log) {
   const sources = [{ label: ctx.site.name, path: ctx.site.repoPath }, ...(ctx.site.sources ?? []).map((s) => ({ label: s.label, path: s.path }))];
   const ready = sources.filter((s) => s.path && existsSync(join(s.path, ".git")));
   for (const s of sources.filter((x) => !ready.includes(x))) log.check(`judge> ${s.label}: no local copy at ${s.path ?? "(no path set)"}, so it is skipped`);
-  if (!ready.length) throw new Error("No repository connected yet (Setup → repository path).");
+  if (!ready.length) throw new Error("No code connected yet: set the GitHub repository (or a local copy) in Setup.");
   log.status(`lead> cradle ingest ${ctx.site.slug} · pack ${pack.id} ${pack.version} · read-only${ready.length > 1 ? ` · ${ready.length} code sources` : ""}`);
 
   const reports: IngestReport[] = [];

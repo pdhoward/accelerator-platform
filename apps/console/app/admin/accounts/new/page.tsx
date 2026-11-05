@@ -36,7 +36,7 @@ export default async function NewAccountPage() {
                 <Field label="Code repository" hint="The system's main code on GitHub. More repositories (API, auth…) can be added on the account page.">
                   <input name="repo" className={inputClass} placeholder="github.com/owner/name" />
                 </Field>
-                <Field label="Local copy (runner)" hint="Where the runner's machine keeps that code. Optional; also in Setup.">
+                <Field label="Local copy (runner)" hint="Optional. Leave blank and the runner clones the repository from GitHub.">
                   <input name="repoPath" className={inputClass} placeholder="C:\code\name" />
                 </Field>
                 <Field label="Plan">

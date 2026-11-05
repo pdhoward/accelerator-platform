@@ -1,0 +1,54 @@
+# The hosted Accelerator runner (Gen 3 backlog B1).
+#
+# A background worker: it serves nothing and only pulls. It claims jobs from
+# the API on Vercel, clones each site's code from GitHub onto its disk, runs
+# the crew, and reports back. Secrets are entered in the Render dashboard
+# (sync: false), never in this file.
+services:
+  - type: worker
+    name: accelerator-runner
+    runtime: node
+    region: oregon
+    plan: 1c-2g # 2 GB: Claude Code plus a site's install, typecheck and build
+    branch: main
+    autoDeploy: true
+    buildCommand: npx --yes pnpm@11.9.0 install --frozen-lockfile --filter "@accelerator/runner..."
+    startCommand: cd apps/runner && node_modules/.bin/tsx src/main.ts
+    buildFilter:
+      paths:
+        - apps/runner/**
+        - packages/**
+        - pnpm-lock.yaml
+        - render.yaml
+    disk:
+      name: runner-data
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Clones and Work-item worktrees live on the disk, so they survive restarts and deploys.
+      - key: RUNNER_REPOS
+        value: /var/data/repos
+      - key: RUNNER_WORKDIR
+        value: /var/data/worktrees
+      # No envmachine folder on a hosted runner: site keys come from the vault only.
+      - key: RUNNER_ENVMACHINE
+        value: "off"
+      # The API on Vercel (https://…, no trailing slash).
+      - key: RUNNER_API_URL
+        sync: false
+      # Must equal RUNNER_TOKEN on the API's Vercel project.
+      - key: RUNNER_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # Needed when the Anthropic key isn't scoped to one workspace.
+      - key: ANTHROPIC_WORKSPACE_ID
+        sync: false
+      # Only if a crew role uses an OpenAI model.
+      - key: OPENAI_API_KEY
+        sync: false
+      # A fine-grained token: Contents read for every repo the crew reads; read and write for repos it changes.
+      - key: GITHUB_TOKEN
+        sync: false

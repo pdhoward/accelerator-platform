@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { agentEnv, FORBIDDEN, SECRET_FILE } from "./models";
-import { isTestFile } from "./repo";
+import { codeHome, githubAuthEnv, isTestFile } from "./repo";
 import { parseManifest, parseTests } from "./sh";
 
 // These decide the Protocol verdict, so they're tested like money rules.
@@ -87,5 +87,36 @@ describe("agents never hold the runner's keys (gen2-crew.md §1.2)", () => {
     for (const cmd of ["pnpm test", "pnpm typecheck", "set -e", "env NODE_ENV=test pnpm test", "echo done", "npx vitest run lib/rules.test.ts"]) {
       expect(refused(cmd)).toBe(false);
     }
+  });
+});
+
+// A hosted runner has no local copies: it clones from GitHub, and the token never lands on disk.
+describe("codeHome", () => {
+  const has = (dirs: string[]) => (d: string) => dirs.includes(d);
+  it("uses the local copy when this machine has one", () => {
+    expect(codeHome("C:\code\carddemo", "github.com/aws-samples/carddemo", has(["C:\code\carddemo"]))).toEqual({ dir: "C:\code\carddemo", clone: null });
+  });
+  it("clones from GitHub when the local copy is blank or missing", () => {
+    for (const path of [null, "", "C:\nowhere"]) {
+      const home = codeHome(path, "https://github.com/aws-samples/aws-mainframe-modernization-carddemo.git", has([]));
+      expect(home?.clone).toBe("aws-samples/aws-mainframe-modernization-carddemo");
+      expect(home?.dir).toMatch(/aws-samples__aws-mainframe-modernization-carddemo$/);
+    }
+  });
+  it("has nothing when there is neither", () => {
+    expect(codeHome(null, null, has([]))).toBeNull();
+    expect(codeHome("", "not a repo", has([]))).toBeNull();
+  });
+});
+
+describe("githubAuthEnv", () => {
+  it("sends the token as a github.com header, never in a URL", () => {
+    const env = githubAuthEnv("ghp_example");
+    expect(env.GIT_CONFIG_KEY_0).toBe("http.https://github.com/.extraheader");
+    expect(env.GIT_CONFIG_VALUE_0).toBe(`AUTHORIZATION: basic ${Buffer.from("x-access-token:ghp_example").toString("base64")}`);
+    expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+  });
+  it("adds nothing without a token (public repositories)", () => {
+    expect(githubAuthEnv(undefined)).toEqual({ GIT_TERMINAL_PROMPT: "0" });
   });
 });

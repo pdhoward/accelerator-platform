@@ -1,7 +1,8 @@
+import { createServer } from "node:http";
 import { hostname } from "node:os";
 
 import { claim, eventLog, finish, renew } from "./api";
-import { agentSession, buildStep, jobCost, checkout, design, discuss, ingest, plan, prove, release } from "./jobs";
+import { agentSession, buildStep, jobCost, checkout, design, discuss, ingest, locateCode, plan, prove, release } from "./jobs";
 
 /**
  * The Accelerator runner (work/flywheel.md §7). A long-running process:
@@ -16,6 +17,19 @@ const JOBS = { discuss, design, plan, build_step: buildStep, checkout, prove, re
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let stopping = false;
+let current: string | null = null;
+
+// On a host that wants a web service (Render, …), answer health checks on PORT. Jobs never come in this way: the runner only pulls.
+if (process.env.PORT) {
+  createServer((req, res) => {
+    res.writeHead(req.url === "/health" || req.url === "/" ? 200 : 404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ runner: runnerId, version: VERSION, busy: current !== null }));
+  }).listen(Number(process.env.PORT), () => console.log(`Health check on :${process.env.PORT}/health`));
+}
+process.on("SIGTERM", () => {
+  stopping = true;
+  console.log("SIGTERM: stopping after the current job.");
+});
 process.on("SIGINT", () => {
   if (stopping) process.exit(1);
   stopping = true;
@@ -39,6 +53,7 @@ while (!stopping) {
   }
 
   const { job } = context;
+  current = job.kind;
   console.log(`\n▶ ${job.kind}${context.work ? ` · #${context.work.number} ${context.work.title}` : ""} · ${job.model}`);
   const log = eventLog(job.id);
   const started = Date.now();
@@ -55,6 +70,7 @@ while (!stopping) {
       .catch((e) => console.error(`[renew] ${(e as Error).message}`));
   }, 60_000);
   try {
+    await locateCode(context, log);
     const result = await JOBS[job.kind](context, log);
     log.status(`Done in ${Math.round((Date.now() - started) / 1000)}s`);
     await log.close();
@@ -68,5 +84,6 @@ while (!stopping) {
     }
   } finally {
     clearInterval(renewal);
+    current = null;
   }
 }

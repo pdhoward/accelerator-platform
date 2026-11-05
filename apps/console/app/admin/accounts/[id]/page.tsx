@@ -243,12 +243,12 @@ function SiteForm({ accountId, site }: { accountId: string; site: AdminAccountDe
           <Field label="Main code repository" hint="The one the crew changes.">
             <input name="repo" defaultValue={site.repo ? `github.com/${site.repo}` : ""} className={inputClass} placeholder="github.com/owner/name" />
           </Field>
-          <Field label="Local copy (runner)">
+          <Field label="Local copy (runner)" hint="Optional. Leave blank and the runner clones the repository from GitHub.">
             <input name="repoPath" defaultValue={site.repoPath ?? ""} className={inputClass} placeholder="C:\code\name" />
           </Field>
         </div>
         <p className="mt-4 text-[12.5px] font-medium text-fog">Other code this system lives in</p>
-        <p className="text-[11.5px] text-mist">An API server, an auth server, a batch estate… The crew reads them all when it ingests; it changes only the main one.</p>
+        <p className="text-[11.5px] text-mist">An API server, an auth server, a batch estate… The crew reads them all when it ingests; it changes only the main one. A blank local copy is cloned from GitHub.</p>
         <div className="mt-2 flex flex-col gap-2">
           {rows.map((r, i) => (
             <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1.3fr_1.3fr]">
