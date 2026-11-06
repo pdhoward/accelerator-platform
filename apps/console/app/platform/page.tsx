@@ -120,6 +120,25 @@ const COMPARE: [string, string, string][] = [
   ["Cost of change", "Grows with every release", "Falls: each new rule is usually data, not code"],
 ];
 
+// ── A | B | C: Machine Shop three ways (gen3-cradle.md §12) ─────────────────
+const SITES = [
+  {
+    tag: "A · Traditional app", short: "traditional", title: "The original", url: "https://machineshop-git-baseline-strategicmachines.vercel.app",
+    text: "Machine Shop as it was built: the business rules live in the code. Keyword search, and fixed pages. Kept unchanged as the baseline.",
+    accent: "border-line bg-panel hover:border-line-2",
+  },
+  {
+    tag: "B · Partial transformation", short: "partial", title: "Code aligned to the rules", url: "https://strategic-machineshop.vercel.app",
+    text: "The live site. Its policy book was extracted and ruled on; the crew changes the code to match each ruling, and the owner ships it.",
+    accent: "border-cyan/40 bg-cyan/[0.04] hover:border-cyan/70",
+  },
+  {
+    tag: "C · Full transformation", short: "AI-run", title: "The agent is the app", url: "https://machineshop-git-cradle-strategicmachines.vercel.app",
+    text: "An app agent runs the store on its policy book: it reads requests in plain words, applies the rules in force, and explains every decision. A ruling changes it within seconds, with no release.",
+    accent: "border-gold/50 bg-gold/[0.06] hover:border-gold-2",
+  },
+];
+
 // ── The page ────────────────────────────────────────────────────────────────
 export default function PlatformPage() {
   const [step, setStep] = useState(0);
@@ -337,6 +356,23 @@ export default function PlatformPage() {
               text="AWS's public credit-card processing sample, read in slices by the crew, read-only. Its findings are being checked line by line to build a public answer key."
             />
           </div>
+        </div>
+      </section>
+
+      {/* A | B | C: the same store, three ways */}
+      <section className="mx-auto mt-14 max-w-[1280px] px-4 sm:px-8">
+        <SectionHead eyebrow="See it live" title="One store, three ways: compare them side by side" hint="Machine Shop, a test store with about 10,000 products and Stripe in test mode. Open all three and ask each the same thing: “a cordless drill under $150 I can buy today”." />
+        <div className="grid gap-3 md:grid-cols-3">
+          {SITES.map((s) => (
+            <a key={s.tag} href={s.url} target="_blank" rel="noopener" className={`group flex flex-col rounded-2xl border p-5 transition-colors ${s.accent}`}>
+              <span className="font-mono text-[11.5px] uppercase tracking-[0.2em] text-mist">{s.tag}</span>
+              <span className="mt-1 text-xl font-semibold tracking-tight">{s.title}</span>
+              <span className="mt-2 flex-1 text-[13.5px] leading-relaxed text-fog">{s.text}</span>
+              <span className="mt-4 inline-flex items-center gap-1.5 self-start rounded-full bg-ink px-4 py-2 text-[13.5px] font-semibold text-bg transition-colors group-hover:bg-gold-2 group-hover:text-on-gold">
+                Open the {s.short} site <ArrowRight className="size-4" aria-hidden />
+              </span>
+            </a>
+          ))}
         </div>
       </section>
 
