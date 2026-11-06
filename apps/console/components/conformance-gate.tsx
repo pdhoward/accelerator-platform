@@ -49,7 +49,7 @@ export function ConformanceGate({ siteId, canManage }: { siteId: string; canMana
           <Stat
             label="Newest rules"
             value={c.live ?? "—"}
-            note={!held ? "in force" : c.proof?.status === "running" ? "being proven now" : c.proof?.status === "failed" ? `held: ${failing.length} failing` : "waiting for the app to prove it"}
+            note={!held ? "in force" : c.proof?.status === "running" ? "being proven now" : c.proof?.status === "requested" ? "waiting for the app to prove it again" : c.proof?.status === "failed" ? `held: ${failing.length} failing` : "waiting for the app to prove it"}
             tone={held && c.proof?.status === "failed" ? "bad" : held ? "warn" : "good"}
           />
           <Stat label="Scenarios" value={`${c.proof ? `${c.proof.passed}/${c.proof.total}` : live.length}`} note={`${live.length} in the suite${drafts ? ` · ${drafts} drafts to review` : ""}${c.proof ? ` · $${c.proof.costUsd.toFixed(3)} to prove` : ""}`} />
@@ -66,9 +66,16 @@ export function ConformanceGate({ siteId, canManage }: { siteId: string; canMana
           </div>
         )}
 
-        <button type="button" className={button("ghost", "self-start")} onClick={() => setOpen((o) => !o)}>
+        <div className="flex flex-wrap gap-2">
+        {canManage && held && c.proof?.status === "failed" && (
+          <button type="button" className={button("gold")} disabled={busy} onClick={() => { setBusy(true); api.cradle.reprove(siteId).then(setC).finally(() => setBusy(false)); }}>
+            Prove again
+          </button>
+        )}
+        <button type="button" className={button("ghost")} onClick={() => setOpen((o) => !o)}>
           {open ? "Hide the scenarios" : `Show the ${live.length} scenarios`}
         </button>
+        </div>
         {open && (
           <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
             {c.scenarios.map((s) => {

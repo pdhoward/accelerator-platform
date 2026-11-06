@@ -35,7 +35,8 @@ export type CaseResult = { id: string; passed: boolean; runs: number; passes: nu
 export type Proof = {
   bookVersion: string;
   at: string;
-  status: "running" | "passed" | "failed";
+  /** requested: the steward asked for it to be proven again (after retiring or approving scenarios). */
+  status: "requested" | "running" | "passed" | "failed";
   results: CaseResult[];
   passed: number;
   total: number;

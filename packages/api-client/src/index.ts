@@ -203,6 +203,7 @@ export function createApiClient({
       history: (siteId: string) => call<{ history: CradleHistory | null }>(`${site(siteId)}/cradle?history=1`),
       compliance: (siteId: string) => call<Compliance>(`${site(siteId)}/cradle/compliance`),
       scenario: (siteId: string, id: string, status: "approved" | "retired" | "draft") => post<Compliance>(`${site(siteId)}/cradle/compliance`, { id, status }),
+      reprove: (siteId: string) => post<Compliance>(`${site(siteId)}/cradle/compliance`, { action: "reprove" }),
       runtime: (siteId: string) => call<{ url: string; token: string; env: { url: string; token: string } }>(`${site(siteId)}/cradle/runtime`),
       restore: (siteId: string, key: string, version: number) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "restore", key, version }),
       reset: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "reset" }),

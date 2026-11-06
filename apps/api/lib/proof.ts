@@ -72,7 +72,7 @@ const STALE_MS = 10 * 60_000;
 export async function startProof(site: Site, version: string): Promise<boolean> {
   const p = await proofOf(site.id, version);
   if (p?.status === "running" && Date.now() - Date.parse(p.at) < STALE_MS) return false;
-  if (p?.status === "passed") return false;
+  if (p?.status === "passed") return false; // a failed or requested proof may run again
   await write(site, `PROOF-${version}`, { type: "proof", bookVersion: version, at: now(), status: "running", results: [], passed: 0, total: 0, costUsd: 0 }, "app agent");
   return true;
 }
@@ -105,6 +105,14 @@ export async function finishProof(site: Site, version: string, results: CaseResu
     await write(site, "INFORCE", { type: "inforce", version, at: now(), book }, "conformance gate");
   }
   return { status: outcome.status, promoted };
+}
+
+/** The steward asks for the newest rules to be proven again (after reviewing the scenarios). */
+export async function requestProof(site: Site, by: string) {
+  const res = await runtimeResponse(site);
+  if (!res) throw new Error("This site has no cradle.");
+  if (res.inForce?.version === res.version) return;
+  await write(site, `PROOF-${res.version}`, { type: "proof", bookVersion: res.version, at: now(), status: "requested", results: res.proof?.results ?? [], passed: 0, total: 0, costUsd: 0 }, by);
 }
 
 /** The steward approves or retires a scenario. */
