@@ -60,7 +60,7 @@ const STEPS: Step[] = [
   },
   {
     n: 2, title: "Manage applications in the Control Room", who: "Steward and operators",
-    what: ["Register new applications and systems for AI transformation.", "Sign in and view the systems registered.", "Choose one to work on.", "Health, configuration, keys and work for that system, all in one place."],
+    what: ["Register new applications and systems for AI transformation.", "Choose an industry or functional pack for the system, giving the crew starter context for rule extraction.", "Sign in and view the systems registered.", "Choose one to work on.", "Health, configuration, keys and work for that system, all in one place."],
     outcome: "One place to see and steer every app.", lights: ["steward", "operators", "accounts", "vault"],
   },
   {
@@ -76,7 +76,7 @@ const STEPS: Step[] = [
   },
   {
     n: 4, title: "The Policy Walk", who: "Steward, guided by the crew",
-    what: ["Walk the book in plain English, most valuable question first.", "Confirm each rule, or restate it.", "Rule on every contradiction and fill every gap."],
+    what: ["Walk the book in plain English, most valuable question first.", "Confirm each rule, or restate it.", "Rule on every contradiction and fill every gap.", "Maintain your rule sets as the business, regulations or requirements evolve. Effective dates decide when your crew of agents uses each rule to process transactions and other customer requests."],
     outcome: "The company's rules, confirmed by the business and written down for the first time.", lights: ["steward", "walk", "policies", "conflicts", "decisions"],
   },
   {
@@ -89,13 +89,14 @@ const STEPS: Step[] = [
     outcome: "The parts that must never vary are exact, tested and replayable.", lights: ["kernels", "guards", "integrations", "work"],
   },
   {
-    n: 6, title: "Run on the rules", who: "The app agent",
+    n: 6, title: "Create the Cradle: run on the rules", who: "The Cradle and its app agent",
     what: [
+      "The Cradle is created around the system: its confirmed policy graph, its kernels and its app agent, attached for the app's whole life.",
       "Each request is routed, grounded in only the rules in force, decided by the model and carried out by the kernels.",
       "Screens are composed from tested components, so prices and terms always match the kernel.",
       "A ruling takes effect immediately, with no rewrite and no release.",
     ],
-    outcome: "The business changes behavior by changing a rule.", lights: ["runtime", "policies", "kernels", "apps", "guards"],
+    outcome: "The business changes behavior by changing a rule.", lights: ["runtime", "policies", "decisions", "kernels", "apps", "guards"],
   },
   {
     n: 7, title: "Change safely, forever", who: "Steward and crew",
