@@ -130,8 +130,44 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
         />
       </div>
       <Alignments r={r} siteId={siteId} canManage={canManage} busy={busy} onAlign={() => act(() => api.cradle.align(siteId), "Sent to the crew.")} />
+      {canManage && !r.sample && <RuntimeConnection siteId={siteId} />}
       <Book r={r} canManage={canManage} busy={busy} onRule={rule} />
     </div>
+  );
+}
+
+/**
+ * Run the app on this book (backlog B4): the address and token the site's own
+ * app uses to read its rules at runtime. Shown on request, like any key.
+ */
+function RuntimeConnection({ siteId }: { siteId: string }) {
+  const api = browserApi();
+  const [conn, setConn] = useState<{ url: string; token: string; env: { url: string; token: string } } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const show = () => api.cradle.runtime(siteId).then(setConn, (e: Error) => setError(e.message));
+  const block = conn ? `${conn.env.url}=${conn.url}
+${conn.env.token}=${conn.token}` : "";
+  return (
+    <Card>
+      <CardHead title="Run the app on this book" hint="The app agent reads these rules live: a ruling here changes what the app does, with no code change and no release. Add these two settings to the app's own environment (for Machine Shop: Vercel → Settings → Environment Variables)." />
+      <CardBody className="flex flex-col gap-2">
+        {conn ? (
+          <>
+            <pre className="overflow-x-auto rounded-lg border border-line bg-panel-2 px-3 py-2 font-mono text-[12px] text-fog">{block}</pre>
+            <div className="flex items-center gap-2">
+              <button type="button" className={button("ghost")} onClick={() => void navigator.clipboard.writeText(block).then(() => setCopied(true))}>{copied ? "Copied" : "Copy both"}</button>
+              <span className="text-[12px] text-mist">Treat the token like a password. It reads this site's book and nothing else.</span>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button type="button" className={button("ghost")} onClick={() => void show()}>Show the connection</button>
+            {error && <span className="text-[12.5px] text-bad">{error}</span>}
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
