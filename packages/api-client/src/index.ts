@@ -5,6 +5,8 @@ import type {
   BriefingResponse,
   CapabilitiesResponse,
   CradleHistory,
+  Proof,
+  Scenario,
   CradleResponse,
   Ruling,
   SiteEdit,
@@ -49,6 +51,9 @@ import type {
   SecretStatus,
   VaultEnv,
 } from "@accelerator/domain";
+
+/** The conformance gate, for the steward (B5). */
+export type Compliance = { live: string | null; inForce: { version: string; at: string } | null; proof: Proof | null; scenarios: Scenario[] };
 
 /**
  * The one typed wrapper over apps/api. Every client app talks to the API
@@ -196,6 +201,8 @@ export function createApiClient({
       fill: (siteId: string, concept: string, event: string, statement: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "fill", concept, event, statement }),
       align: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "align" }),
       history: (siteId: string) => call<{ history: CradleHistory | null }>(`${site(siteId)}/cradle?history=1`),
+      compliance: (siteId: string) => call<Compliance>(`${site(siteId)}/cradle/compliance`),
+      scenario: (siteId: string, id: string, status: "approved" | "retired" | "draft") => post<Compliance>(`${site(siteId)}/cradle/compliance`, { id, status }),
       runtime: (siteId: string) => call<{ url: string; token: string; env: { url: string; token: string } }>(`${site(siteId)}/cradle/runtime`),
       restore: (siteId: string, key: string, version: number) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "restore", key, version }),
       reset: (siteId: string) => post<CradleResponse>(`${site(siteId)}/cradle`, { action: "reset" }),

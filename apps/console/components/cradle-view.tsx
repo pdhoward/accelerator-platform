@@ -20,6 +20,7 @@ import {
 
 import { browserApi } from "@/lib/browser-api";
 import { CockpitDial, CONDITION_WORD } from "./cockpit/cockpit-dial";
+import { ConformanceGate } from "./conformance-gate";
 import { CradleLive } from "./cradle-live";
 import { button, Card, CardBody, CardHead, Chip, cx, Eyebrow } from "./ui";
 import { useUi } from "./ui-provider";
@@ -130,6 +131,7 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
         />
       </div>
       <Alignments r={r} siteId={siteId} canManage={canManage} busy={busy} onAlign={() => act(() => api.cradle.align(siteId), "Sent to the crew.")} />
+      {!r.sample && <ConformanceGate siteId={siteId} canManage={canManage} />}
       {canManage && !r.sample && <RuntimeConnection siteId={siteId} />}
       <Book r={r} canManage={canManage} busy={busy} onRule={rule} />
     </div>

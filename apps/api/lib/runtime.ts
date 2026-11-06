@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import type { Site } from "@accelerator/domain";
+
+import { db, rows } from "./supabase";
+
 /**
  * Site runtime tokens (backlog B4): how a running app reads its own policy
  * book. A token names one site and is signed by the API, so it can't be
@@ -24,4 +28,12 @@ export function verifyRuntimeToken(token: string | null | undefined): string | n
   const want = Buffer.from(sign(m[1]!, key));
   const got = Buffer.from(m[2]!);
   return want.length === got.length && timingSafeEqual(want, got) ? m[1]! : null;
+}
+
+/** The site a request's bearer runtime token names, loaded; null when the token isn't one. */
+export async function siteForToken(request: Request): Promise<Site | null> {
+  const siteId = verifyRuntimeToken(request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]);
+  if (!siteId) return null;
+  const [s] = await rows(db().from("acc_sites").select("id, org_id, name, slug").eq("id", siteId));
+  return s ? ({ id: s.id as string, orgId: s.org_id as string, name: s.name as string, slug: s.slug as string } as Site) : null;
 }

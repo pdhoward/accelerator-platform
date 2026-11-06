@@ -35,3 +35,4 @@ export * from "./cradle-graph";
 export * from "./cradle-estate";
 export * from "./cradle-packs";
 export * from "./cradle-runtime";
+export * from "./cradle-proof";

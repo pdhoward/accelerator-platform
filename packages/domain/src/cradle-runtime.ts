@@ -63,3 +63,19 @@ export function runtimeBook(r: CradleResponse, site: { id: string; name: string 
   const pack = r.pack ? { id: r.pack.id, version: r.pack.version } : null;
   return { site, pack, version: fingerprint(JSON.stringify({ pack, policies, rulings })), at, policies, rulings };
 }
+
+/** The mark a transformed app shows (the store's header, its home page): one line, the same on every Cradle site. */
+export const CRADLE_MARK = { title: "Running on AI", tagline: "Intelligence matters", by: "Accelerator Cradle" } as const;
+
+/**
+ * What /api/runtime/book returns: the live book (newest rules), the version in
+ * force (the last one that passed the conformance gate; null before the first
+ * proof), the scenarios that prove it, the newest proof of the live version,
+ * and the mark.
+ */
+export type RuntimeResponse = RuntimeBook & {
+  mark: typeof CRADLE_MARK;
+  scenarios: import("./cradle-proof").Scenario[];
+  inForce: { version: string; at: string; book: RuntimeBook } | null;
+  proof: import("./cradle-proof").Proof | null;
+};
