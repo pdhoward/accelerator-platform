@@ -38,7 +38,7 @@ const CONTROL: Block[] = [
 ];
 const CRADLE: Block[] = [
   { id: "policies", title: "Policies and business rules", note: "Plain English, versioned, dated, owned", icon: ScrollText },
-  { id: "datamodel", title: "Data model", note: "Records, fields, allowed states", icon: Database },
+  { id: "datamodel", title: "Data dictionary (coming)", note: "Every data element, traced to its tables and across apps", icon: Database },
   { id: "conflicts", title: "Contradictions and gaps", note: "Found before they reach customers", icon: X },
   { id: "decisions", title: "Decisions", note: "Every ruling kept as precedent", icon: Check },
   { id: "kernels", title: "Kernels", note: "Verified code for money, stock and personal data", icon: Boxes },
@@ -59,18 +59,20 @@ const STEPS: Step[] = [
     outcome: "The customer has a secure Control Room with their systems in it.", lights: ["admin", "accounts", "code", "apps"],
   },
   {
-    n: 2, title: "Open the Control Room", who: "Steward and operators",
-    what: ["Sign in and see every system the company runs.", "Choose one to work on.", "Health, configuration, keys and work for that system, all in one place."],
+    n: 2, title: "Manage applications in the Control Room", who: "Steward and operators",
+    what: ["Register new applications and systems for AI transformation.", "Sign in and view the systems registered.", "Choose one to work on.", "Health, configuration, keys and work for that system, all in one place."],
     outcome: "One place to see and steer every app.", lights: ["steward", "operators", "accounts", "vault"],
   },
   {
     n: 3, title: "Ingest: the crew reads the system", who: "AI crew (read-only)",
     what: [
       "A Surveyor takes the census: programs, screens, jobs, routes, data definitions.",
-      "Extractors read the code in slices and pull out the policies, business rules and data model, each with a citation to the exact line.",
+      "Extractors read the code in slices and pull out the policies and business rules, each with a citation to the exact line.",
       "A Clerk and Gap Finder reconcile across slices and repositories: the same rule built two ways, code that breaks a regulation, events nothing governs.",
+      "SOON:Data extraction: a dictionary of every data element the code uses (fields, records, copybook items, API payloads), each traced to the database table or collection where it lives.",
+      "SOON:Data rationalization: the same element linked across apps that name it differently, so you can follow a value (a rate quote, a balance) as it moves and transforms through a whole system. Uncertain matches go to the steward, like contradictions.",
     ],
-    outcome: "A draft policy book and data model, matched to an industry pack. Nothing in your code was changed.", lights: ["crew", "code", "policies", "datamodel", "conflicts"],
+    outcome: "A draft policy book matched to an industry pack, with every rule cited to the code. Nothing in your code was changed.", lights: ["crew", "code", "policies", "datamodel", "conflicts"],
   },
   {
     n: 4, title: "The Policy Walk", who: "Steward, guided by the crew",
@@ -153,12 +155,13 @@ export default function PlatformPage() {
       {/* Hero */}
       <section className="mx-auto max-w-[1280px] px-4 pb-8 pt-12 sm:px-8 sm:pt-16">
         <p className="font-mono text-[12px] uppercase tracking-[0.2em] text-gold-2">Platform overview</p>
-        <h1 className="mt-3 max-w-4xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
-          Your business rules, <span className="text-gold-2">running</span> your software.
+        <h1 className="mt-3 max-w-5xl text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
+          Transform your business from running on software to running on <span className="text-gold-2">AI</span>.
+          <span className="mt-3 block text-2xl font-medium tracking-tight text-gold-2 sm:text-3xl">Intelligence matters.</span>
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-relaxed text-fog">
           The Accelerator reads the applications you already have, turns the rules buried in their code into a policy book your business owns, and then runs your apps from that book.
-          An AI crew does the reading, building and testing. Your people make the decisions.
+          Your set of industry-specialized AI agents reads, builds, tests and delivers in real time. Your people make the decisions.
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           {["Works on the code you have, from web apps to COBOL", "Rules in plain English, owned by the business", "Change behavior without a rewrite", "Verified code where exactness matters"].map((x) => (
@@ -385,12 +388,18 @@ function StepDetail({ s }: { s: Step }) {
       <div className="font-mono text-[11.5px] uppercase tracking-widest text-gold-2">Step {s.n} · {s.who}</div>
       <h3 className="mt-1 text-2xl font-semibold tracking-tight">{s.title}</h3>
       <ul className="mt-4 flex flex-col gap-2.5">
-        {s.what.map((w) => (
-          <li key={w} className="flex gap-2.5 text-[14.5px] leading-relaxed text-fog">
-            <span className="mt-2 size-1.5 shrink-0 rounded-full bg-gold-2" aria-hidden />
-            {w}
-          </li>
-        ))}
+        {s.what.map((w) => {
+          const soon = w.startsWith("SOON:");
+          return (
+            <li key={w} className={`flex gap-2.5 text-[14.5px] leading-relaxed ${soon ? "text-mist" : "text-fog"}`}>
+              <span className={`mt-2 size-1.5 shrink-0 rounded-full ${soon ? "border border-cyan bg-transparent" : "bg-gold-2"}`} aria-hidden />
+              <span>
+                {soon && <span className="mr-1.5 rounded border border-cyan/50 px-1.5 py-px font-mono text-[10.5px] uppercase tracking-wider text-cyan">Coming</span>}
+                {soon ? w.slice(5) : w}
+              </span>
+            </li>
+          );
+        })}
       </ul>
       <div className="mt-auto pt-5">
         <div className="rounded-xl border border-good/30 bg-good/[0.06] px-4 py-3 text-[14px]">
