@@ -121,6 +121,19 @@ const COMPARE: [string, string, string][] = [
 ];
 
 // ── A | B | C: Machine Shop three ways (gen3-cradle.md §12) ─────────────────
+/** Measured on Machine Shop, 2026-11-07 (production builds, Lighthouse desktop). The 4th field marks which side the row favours. */
+const MEASURED: [string, string, string, "old" | "new" | "even"][] = [
+  ["Plain-words requests answered", "0 of 5: every word must match a product", "3 of 5, with filters for price, stock and category, and an explanation", "new"],
+  ["Comparing products", "Not possible", "Builds a side-by-side table when asked to compare", "new"],
+  ["Lighthouse: performance · accessibility · best practices · SEO", "100 · 94 · 96 · 100 (home and search)", "100 · 94 · 96 · 100 (home); 97 · 94 · 96 · 100 (search)", "even"],
+  ["Time to answer a search", "about 0.2 s", "about 1.7 s (one fast model call)", "old"],
+  ["JavaScript sent to the browser", "192 KB (gzipped)", "196 KB (gzipped): the agent runs on the server", "even"],
+  ["Model cost", "None", "About $0.0003 per AI search (roughly $3 per 10,000); $0.02 to compile each new rules version; about $0.20 to prove it", "old"],
+  ["Changing a business rule", "Ticket, developer, code review, release: days to weeks, developer-dependent", "A ruling by the business expert, proven in about a minute, then live", "new"],
+  ["Why did it do that?", "Read the code", "A Why? drawer on every answer: steps, timing, cost and the rules applied", "new"],
+  ["Proof it follows the rules", "Unit tests written by developers", "Every rules change proven against scenarios before it goes live", "new"],
+];
+
 const SITES = [
   {
     tag: "A · Traditional app", short: "traditional", title: "The original", url: "https://machineshop-git-baseline-strategicmachines.vercel.app",
@@ -357,6 +370,35 @@ export default function PlatformPage() {
             />
           </div>
         </div>
+      </section>
+
+      {/* Measured: the same store, traditional vs AI-run */}
+      <section className="mx-auto mt-14 max-w-[1280px] px-4 sm:px-8">
+        <SectionHead
+          eyebrow="Measured"
+          title="The same store, traditional and AI-run"
+          hint="Machine Shop, production builds of both versions, measured on 2026-11-07: Lighthouse (desktop), the JavaScript sent to the browser, and five plain-words shopping requests. Model costs are Anthropic list prices."
+        />
+        <div className="overflow-hidden rounded-2xl border border-line">
+          <div className="hidden grid-cols-[1fr_1fr_1.2fr] bg-panel-2 px-4 py-2.5 font-mono text-[11px] uppercase tracking-widest text-mist sm:grid">
+            <span />
+            <span>Traditional</span>
+            <span className="text-gold-2">AI-run (Cradle)</span>
+          </div>
+          {MEASURED.map(([k, old, now, edge]) => (
+            <div key={k} className="grid gap-1 border-t border-line px-4 py-3 sm:grid-cols-[1fr_1fr_1.2fr] sm:gap-4">
+              <span className="text-[14px] font-semibold">{k}</span>
+              <span className={`text-[13.5px] ${edge === "old" ? "text-ink" : "text-mist"}`}>{old}</span>
+              <span className={`text-[13.5px] ${edge === "new" ? "text-ink" : edge === "old" ? "text-mist" : "text-fog"}`}>
+                {edge === "new" && <Check className="mr-1.5 inline size-3.5 text-good" aria-hidden />}
+                {now}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[12.5px] text-mist">
+          The honest trade: an AI-run request takes about 1.5 seconds longer and costs a fraction of a cent. In return the store understands what shoppers mean, explains itself, and changes when the business changes a rule.
+        </p>
       </section>
 
       {/* A | B | C: the same store, three ways */}
