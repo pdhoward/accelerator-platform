@@ -4,6 +4,7 @@ import { z } from "zod";
 import { demoMode } from "@/lib/auth";
 import { alignOpenRulings, cradleHistory, demoAction, demoCradle, demoEvents, demoHistory, fillHole, ingestEvents, readCradle, resolveConflict, restorePolicy, rulePolicy, startCradle } from "@/lib/cradle";
 import { body, fail, json, siteRoute } from "@/lib/http";
+import { nudgeApp } from "@/lib/proof";
 import { runIngest } from "@/lib/work";
 
 /**
@@ -71,5 +72,7 @@ export const POST = siteRoute(async ({ request, identity, caller, site }) => {
   else if (input.action === "fill") await fillHole(site, identity, caller, input.concept, input.event, input.statement);
   else if (input.action === "restore") await restorePolicy(site, identity, caller, input.key, input.version);
   else await alignOpenRulings(site, identity, caller);
+  // The rules changed: the app proves them now (the conformance gate), not on its next page view.
+  if (["rule", "resolve", "fill", "restore"].includes(input.action)) await nudgeApp(site, input.action);
   return json(await readCradle(site));
 }, "config.manage");

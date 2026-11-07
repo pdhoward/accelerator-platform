@@ -1286,6 +1286,8 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   } else if (r.kind === "ingest") {
     // Gen 3: what the site's code implies lands on its policy book, unconfirmed (gen3-cradle.md §5).
     await applyIngest({ id: job.site_id as string, orgId: job.org_id as string }, r.report);
+    // New rules from the code: the app proves them now (the conformance gate).
+    await (await import("./proof")).nudgeApp({ id: job.site_id as string }, "ingest");
   }
 
   await db().from("acc_jobs").update({ status: "done", result: r, finished_at: now() }).eq("id", jobId);

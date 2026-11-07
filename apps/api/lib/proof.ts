@@ -1,6 +1,8 @@
 import { CRADLE_MARK, proofOutcome, runtimeBook, type CaseResult, type Proof, type RuntimeBook, type RuntimeResponse, type Scenario, type Site } from "@accelerator/domain";
 
 import { readCradle } from "./cradle";
+import { mintRuntimeToken } from "./runtime";
+import { secretValues } from "./vault";
 import { db, rows, type Row } from "./supabase";
 
 /**
@@ -120,4 +122,53 @@ export async function setScenarioStatus(site: Site, id: string, status: Scenario
   const s = (await scenariosOf(site.id)).find((x) => x.id === id);
   if (!s) throw new Error("No such scenario.");
   await write(site, id, { type: "scenario", ...s, status }, by);
+}
+
+// ── Proving when the rules change (push), and the safety net (cron) ──────────
+
+/**
+ * Tell the site's app to prove its newest rules now, instead of waiting for
+ * the next page view. The app's address and Vercel's protection bypass (for
+ * preview deployments behind Vercel's sign-in) are engine keys in the site's
+ * vault: CRADLE_APP_URL and VERCEL_PROTECTION_BYPASS. Never throws: a missed
+ * nudge is picked up by the cron safety net or the next page view.
+ */
+export async function nudgeApp(site: Pick<Site, "id">, reason: string): Promise<"sent" | "no app address" | "failed"> {
+  try {
+    const engine = await secretValues(site.id, "engine");
+    const url = engine.CRADLE_APP_URL?.replace(/\/+$/, "");
+    if (!url) return "no app address";
+    const res = await fetch(`${url}/api/cradle/prove`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${mintRuntimeToken(site.id)}`,
+        "content-type": "application/json",
+        ...(engine.VERCEL_PROTECTION_BYPASS ? { "x-vercel-protection-bypass": engine.VERCEL_PROTECTION_BYPASS } : {}),
+      },
+      body: JSON.stringify({ reason }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) console.error(`[proof] nudge ${site.id}: the app answered ${res.status}`);
+    return res.ok ? "sent" : "failed";
+  } catch (err) {
+    console.error(`[proof] nudge ${site.id}:`, err instanceof Error ? err.message : err);
+    return "failed";
+  }
+}
+
+/** The safety net: every site whose newest rules aren't in force and aren't proven, failed or freshly running gets a nudge. */
+export async function nudgeWaiting(): Promise<{ checked: number; nudged: string[] }> {
+  const cradles = await rows(db().from("acc_cradles").select("site_id"));
+  const nudged: string[] = [];
+  for (const c of cradles) {
+    const [s] = await rows(db().from("acc_sites").select("id, org_id, name, slug").eq("id", c.site_id as string));
+    if (!s) continue;
+    const site = { id: s.id as string, orgId: s.org_id as string, name: s.name as string, slug: s.slug as string } as Site;
+    const res = await runtimeResponse(site).catch(() => null);
+    if (!res || res.inForce?.version === res.version) continue;
+    const p = res.proof;
+    const waiting = !p || p.status === "requested" || (p.status === "running" && Date.now() - Date.parse(p.at) > STALE_MS);
+    if (waiting && (await nudgeApp(site, "safety net")) === "sent") nudged.push(site.slug);
+  }
+  return { checked: cradles.length, nudged };
 }
