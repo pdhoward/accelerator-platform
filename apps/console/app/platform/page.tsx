@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  ArrowRight, Bot, Boxes, Building2, Check, CreditCard, Database, GitBranch, History, LayoutDashboard, Lock, Network,
+  ArrowRight, Bot, Boxes, Building2, Check, Cpu, CreditCard, Database, FileCode2, GitBranch, History, Layers, LayoutDashboard, Lock, MessageSquare, Network,
   Pause, Play, Scale, ScrollText, Server, ShieldCheck, Sparkles, Users, Workflow, X,
 } from "lucide-react";
 
@@ -292,47 +292,77 @@ export default function PlatformPage() {
         </div>
       </section>
 
-      {/* How a Cradle app runs: the big picture at runtime */}
-      <section className="mx-auto mt-14 max-w-[1280px] px-4 sm:px-8">
-        <SectionHead
-          eyebrow="At runtime"
-          title="How a Cradle app runs"
-          hint="The app runs in your own cloud. The Accelerator keeps its rules and proves every change; your existing services stay where they are, called through verified kernels."
-        />
-        <div className="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1.25fr_auto_1fr]">
-          <RuntimeBox title="Accelerator platform" sub="Strategic Machines cloud" tone="violet" items={[
-            ["Policy book and graph", "Every rule, versioned and dated"],
-            ["Conformance gate", "Proves each new version of the rules"],
-            ["Keys vault", "Secrets, never shown to the AI"],
-            ["Control Room", "Where the business rules and approves"],
-          ]} />
-          <Flow lines={[["→", "Proven rules, read live (next: baked in at each deploy)"], ["→", "\u201cProve now\u201d the moment a rule changes"], ["←", "Proof results, scenario by scenario"]]} />
-          <div className="flex flex-col gap-2 rounded-2xl border border-gold/50 bg-gradient-to-b from-gold/[0.07] to-transparent p-3">
-            <div className="px-1">
-              <span className="text-[15px] font-semibold">Your Cradle app</span>
-              <span className="block font-mono text-[11px] text-gold-2">your cloud</span>
-            </div>
-            <div className="rounded-xl border border-line-2 bg-bg/60 p-3">
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist">Cradle runtime · shared package</div>
-              <ul className="mt-1.5 grid gap-1 text-[13px] text-fog sm:grid-cols-2">
-                <li><span className="font-semibold text-ink">App agent:</span> route, ground, decide</li>
-                <li><span className="font-semibold text-ink">Projections:</span> rules compiled for speed</li>
-                <li><span className="font-semibold text-ink">Generative UI:</span> tested components</li>
-                <li><span className="font-semibold text-ink">Channels:</span> web, voice, messaging</li>
-              </ul>
-            </div>
-            <div className="rounded-xl border border-line-2 bg-bg/60 p-3">
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist">Kernels · your verified code</div>
-              <p className="mt-1 text-[13px] text-fog">Checkout, pricing, eligibility, data access, and every integration your app already had, brought over from its code and guarded by the rules.</p>
-            </div>
+      {/* How a Cradle app runs: from the legacy app to the running Cradle app */}
+      <section className="mx-auto mt-16 max-w-[1500px] px-4 sm:px-8">
+        <div className="mx-auto max-w-[1280px]">
+          <SectionHead
+            eyebrow="The big picture"
+            title="How a Cradle app comes to life, and how it runs"
+            hint="Your existing app is read, not rewritten. The Accelerator turns its code into rules the business owns, proves every change, and runs the new app in your own cloud, with your existing services where they are."
+          />
+        </div>
+        <div className="relative overflow-hidden rounded-3xl border border-line bg-[radial-gradient(ellipse_at_top_left,rgba(124,92,252,0.10),transparent_45%),radial-gradient(ellipse_at_bottom_right,rgba(228,191,74,0.10),transparent_50%)] p-4 sm:p-6">
+          <div className="grid items-stretch gap-3 xl:grid-cols-[0.95fr_auto_1.05fr_auto_1.3fr_auto_0.95fr]">
+            {/* 1. The legacy app */}
+            <Stage tone="fog" icon={FileCode2} title="Your legacy app" sub="as it runs today">
+              <div className="flex flex-wrap gap-1.5">
+                {["Web apps", "APIs", "Batch jobs", "Mainframe"].map((k) => (
+                  <span key={k} className="rounded-full border border-line-2 bg-panel px-2 py-0.5 text-[12px] text-fog">{k}</span>
+                ))}
+              </div>
+              <div className="mt-1 font-mono text-[10.5px] uppercase tracking-widest text-mist">Any language</div>
+              <div className="flex flex-wrap gap-1.5">
+                {LANGS.map(([name, color]) => (
+                  <span key={name} className="rounded-md px-2 py-0.5 font-mono text-[11.5px] font-medium" style={{ background: `${color}1f`, color, border: `1px solid ${color}55` }}>{name}</span>
+                ))}
+              </div>
+              <p className="mt-1 text-[12px] leading-snug text-mist">Business rules buried in code, copybooks, jobs and screens: nobody has the full list.</p>
+            </Stage>
+
+            <Flow phase="Transform" lines={[["→", "Ingested"], ["→", "Scanned and parsed"], ["→", "Rules and data extracted, with citations"]]} />
+
+            {/* 2. The Accelerator */}
+            <Stage tone="violet" icon={Sparkles} title="Accelerator platform" sub="Strategic Machines cloud">
+              {[
+                [Layers, "Industry and function packs", "Starter rules for commerce, cards, hospitality…"],
+                [ScrollText, "Policy book and graph", "Every rule versioned, dated, owned"],
+                [ShieldCheck, "Conformance gate", "Proves each change before it serves"],
+                [LayoutDashboard, "Control Room", "Where the business rules and approves"],
+                [Lock, "Keys vault", "Secrets never shown to the AI"],
+              ].map(([Icon, t, d]) => (
+                <Item key={t as string} icon={Icon as typeof Bot} title={t as string} note={d as string} />
+              ))}
+            </Stage>
+
+            <Flow phase="Run" lines={[["→", "Proven rules"], ["→", "\u201cProve now\u201d when a rule changes"], ["←", "Proof results"]]} />
+
+            {/* 3. The Cradle app */}
+            <Stage tone="gold" icon={Boxes} title="Your Cradle app" sub="runs in your cloud">
+              <div className="rounded-xl border border-gold/30 bg-bg/50 p-2.5">
+                <div className="font-mono text-[10.5px] uppercase tracking-widest text-gold-2">Cradle runtime · shared</div>
+                <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                  <Item icon={Bot} title="App agent" note="Routes, grounds, decides" />
+                  <Item icon={Network} title="Projections" note="Rules compiled for speed" />
+                  <Item icon={Sparkles} title="Generative UI" note="Tested components" />
+                  <Item icon={MessageSquare} title="Channels" note="Web, voice, messaging" />
+                </div>
+              </div>
+              <div className="rounded-xl border border-line-2 bg-bg/50 p-2.5">
+                <div className="font-mono text-[10.5px] uppercase tracking-widest text-mist">Kernels · your verified code</div>
+                <p className="mt-1 text-[12.5px] leading-snug text-fog">Checkout, pricing, eligibility, data access, and every integration the old app had, guarded by the rules.</p>
+              </div>
+            </Stage>
+
+            <Flow phase="Run" lines={[["→", "Kernel calls, checked by guards"], ["→", "Model calls"], ["←", "Results and events"]]} />
+
+            {/* 4. Services */}
+            <Stage tone="cyan" icon={Server} title="Your services" sub="where they are today">
+              <Item icon={CreditCard} title="Payments" note="Stripe and others" />
+              <Item icon={Database} title="Databases" note="Postgres, SQL Server, MongoDB" />
+              <Item icon={MessageSquare} title="Messaging" note="Slack, Teams, email" />
+              <Item icon={Cpu} title="Voice and models" note="Realtime voice · Claude · OpenAI · open-source models" />
+            </Stage>
           </div>
-          <Flow lines={[["→", "Kernel calls, checked by guards"], ["→", "Model calls (Claude)"], ["←", "Results and events"]]} />
-          <RuntimeBox title="Your services" sub="where they are today" tone="cyan" items={[
-            ["Payments", "Stripe and others"],
-            ["Databases", "Postgres, SQL Server, MongoDB"],
-            ["Messaging", "Slack, Teams, email"],
-            ["Voice and models", "Realtime voice, Claude"],
-          ]} />
         </div>
       </section>
 
@@ -472,32 +502,59 @@ export default function PlatformPage() {
   );
 }
 
-function RuntimeBox({ title, sub, tone, items }: { title: string; sub: string; tone: "violet" | "cyan"; items: [string, string][] }) {
+/** The legacy app's languages, each in its own colour. */
+const LANGS: [string, string][] = [
+  ["TypeScript", "#3b82f6"], ["JavaScript", "#eab308"], ["Python", "#22c55e"], ["Java", "#f97316"], ["C#", "#a855f7"],
+  ["Go", "#06b6d4"], ["Rust", "#ef4444"], ["PHP", "#818cf8"], ["COBOL", "#e4bf4a"], ["JCL", "#d4d4d8"],
+];
+
+const STAGE_TONE = {
+  fog: { box: "border-line-2 bg-panel/80", icon: "text-fog", sub: "text-mist" },
+  violet: { box: "border-violet/50 bg-violet/[0.07]", icon: "text-[#a78bfa]", sub: "text-[#a78bfa]" },
+  gold: { box: "border-gold/60 bg-gold/[0.07] shadow-[0_0_40px_-18px_rgba(228,191,74,0.6)]", icon: "text-gold-2", sub: "text-gold-2" },
+  cyan: { box: "border-cyan/40 bg-cyan/[0.05]", icon: "text-cyan", sub: "text-cyan" },
+} as const;
+
+/** One stage of the journey: a titled card. */
+function Stage({ tone, icon: Icon, title, sub, children }: { tone: keyof typeof STAGE_TONE; icon: typeof Bot; title: string; sub: string; children: React.ReactNode }) {
+  const t = STAGE_TONE[tone];
   return (
-    <div className={`flex flex-col gap-2 rounded-2xl border p-3 ${tone === "violet" ? "border-violet/50 bg-violet/[0.05]" : "border-cyan/40 bg-cyan/[0.04]"}`}>
-      <div className="px-1">
-        <span className="text-[15px] font-semibold">{title}</span>
-        <span className={`block font-mono text-[11px] ${tone === "violet" ? "text-[#a78bfa]" : "text-cyan"}`}>{sub}</span>
+    <div className={`flex flex-col gap-2 rounded-2xl border p-3.5 backdrop-blur ${t.box}`}>
+      <div className="flex items-start gap-2.5 px-0.5 pb-1">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-line-2 bg-bg/60"><Icon className={`size-4 ${t.icon}`} aria-hidden /></span>
+        <span>
+          <span className="block text-[15px] font-semibold leading-tight">{title}</span>
+          <span className={`block font-mono text-[11px] ${t.sub}`}>{sub}</span>
+        </span>
       </div>
-      {items.map(([t, d]) => (
-        <div key={t} className="rounded-xl border border-line bg-panel px-3 py-2">
-          <span className="block text-[13.5px] font-semibold leading-tight">{t}</span>
-          <span className="block text-[12px] text-mist">{d}</span>
-        </div>
-      ))}
+      {children}
     </div>
   );
 }
 
-/** The arrows between two boxes: what flows, and which way. Turns vertical on narrow screens. */
-function Flow({ lines }: { lines: [string, string][] }) {
+function Item({ icon: Icon, title, note }: { icon: typeof Bot; title: string; note: string }) {
   return (
-    <div className="flex flex-col justify-center gap-2 px-1 py-1 lg:w-44">
+    <div className="flex gap-2 rounded-xl border border-line bg-panel/90 px-2.5 py-2">
+      <Icon className="mt-0.5 size-3.5 shrink-0 text-mist" aria-hidden />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold leading-tight">{title}</span>
+        <span className="block text-[11.5px] leading-snug text-mist">{note}</span>
+      </span>
+    </div>
+  );
+}
+
+/** The flow between two stages: a phase tag, a moving line, and what travels which way. Turns vertical below xl. */
+function Flow({ phase, lines }: { phase: "Transform" | "Run"; lines: [string, string][] }) {
+  return (
+    <div className="flex flex-col justify-center gap-1.5 py-1 xl:w-[118px]">
+      <span className={`self-start rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${phase === "Transform" ? "bg-violet/20 text-[#c4b5fd]" : "bg-gold/20 text-gold-2"}`}>{phase}</span>
+      <div className="pf-flow hidden h-[3px] rounded-full bg-[linear-gradient(90deg,transparent,#7c5cfc,#e4bf4a,transparent)] xl:block" aria-hidden />
       {lines.map(([dir, text]) => (
-        <div key={text} className="flex items-center gap-2 text-[12px] leading-snug text-fog">
-          <span className="font-mono text-[15px] text-gold-2" aria-hidden>
-            <span className="hidden lg:inline">{dir}</span>
-            <span className="lg:hidden">{dir === "→" ? "↓" : "↑"}</span>
+        <div key={text} className="flex items-start gap-1.5 text-[11.5px] leading-snug text-fog">
+          <span className="font-mono text-[13px] leading-none text-gold-2" aria-hidden>
+            <span className="hidden xl:inline">{dir}</span>
+            <span className="xl:hidden">{dir === "→" ? "↓" : "↑"}</span>
           </span>
           {text}
         </div>
