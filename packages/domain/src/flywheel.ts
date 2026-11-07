@@ -533,4 +533,6 @@ export type SecretStatus = { environment: VaultEnv; name: string; last4: string;
 export const ENGINE_KEYS = [
   { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → only this repository, Contents: read" },
   { name: "VERCEL_TOKEN", purpose: "Read deployments and preview URLs", howToGet: "Vercel → Account Settings → Tokens (scope: this project)" },
+  { name: "CRADLE_APP_URL", purpose: "Where the AI-run app is, so the Accelerator can ask it to prove new rules the moment they change (conformance gate)", howToGet: "The app's address, e.g. https://machineshop-git-cradle-strategicmachines.vercel.app" },
+  { name: "VERCEL_PROTECTION_BYPASS", purpose: "Optional: only if that address sits behind Vercel's sign-in (Deployment Protection)", howToGet: "Vercel → the app's project → Settings → Deployment Protection → Protection Bypass for Automation" },
 ];

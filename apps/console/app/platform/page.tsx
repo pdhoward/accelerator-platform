@@ -197,7 +197,7 @@ export default function PlatformPage() {
           Your set of industry-specialized AI agents reads, builds, tests and delivers in real time. Your people make the decisions.
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
-          {["Works on the code you have, from web apps to COBOL", "Rules in plain English, owned by the business", "Change behavior without a rewrite", "Verified code where exactness matters"].map((x) => (
+          {["Works on the code you have, from web apps to COBOL", "Rules in plain English, owned by the business", "Change behavior without a rewrite", "Verified code where exactness matters", "Each rule change ships with its evidence"].map((x) => (
             <span key={x} className="rounded-full border border-line-2 bg-panel px-3 py-1 text-[13px] text-fog">{x}</span>
           ))}
         </div>
@@ -292,6 +292,50 @@ export default function PlatformPage() {
         </div>
       </section>
 
+      {/* How a Cradle app runs: the big picture at runtime */}
+      <section className="mx-auto mt-14 max-w-[1280px] px-4 sm:px-8">
+        <SectionHead
+          eyebrow="At runtime"
+          title="How a Cradle app runs"
+          hint="The app runs in your own cloud. The Accelerator keeps its rules and proves every change; your existing services stay where they are, called through verified kernels."
+        />
+        <div className="grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1.25fr_auto_1fr]">
+          <RuntimeBox title="Accelerator platform" sub="Strategic Machines cloud" tone="violet" items={[
+            ["Policy book and graph", "Every rule, versioned and dated"],
+            ["Conformance gate", "Proves each new version of the rules"],
+            ["Keys vault", "Secrets, never shown to the AI"],
+            ["Control Room", "Where the business rules and approves"],
+          ]} />
+          <Flow lines={[["→", "Proven rules, read live (next: baked in at each deploy)"], ["→", "\u201cProve now\u201d the moment a rule changes"], ["←", "Proof results, scenario by scenario"]]} />
+          <div className="flex flex-col gap-2 rounded-2xl border border-gold/50 bg-gradient-to-b from-gold/[0.07] to-transparent p-3">
+            <div className="px-1">
+              <span className="text-[15px] font-semibold">Your Cradle app</span>
+              <span className="block font-mono text-[11px] text-gold-2">your cloud</span>
+            </div>
+            <div className="rounded-xl border border-line-2 bg-bg/60 p-3">
+              <div className="font-mono text-[11px] uppercase tracking-widest text-mist">Cradle runtime · shared package</div>
+              <ul className="mt-1.5 grid gap-1 text-[13px] text-fog sm:grid-cols-2">
+                <li><span className="font-semibold text-ink">App agent:</span> route, ground, decide</li>
+                <li><span className="font-semibold text-ink">Projections:</span> rules compiled for speed</li>
+                <li><span className="font-semibold text-ink">Generative UI:</span> tested components</li>
+                <li><span className="font-semibold text-ink">Channels:</span> web, voice, messaging</li>
+              </ul>
+            </div>
+            <div className="rounded-xl border border-line-2 bg-bg/60 p-3">
+              <div className="font-mono text-[11px] uppercase tracking-widest text-mist">Kernels · your verified code</div>
+              <p className="mt-1 text-[13px] text-fog">Checkout, pricing, eligibility, data access, and every integration your app already had, brought over from its code and guarded by the rules.</p>
+            </div>
+          </div>
+          <Flow lines={[["→", "Kernel calls, checked by guards"], ["→", "Model calls (Claude)"], ["←", "Results and events"]]} />
+          <RuntimeBox title="Your services" sub="where they are today" tone="cyan" items={[
+            ["Payments", "Stripe and others"],
+            ["Databases", "Postgres, SQL Server, MongoDB"],
+            ["Messaging", "Slack, Teams, email"],
+            ["Voice and models", "Realtime voice, Claude"],
+          ]} />
+        </div>
+      </section>
+
       {/* Old vs new */}
       <section className="mx-auto mt-14 max-w-[1280px] px-4 sm:px-8">
         <SectionHead eyebrow="Why it's better" title="The traditional way, and the Accelerator way" />
@@ -339,6 +383,9 @@ export default function PlatformPage() {
       <section className="mx-auto mt-14 grid max-w-[1280px] gap-4 px-4 sm:px-8 lg:grid-cols-[1.2fr_1fr]">
         <div className="rounded-2xl border border-line bg-panel p-5">
           <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-good" aria-hidden /><span className="text-[17px] font-semibold">Safe by design</span></div>
+          <p className="mt-2 rounded-xl border border-gold/40 bg-gold/[0.06] px-3 py-2 text-[14.5px] font-semibold text-ink">
+            Each rule change ships with its evidence. <span className="font-normal text-fog">Before new rules reach a customer, the app is proven against every scenario; until it passes, the last proven rules stay in force.</span>
+          </p>
           <ul className="mt-3 grid gap-2 text-[13.5px] text-fog sm:grid-cols-2">
             {[
               ["The business decides", "The model never makes its own rules; it carries out the ones you approve."],
@@ -421,6 +468,40 @@ export default function PlatformPage() {
       <footer className="mx-auto mt-16 max-w-[1280px] border-t border-line px-4 py-6 font-mono text-[12px] text-mist sm:px-8">
         Strategic Machines · Accelerator platform overview
       </footer>
+    </div>
+  );
+}
+
+function RuntimeBox({ title, sub, tone, items }: { title: string; sub: string; tone: "violet" | "cyan"; items: [string, string][] }) {
+  return (
+    <div className={`flex flex-col gap-2 rounded-2xl border p-3 ${tone === "violet" ? "border-violet/50 bg-violet/[0.05]" : "border-cyan/40 bg-cyan/[0.04]"}`}>
+      <div className="px-1">
+        <span className="text-[15px] font-semibold">{title}</span>
+        <span className={`block font-mono text-[11px] ${tone === "violet" ? "text-[#a78bfa]" : "text-cyan"}`}>{sub}</span>
+      </div>
+      {items.map(([t, d]) => (
+        <div key={t} className="rounded-xl border border-line bg-panel px-3 py-2">
+          <span className="block text-[13.5px] font-semibold leading-tight">{t}</span>
+          <span className="block text-[12px] text-mist">{d}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The arrows between two boxes: what flows, and which way. Turns vertical on narrow screens. */
+function Flow({ lines }: { lines: [string, string][] }) {
+  return (
+    <div className="flex flex-col justify-center gap-2 px-1 py-1 lg:w-44">
+      {lines.map(([dir, text]) => (
+        <div key={text} className="flex items-center gap-2 text-[12px] leading-snug text-fog">
+          <span className="font-mono text-[15px] text-gold-2" aria-hidden>
+            <span className="hidden lg:inline">{dir}</span>
+            <span className="lg:hidden">{dir === "→" ? "↓" : "↑"}</span>
+          </span>
+          {text}
+        </div>
+      ))}
     </div>
   );
 }
