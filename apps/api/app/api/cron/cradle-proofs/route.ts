@@ -9,7 +9,8 @@ import { nudgeWaiting } from "@/lib/proof";
  * from Supabase Vault; anything else is refused.
  */
 export async function GET(request: Request) {
-  const want = process.env.CRON_SECRET;
+  // The shared secret Supabase sends from its Vault (accelerator_cron_secret); some environments name it CHRON_SECRET.
+  const want = process.env.CRON_SECRET || process.env.CHRON_SECRET;
   if (!want) return Response.json({ error: "CRON_SECRET isn't set on the API." }, { status: 503 });
   const got = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? "";
   if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) return Response.json({ error: "Not allowed." }, { status: 401 });
