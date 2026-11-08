@@ -123,7 +123,7 @@ const COMPARE: [string, string, string][] = [
 // ── A | B | C: Machine Shop three ways (gen3-cradle.md §12) ─────────────────
 /** Measured on Machine Shop, 2026-11-07 (production builds, Lighthouse desktop). The 4th field marks which side the row favours. */
 const MEASURED: [string, string, string, "old" | "new" | "even"][] = [
-  ["Plain-words requests answered", "0 of 5: every word must match a product", "3 of 5, with filters for price, stock and category, and an explanation", "new"],
+  ["Plain-words requests answered", "0 of 5: every word must match a product", "5 of 5, with filters for price, stock and category, an explanation, and broader words when the first try finds nothing", "new"],
   ["Comparing products", "Not possible", "Builds a side-by-side table when asked to compare", "new"],
   ["Lighthouse: performance · accessibility · best practices · SEO", "100 · 94 · 96 · 100 (home and search)", "100 · 94 · 96 · 100 (home); 97 · 94 · 96 · 100 (search)", "even"],
   ["Time to answer a search", "about 0.2 s", "about 1.7 s (one fast model call)", "old"],
@@ -454,7 +454,7 @@ export default function PlatformPage() {
         <SectionHead
           eyebrow="Measured"
           title="The same store, traditional and AI-run"
-          hint="Machine Shop, production builds of both versions, measured on 2026-11-07: Lighthouse (desktop), the JavaScript sent to the browser, and five plain-words shopping requests. Model costs are Anthropic list prices."
+          hint="Machine Shop, both versions, measured on 2026-11-07 (production builds: Lighthouse desktop, browser JavaScript) and 2026-11-08 (five plain-words shopping requests). Model costs are Anthropic list prices."
         />
         <div className="overflow-hidden rounded-2xl border border-line">
           <div className="hidden grid-cols-[1fr_1fr_1.2fr] bg-panel-2 px-4 py-2.5 font-mono text-[11px] uppercase tracking-widest text-mist sm:grid">
