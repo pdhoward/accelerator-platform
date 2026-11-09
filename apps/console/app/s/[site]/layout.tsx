@@ -33,6 +33,7 @@ export default async function SiteLayout({ children, params }: { children: React
         { href: `${base}/setup`, label: "Setup", icon: "list" },
         { href: `${base}/config`, label: "Configuration", icon: "settings" },
         { href: `${base}/account`, label: "Account & usage", icon: "card" },
+        { href: `${base}/spend`, label: "Spend", icon: "activity" },
       ],
     },
     {

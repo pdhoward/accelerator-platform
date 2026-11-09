@@ -37,3 +37,4 @@ export * from "./cradle-packs";
 export * from "./cradle-runtime";
 export * from "./cradle-proof";
 export * from "./cradle-scorecard";
+export * from "./spend";
