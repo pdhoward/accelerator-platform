@@ -1,4 +1,4 @@
-import { CRADLE_MARK, proofOutcome, runtimeBook, type CaseResult, type Proof, type RuntimeBook, type RuntimeResponse, type Scenario, type Site } from "@accelerator/domain";
+import { CRADLE_MARK, proofOutcome, proofScorecard, runtimeBook, type CaseResult, type Proof, type ProofRun, type ProofScorecard, type RuntimeBook, type RuntimeResponse, type Scenario, type Site } from "@accelerator/domain";
 
 import { readCradle } from "./cradle";
 import { mintRuntimeToken } from "./runtime";
@@ -66,6 +66,22 @@ export async function compliance(site: Site) {
   if (!res) return null;
   const all = await scenariosOf(site.id);
   return { live: res.version, inForce: res.inForce ? { version: res.inForce.version, at: res.inForce.at } : null, proof: res.proof, scenarios: all };
+}
+
+/**
+ * The proof scorecard (B7): every finished proof run (each version of each
+ * PROOF-<book version> node), scored against the live book. One read of the
+ * graph plus the cradle; nothing is stored.
+ */
+export async function scorecard(site: Site): Promise<ProofScorecard | null> {
+  const r = await readCradle(site);
+  if (!r.cradle) return null;
+  const book = runtimeBook(r, { id: site.id, name: site.name });
+  const all = await rows(db().from("acc_cradle_nodes").select("key, version, body").eq("site_id", site.id).eq("kind", "decision").like("key", "PROOF-%").order("version"));
+  const runs = all.map((x) => x.body as ProofRun).filter((b) => b && (b.status === "passed" || b.status === "failed") && Array.isArray(b.results));
+  const [scenarios, inForce] = await Promise.all([scenariosOf(site.id), inForceOf(site.id)]);
+  const openConflicts = r.conflicts.filter((c) => c.status === "open").map((c) => ({ id: c.id, keys: c.keys, why: c.why }));
+  return proofScorecard({ scenarios, runs, book, inForce: inForce?.version ?? null, openConflicts });
 }
 
 const STALE_MS = 10 * 60_000;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { caseLabel, type Scenario } from "@accelerator/domain";
 import type { Compliance } from "@accelerator/api-client";
@@ -75,6 +76,7 @@ export function ConformanceGate({ siteId, canManage }: { siteId: string; canMana
         <button type="button" className={button("ghost")} onClick={() => setOpen((o) => !o)}>
           {open ? "Hide the scenarios" : `Show the ${live.length} scenarios`}
         </button>
+        <Link href={`/s/${siteId}/policy/proof`} className={button("ghost")}>Scorecard</Link>
         </div>
         {open && (
           <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">

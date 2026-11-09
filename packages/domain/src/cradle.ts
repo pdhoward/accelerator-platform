@@ -9,6 +9,7 @@
 
 import type { Domain } from "./domains";
 import type { Reading } from "./instruments";
+import type { ProofScorecard } from "./cradle-scorecard";
 import type { RiskClass } from "./types";
 
 // ── The graph's vocabulary ───────────────────────────────────────────────────
@@ -642,8 +643,43 @@ export type CradleResponse = {
 // ── The cradle's dial: the book's vital signs, in the workbench's Reading shape ─
 
 
-/** Six readings for the Cockpit Dial on the Policy screen: the book at rest is the summary. */
-export function cradleReadings(r: CradleResponse): Reading[] {
+/**
+ * The readings for the Cockpit Dial on the Policy screen: the book at rest is
+ * the summary. With the proof scorecard (B7) a seventh, Gate, shows how well
+ * the running app is proven against the book.
+ */
+export function cradleReadings(r: CradleResponse, score?: ProofScorecard | null): Reading[] {
+  const book = bookReadings(r);
+  return score === undefined ? book : [...book, gateReading(score, r)];
+}
+
+/** The Gate reading: the newest proof, flaky and failing cases, coverage and cost (B7). */
+export function gateReading(score: ProofScorecard | null, r: Pick<CradleResponse, "pack">): Reading {
+  const base = { face: "site" as const, id: "gate", label: "Gate", unit: "", change: null, source: r.pack ? `${r.pack.label} pack ${r.pack.version}` : null, evidence: null };
+  if (!score || !score.latest) {
+    return { ...base, condition: "not_connected", state: "Not proven", headline: null, trend: [], observedAt: null, facts: ["The running app hasn't proven any version of the book yet. It proves the rules the first time it runs on them."] };
+  }
+  const flaky = score.cases.filter((c) => c.verdict === "flaky").length;
+  const failing = score.cases.filter((c) => c.verdict === "failing").length;
+  const inForce = score.inForce === score.live;
+  const cov = score.coverage;
+  return {
+    ...base,
+    condition: failing ? "attention" : flaky || !inForce ? "unverified" : "verified",
+    state: inForce ? "In force" : "Held",
+    headline: `${score.latest.passed}/${score.latest.total}`,
+    trend: [...score.history].reverse().slice(-12).map((h) => (h.total ? Math.round((h.passed / h.total) * 100) : 0)),
+    observedAt: score.latest.at,
+    facts: [
+      inForce ? "The newest rules are proven and in force." : "The newest rules are held; the last proven version is in force.",
+      `${failing} failing, ${flaky} flaky${flaky ? " (often a rule that reads two ways)" : ""}`,
+      `${cov.covered} of ${cov.policies} policies and ${cov.coveredRulings} of ${cov.rulings} rulings have a scenario`,
+      `${score.runs} proof runs, $${score.totalCostUsd.toFixed(2)} to date`,
+    ],
+  };
+}
+
+function bookReadings(r: CradleResponse): Reading[] {
   const rd = r.readiness;
   const at = r.cradle?.ingestedAt ?? r.cradle?.startedAt ?? null;
   const base = { face: "site" as const, unit: "", change: null, trend: [], source: r.pack ? `${r.pack.label} pack ${r.pack.version}` : null, observedAt: at, evidence: null };

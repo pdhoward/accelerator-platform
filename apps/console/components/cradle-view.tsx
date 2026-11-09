@@ -15,8 +15,10 @@ import {
   type Domain,
   type Finding,
   type ParamValue,
+  type ProofScorecard,
   type Ruling,
 } from "@accelerator/domain";
+import Link from "next/link";
 
 import { browserApi } from "@/lib/browser-api";
 import { CockpitDial, CONDITION_WORD } from "./cockpit/cockpit-dial";
@@ -75,7 +77,18 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
   };
   const rule = (key: string, ruling: Ruling, done: string) => act(() => api.cradle.rule(siteId, key, ruling), done);
 
-  const readings = useMemo(() => cradleReadings(r), [r]);
+  // The Gate segment (B7): the proof scorecard, refreshed with the gate card's rhythm.
+  const [score, setScore] = useState<ProofScorecard | null | undefined>(undefined);
+  useEffect(() => {
+    if (r.sample || !r.cradle) return;
+    const load = () => void api.cradle.scorecard(siteId).then(setScore).catch(() => {});
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, r.sample, !!r.cradle]);
+
+  const readings = useMemo(() => cradleReadings(r, score), [r, score]);
   const reading = readings[dial] ?? readings[0]!;
 
   if (!r.cradle) return <Starter defaultPack={defaultPack} canManage={canManage} busy={busy} onStart={(pack) => act(() => api.cradle.start(siteId, pack), "The cradle is set up.")} />;
@@ -99,6 +112,7 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
                   {running ? "Reading the site…" : r.cradle.ingestedAt ? "Ingest again" : "Ingest the site"}
                 </button>
               )}
+              {reading.id === "gate" && <Link href={`/s/${siteId}/policy/proof`} className={button("gold")}>Open the scorecard</Link>}
               {r.ingest && !watch && <button type="button" className={button("ghost")} onClick={() => setWatch(true)}>Watch the last run</button>}
               {r.readiness?.complete && <Chip tone="good">Policy Walk complete</Chip>}
               {r.sample && canManage && <button type="button" className={button("ghost", "ml-auto")} disabled={busy} onClick={() => act(() => api.cradle.reset(siteId), "Demo reset.")}>Reset demo</button>}
@@ -363,7 +377,15 @@ function Alignments({ r, siteId, canManage, busy, onAlign }: { r: CradleResponse
 
 function Book({ r, canManage, busy, onRule }: { r: CradleResponse; canManage: boolean; busy: boolean; onRule: (key: string, ruling: Ruling, done: string) => void }) {
   const [open, setOpen] = useState<string | null>(null);
-  const groups = (r.pack?.concepts ?? []).map((c) => ({ c, policies: r.book.filter((p) => p.concept === c.key) }));
+  // A link from the proof scorecard (#policy-<key>) opens that policy and brings it into view.
+  useEffect(() => {
+    const key = decodeURIComponent(window.location.hash.match(/^#policy-(.+)$/)?.[1] ?? "");
+    if (!key || !r.book.some((p) => p.key === key)) return;
+    setOpen(key);
+    requestAnimationFrame(() => document.getElementById(`policy-${key}`)?.scrollIntoView({ block: "start" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const groups =(r.pack?.concepts ?? []).map((c) => ({ c, policies: r.book.filter((p) => p.concept === c.key) }));
   const other = r.book.filter((p) => !r.pack?.concepts.some((c) => c.key === p.concept));
   if (other.length) groups.push({ c: { key: "other", label: "Other", events: [], floor: "routine" }, policies: other });
   return (
@@ -404,7 +426,7 @@ function PolicyRow({ p, open, onToggle, canManage, busy, onRule, kernels }: { p:
     setReason("");
   };
   return (
-    <div data-policy={p.key}>
+    <div data-policy={p.key} id={`policy-${p.key}`} className="scroll-mt-4">
       <button type="button" onClick={onToggle} className="flex w-full flex-wrap items-center gap-2 px-3 py-2.5 text-left hover:bg-panel-2">
         <span className="w-[86px] shrink-0 font-mono text-[11px] text-mist">{p.key}</span>
         <span className="min-w-0 flex-1 text-[14px]">{p.title}</span>
