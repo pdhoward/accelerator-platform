@@ -14,6 +14,7 @@ import {
   type CradleResponse,
   type Domain,
   type Finding,
+  type ModelHealth,
   type ParamValue,
   type ProofScorecard,
   type Ruling,
@@ -88,7 +89,18 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, r.sample, !!r.cradle]);
 
-  const readings = useMemo(() => cradleReadings(r, score), [r, score]);
+  // The AI segment (B18): can the app and the crew reach their model? A silent failure shows here.
+  const [ai, setAi] = useState<ModelHealth | null>(null);
+  useEffect(() => {
+    if (r.sample || !r.cradle) return;
+    const load = () => void api.health.models(siteId).then(setAi).catch(() => {});
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, r.sample, !!r.cradle]);
+
+  const readings = useMemo(() => cradleReadings(r, score, ai), [r, score, ai]);
   const reading = readings[dial] ?? readings[0]!;
 
   if (!r.cradle) return <Starter defaultPack={defaultPack} canManage={canManage} busy={busy} onStart={(pack) => act(() => api.cradle.start(siteId, pack), "The cradle is set up.")} />;
@@ -113,6 +125,7 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
                 </button>
               )}
               {reading.id === "gate" && <Link href={`/s/${siteId}/policy/proof`} className={button("gold")}>Open the scorecard</Link>}
+              {reading.id === "ai" && <Link href={`/s/${siteId}/health`} className={button(reading.condition === "attention" ? "gold" : "plain")}>Open Health</Link>}
               {r.ingest && !watch && <button type="button" className={button("ghost")} onClick={() => setWatch(true)}>Watch the last run</button>}
               {r.readiness?.complete && <Chip tone="good">Policy Walk complete</Chip>}
               {r.sample && canManage && <button type="button" className={button("ghost", "ml-auto")} disabled={busy} onClick={() => act(() => api.cradle.reset(siteId), "Demo reset.")}>Reset demo</button>}

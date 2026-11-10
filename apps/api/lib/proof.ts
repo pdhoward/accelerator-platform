@@ -125,6 +125,17 @@ export async function finishProof(site: Site, version: string, results: CaseResu
   return { status: outcome.status, promoted };
 }
 
+/**
+ * The app couldn't reach its model mid-proof (B18): nothing was judged, so the
+ * version is neither passed nor failed. The safety net tries it again once the
+ * proof has sat blocked for a while; model health shows why.
+ */
+export async function blockProof(site: Site, version: string, reason: string) {
+  const p = await proofOf(site.id, version);
+  if (p?.status === "passed") return;
+  await write(site, `PROOF-${version}`, { type: "proof", bookVersion: version, at: now(), status: "blocked", blockedBy: reason.slice(0, 200), results: [], passed: 0, total: 0, costUsd: 0 }, "app agent");
+}
+
 /** The steward asks for the newest rules to be proven again (after reviewing the scenarios). */
 export async function requestProof(site: Site, by: string) {
   const res = await runtimeResponse(site);
@@ -183,7 +194,7 @@ export async function nudgeWaiting(): Promise<{ checked: number; nudged: string[
     const res = await runtimeResponse(site).catch(() => null);
     if (!res || res.inForce?.version === res.version) continue;
     const p = res.proof;
-    const waiting = !p || p.status === "requested" || (p.status === "running" && Date.now() - Date.parse(p.at) > STALE_MS);
+    const waiting = !p || p.status === "requested" || ((p.status === "running" || p.status === "blocked") && Date.now() - Date.parse(p.at) > STALE_MS);
     if (waiting && (await nudgeApp(site, "safety net")) === "sent") nudged.push(site.slug);
   }
   return { checked: cradles.length, nudged };

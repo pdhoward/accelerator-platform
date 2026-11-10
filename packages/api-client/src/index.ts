@@ -8,6 +8,7 @@ import type {
   Proof,
   ProofScorecard,
   SpendScorecard,
+  ModelHealth,
   Scenario,
   CradleResponse,
   Ruling,
@@ -163,6 +164,8 @@ export function createApiClient({
 
     health: {
       get: (siteId: string) => call<Health>(`${site(siteId)}/health`),
+      /** Can the running app and the crew reach their AI model? (B18) */
+      models: (siteId: string) => call<ModelHealth>(`${site(siteId)}/health/models`),
       runLighthouse: (siteId: string, page = "/") =>
         post<LighthouseScores>(`${site(siteId)}/health/lighthouse`, { page }),
     },

@@ -9,6 +9,7 @@
 
 import type { Domain } from "./domains";
 import type { Reading } from "./instruments";
+import type { ModelHealth } from "./model-health";
 import type { ProofScorecard } from "./cradle-scorecard";
 import type { RiskClass } from "./types";
 
@@ -648,9 +649,26 @@ export type CradleResponse = {
  * the summary. With the proof scorecard (B7) a seventh, Gate, shows how well
  * the running app is proven against the book.
  */
-export function cradleReadings(r: CradleResponse, score?: ProofScorecard | null): Reading[] {
+export function cradleReadings(r: CradleResponse, score?: ProofScorecard | null, ai?: ModelHealth | null): Reading[] {
   const book = bookReadings(r);
-  return score === undefined ? book : [...book, gateReading(score, r)];
+  return [...book, ...(score === undefined ? [] : [gateReading(score, r)]), ...(ai ? [aiReading(ai, r)] : [])];
+}
+
+/** The AI reading (B18): can the running app and the crew reach their model? A silent failure shows here, with the fix. */
+export function aiReading(h: ModelHealth, r: Pick<CradleResponse, "pack">): Reading {
+  const bad = h.sources.find((s) => s.status === "down") ?? h.sources.find((s) => s.status === "degraded");
+  const at = bad?.fault?.at ?? h.sources.map((s) => s.lastOkAt).filter(Boolean).sort().at(-1) ?? null;
+  return {
+    face: "site", id: "ai", label: "AI", unit: "", change: null, trend: [], evidence: null,
+    source: r.pack ? `${r.pack.label} pack ${r.pack.version}` : null,
+    observedAt: at,
+    condition: h.status === "down" ? "attention" : h.status === "degraded" ? "unverified" : h.status === "ok" ? "verified" : "not_connected",
+    state: h.status === "down" ? "Unavailable" : h.status === "degraded" ? "Unreliable" : h.status === "ok" ? "Reachable" : "No calls yet",
+    headline: bad?.fault ? bad.fault.label : null,
+    facts: bad?.fault
+      ? [`${bad.label}: ${bad.fault.label} (${bad.fault.model}, ${bad.fault.role}).`, bad.fault.fix, `${bad.faults24h} failed ${bad.faults24h === 1 ? "call" : "calls"} in the last 24 hours.`]
+      : h.sources.map((s) => `${s.label}: ${s.status === "ok" ? (s.recoveredAt ? `working again since ${s.recoveredAt.slice(0, 16).replace("T", " ")} UTC` : "working") : "no model calls seen yet"}.`),
+  };
 }
 
 /** The Gate reading: the newest proof, flaky and failing cases, coverage and cost (B7). */

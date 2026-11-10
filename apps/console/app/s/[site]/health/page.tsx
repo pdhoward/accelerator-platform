@@ -3,6 +3,8 @@ import type { Triage } from "@accelerator/domain";
 import { siteAccess } from "@/lib/access";
 import { serverApi } from "@/lib/api";
 import { LighthouseRunner } from "@/components/lighthouse-runner";
+import { ModelHealthCard } from "@/components/model-health-card";
+import { load } from "@/lib/load";
 import { EngineerOnly } from "@/components/ui-provider";
 import { Card, CardBody, CardHead, Chip, cx, Eyebrow, Page, PageHeader, ScoreRing, Sparkline } from "@/components/ui";
 
@@ -17,15 +19,18 @@ const TRIAGE: { id: Triage; label: string; body: string }[] = [
 
 export default async function HealthPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const [h, { can }] = await Promise.all([(await serverApi()).health.get(site), siteAccess(site)]);
+  const api = await serverApi();
+  const [h, { can }, models] = await Promise.all([api.health.get(site), siteAccess(site), load(() => api.health.models(site))]);
   const at = TRIAGE.findIndex((t) => t.id === h.triage);
 
   return (
     <>
-      <PageHeader title="Health" sub="How the site performs for visitors, and how healthy its code is to keep changing.">
+      <PageHeader title="Health" sub="Whether its AI is reachable, how the site performs for visitors, and how healthy its code is to keep changing.">
         {can("request.create") && <LighthouseRunner siteId={site} />}
       </PageHeader>
       <Page>
+        <ModelHealthCard health={models.data} note={models.note} />
+
         <Card>
           <CardHead title="Lighthouse" hint="Mobile · performance, accessibility, best practices, SEO" />
           <CardBody className="grid gap-4 md:grid-cols-3">

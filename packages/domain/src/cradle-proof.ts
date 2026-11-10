@@ -35,8 +35,13 @@ export type CaseResult = { id: string; passed: boolean; runs: number; passes: nu
 export type Proof = {
   bookVersion: string;
   at: string;
-  /** requested: the steward asked for it to be proven again (after retiring or approving scenarios). */
-  status: "requested" | "running" | "passed" | "failed";
+  /**
+   * requested: the steward asked for it to be proven again (after retiring or approving scenarios).
+   * blocked: the app couldn't reach its model mid-proof (B18), so nothing was judged; it is tried again later.
+   */
+  status: "requested" | "running" | "passed" | "failed" | "blocked";
+  /** Why a blocked proof stopped (e.g. "out of credit"). */
+  blockedBy?: string;
   results: CaseResult[];
   passed: number;
   total: number;

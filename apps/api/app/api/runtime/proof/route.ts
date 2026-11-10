@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { demoMode } from "@/lib/auth";
 import { body, fail, json, publicRoute } from "@/lib/http";
-import { addScenarios, finishProof, startProof } from "@/lib/proof";
+import { addScenarios, blockProof, finishProof, startProof } from "@/lib/proof";
 import { siteForToken } from "@/lib/runtime";
 
 /**
@@ -25,6 +25,8 @@ const schema = z.union([
   z.object({ action: z.literal("start"), version: z.string().min(1).max(32) }),
   z.object({ action: z.literal("scenarios"), drafts: z.array(scenario).max(20) }),
   z.object({ action: z.literal("finish"), version: z.string().min(1).max(32), results: z.array(result).max(200), costUsd: z.number().min(0) }),
+  // The app couldn't reach its model (B18): stop without a verdict.
+  z.object({ action: z.literal("blocked"), version: z.string().min(1).max(32), reason: z.string().min(1).max(200) }),
 ]);
 
 export const POST = publicRoute(async ({ request }) => {
@@ -32,7 +34,11 @@ export const POST = publicRoute(async ({ request }) => {
   const site = await siteForToken(request);
   if (!site) return fail("Not a runtime token for any site.", 401);
   const input = await body(request, schema);
-  if (!input) return fail("Start, scenarios or finish.", 400);
+  if (!input) return fail("Start, scenarios, finish or blocked.", 400);
+  if (input.action === "blocked") {
+    await blockProof(site, input.version, input.reason);
+    return json({ ok: true });
+  }
   if (input.action === "start") return (await startProof(site, input.version)) ? json({ ok: true }) : fail("Already proven or being proven.", 409);
   if (input.action === "scenarios") return json({ added: await addScenarios(site, input.drafts) });
   return json(await finishProof(site, input.version, input.results, input.costUsd));
