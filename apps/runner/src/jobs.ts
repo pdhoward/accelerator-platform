@@ -1,14 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   census,
   cleanDocument,
+  cobolDirectGuidance,
+  cobolDirectSlice,
   cobolSliceGuidance,
+  copyMembers,
   estateOf,
   ingestInstruction,
   isCensusSource,
   isDomain,
   mergeReports,
+  numberedFile,
   packFor,
   readAssessment,
   readIngest,
@@ -23,7 +27,7 @@ import {
 
 import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
-import { agent, chat, type Turn } from "./models";
+import { agent, chat, read, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
 import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
@@ -519,8 +523,20 @@ async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack,
   log.status(`surveyor> mainframe estate: ${c.program ?? 0} programs · ${c.copybook ?? 0} copybooks · ${c.job ?? 0} jobs · ${c.screen ?? 0} screens · ${c.transaction ?? 0} transaction files · ${c.data_definition ?? 0} data definitions`);
   log.status(`lead> ${estate.slices.length} slices, one extractor each, then reconciliation`);
   const reports: IngestReport[] = [];
+  const direct = process.env.CRADLE_DIRECT_READ !== "off" ? directReader(repo, estate) : null;
+  if (direct) log.status(`lead> each slice is read in one call on ${EXTRACT_MODEL()}${direct.sharedNames.size ? ` · ${direct.sharedNames.size} shared copybooks cached across slices` : ""}`);
   for (const [i, slice] of estate.slices.entries()) {
     log.status(`lead> slice ${i + 1}/${estate.slices.length} · ${slice.title} · ${slice.files.length} files · ${slice.lines} lines`);
+    if (direct) {
+      try {
+        const report = await readSliceDirect(ctx, log, pack, estate, slice, i, direct);
+        reports.push({ ...report, filesRead: slice.files.length });
+        log.check(`judge> slice ${i + 1} read: ${report.candidates.length} policies · ${report.conflicts.length} contradictions`);
+        continue;
+      } catch (err) {
+        log.check(`judge> slice ${i + 1}: the one-call read didn't work (${err instanceof Error ? err.message : String(err)}), so an agent reads it instead.`);
+      }
+    }
     const r = await agent({
       cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 45, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
       append: "You are a member of the Accelerator crew. You never change files.",
@@ -538,6 +554,69 @@ async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack,
   }
   if (!reports.length) throw new Error("No slice of the estate could be read.");
   return reconcile(ctx, log, repo, pack, mergeReports(reports), `${reports.length} of ${estate.slices.length} slices of a mainframe estate`);
+}
+
+// ── The direct read (B20): one call per slice instead of an agent loop ─────────
+
+/** The model that reads each slice. Sonnet by default: extraction is judgment, not sorting. */
+const EXTRACT_MODEL = () => process.env.CRADLE_EXTRACT_MODEL || "claude-sonnet-5-5";
+/** Characters, not tokens (COBOL runs about 3 to 4 per token): the shared copybooks, and one slice with its own copybooks. */
+const DIRECT_LIMIT = { shared: 300_000, slice: 600_000 };
+
+type DirectReader = { repo: string; members: Map<string, string>; shared: string; sharedNames: Set<string> };
+
+/**
+ * Every copybook in the estate by member name, and the shared block: the
+ * record copybooks (not the screen maps) sent once at the front of every call
+ * and cached, so each slice after the first reads them at a tenth of the price.
+ */
+function directReader(repo: string, estate: ReturnType<typeof estateOf>): DirectReader {
+  const members = new Map<string, string>();
+  for (const dir of estate.copybookDirs) {
+    let names: string[] = [];
+    try {
+      names = readdirSync(join(repo, dir));
+    } catch {
+      continue;
+    }
+    for (const f of names.sort()) {
+      const name = f.replace(/\.[^.]+$/, "").toUpperCase();
+      if (!members.has(name) && statSync(join(repo, dir, f)).isFile()) members.set(name, `${dir}/${f}`);
+    }
+  }
+  const records = [...members.entries()].filter(([, path]) => !/bms/i.test(path));
+  const blocks = records.map(([name, path]) => ({ name, text: numberedFile(path, readFileSync(join(repo, path), "latin1")) }));
+  const size = blocks.reduce((n, b) => n + b.text.length, 0);
+  if (!blocks.length || size > DIRECT_LIMIT.shared) return { repo, members, shared: "", sharedNames: new Set() };
+  return {
+    repo, members,
+    shared: `The estate's shared copybooks (record layouts any slice may COPY):\n\n${blocks.map((b) => b.text).join("\n\n")}`,
+    sharedNames: new Set(blocks.map((b) => b.name)),
+  };
+}
+
+/** One slice in one call: its files and the copybooks they COPY (beyond the shared ones), line-numbered. */
+async function readSliceDirect(ctx: JobContext, log: Log, pack: Pack, estate: ReturnType<typeof estateOf>, slice: ReturnType<typeof estateOf>["slices"][number], i: number, d: DirectReader): Promise<IngestReport> {
+  const files = slice.files.map((path) => ({ path, text: readFileSync(join(d.repo, path), "latin1") }));
+  const wanted = [...new Set(files.flatMap((f) => copyMembers(f.text)))].filter((n) => !d.sharedNames.has(n));
+  const found = wanted.filter((n) => d.members.has(n));
+  const missing = wanted.filter((n) => !d.members.has(n));
+  const parts = [
+    ...files.map((f) => numberedFile(f.path, f.text)),
+    ...found.map((n) => numberedFile(d.members.get(n)!, readFileSync(join(d.repo, d.members.get(n)!), "latin1"))),
+  ];
+  if (missing.length) parts.push(`COPY members these files name that aren't in the estate's sources: ${missing.join(", ")}.`);
+  const body = parts.join("\n\n");
+  if (body.length > DIRECT_LIMIT.slice) throw new Error(`the slice is too large for one call (${Math.round(body.length / 1000)}k characters)`);
+  const r = await read({
+    model: EXTRACT_MODEL(), log, modelProxy: modelProxy(ctx),
+    system: ingestInstruction(pack, cobolDirectGuidance(estate)),
+    shared: d.shared,
+    user: cobolDirectSlice(estate, slice, i, body),
+  });
+  spent(ctx, r.costUsd);
+  if (!r.ok) throw new Error(`the read stopped early (${r.reason})`);
+  return readIngest(r.text);
 }
 
 /** The Clerk and Gap Finder across parts read separately (slices, or code sources): what no single part can see. */

@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { agentEnv, FORBIDDEN, refusal, SECRET_FILE } from "./models";
+import { agentEnv, FORBIDDEN, priceOf, refusal, SECRET_FILE } from "./models";
 import { codeHome, githubAuthEnv, isTestFile, syncPlan } from "./repo";
 import { parseManifest, parseTests } from "./sh";
+
+// The direct read's meter (B20): what the Spend page shows for an ingest.
+describe("priceOf", () => {
+  it("prices fresh, cached and cache-written input apart", () => {
+    const p = priceOf("claude-sonnet-5-5", { input_tokens: 100_000, cache_read_input_tokens: 50_000, cache_creation_input_tokens: 0, output_tokens: 6_000 });
+    expect(p.costUsd).toBeCloseTo(0.2 + 0.01 + 0.06, 6);
+    expect(priceOf("claude-sonnet-5-5", { input_tokens: 0, cache_creation_input_tokens: 50_000, output_tokens: 0 }).costUsd).toBeCloseTo(0.125, 6);
+    expect(priceOf("some-new-model", { input_tokens: 10, output_tokens: 10 })).toMatchObject({ costUsd: 0, known: false });
+  });
+});
 
 // These decide the Protocol verdict, so they're tested like money rules.
 describe("parseTests", () => {

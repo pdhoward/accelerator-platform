@@ -94,20 +94,59 @@ export function estateOf(files: { path: string; lines: number }[]): Estate {
 const stem = (p: string) => nameOf(p).replace(/\.[^.]+$/, "");
 const slice = (title: string, fs: { path: string; lines: number }[]): Slice => ({ id: "", title, files: fs.map((f) => f.path), lines: fs.reduce((n, f) => n + f.lines, 0) });
 
-/** How to read a mainframe estate, added to the extractor's instruction for one slice. */
-export function cobolSliceGuidance(estate: Estate, s: Slice, index: number): string {
+/** How to read a mainframe estate: the same for every slice, however it is read. */
+function cobolReading(estate: Estate): string {
   return `This is a mainframe estate: COBOL programs, copybooks, JCL, CICS screens (BMS) and transaction definitions (CSD)${estate.counts.data_definition ? ", with DB2/IMS data definitions" : ""}. Read it like one:
 - Business rules live in the PROCEDURE DIVISION: IF and EVALUATE conditions, COMPUTE statements, and the values they compare against.
-- A program's records are defined in copybooks (COPY name). Read the copybooks your programs COPY; they are in ${estate.copybookDirs.join(", ") || "the copybook folders"}. Level-88 names are the allowed states of a field (for example an account's status): treat them as enumerations.
+- A program's records are defined in copybooks (COPY name). Level-88 names are the allowed states of a field (for example an account's status): treat them as enumerations.
 - PIC clauses are numeric semantics: decimal places, signs and ROUNDED are policy. Put them in parameters.
 - JCL and scheduler files say when batch programs run and in what order: a rule may only apply when its job runs.
 - Messages a screen shows a user are surfaces.
-- Cite each source as path and line, and start the quote with the paragraph name (for example "1300-COMPUTE-INTEREST: COMPUTE WS-MONTHLY-INT = ...").
+- Cite each source as path and line, and start the quote with the paragraph name (for example "1300-COMPUTE-INTEREST: COMPUTE WS-MONTHLY-INT = ...").`;
+}
+
+/** How to read a mainframe estate, added to the extractor's instruction for one slice (the agent opens the files itself). */
+export function cobolSliceGuidance(estate: Estate, s: Slice, index: number): string {
+  return `${cobolReading(estate)}
+- Read the copybooks your programs COPY; they are in ${estate.copybookDirs.join(", ") || "the copybook folders"}.
 - Never open data files (EBCDIC or sample data).
 
 You are extractor ${index + 1} of ${estate.slices.length}. Your slice: ${s.title}. Read only these files, plus the copybooks they COPY:
 ${s.files.map((f) => `- ${f}`).join("\n")}
 Other extractors read the rest of the estate. Report only what your slice shows. Report contradictions only within your slice, and leave holes to the reconciliation step (skip the gapfinder line).`;
+}
+
+/**
+ * The direct read (B20): the runner hands the extractor its slice's files,
+ * line-numbered, in one call instead of an agent loop. This part is the same
+ * for every slice, so it is cached once and read at a tenth of the price after.
+ */
+export function cobolDirectGuidance(estate: Estate): string {
+  return `${cobolReading(estate)}
+- You can't open files. Everything you may read is in the message: the estate's shared copybooks first, then your slice's files and the other copybooks they COPY. Each line starts with its line number and "|": cite those numbers, never count lines yourself.
+- A copybook a program COPYs but that isn't in the message is outside this estate's sources: say so in the summary, don't guess its fields.
+
+Several extractors each read one slice of the estate. Report only what your slice's programs, jobs and screens show (the shared copybooks only as they explain your slice). Report contradictions only within your slice, and leave holes to the reconciliation step (skip the gapfinder line).`;
+}
+
+/** The slice's own part of a direct read: which slice this is, then its files. */
+export function cobolDirectSlice(estate: Estate, s: Slice, index: number, files: string): string {
+  return `You are extractor ${index + 1} of ${estate.slices.length}. Your slice: ${s.title} (${s.files.length} files, ${s.lines} lines).
+
+${files}`;
+}
+
+/** The members a COBOL source brings in: COPY name, COPY 'name', EXEC SQL INCLUDE name. Upper case, in order, once each. */
+export function copyMembers(source: string): string[] {
+  const names = [...source.matchAll(/\b(?:COPY|INCLUDE)\s+['"]?([A-Z0-9#@$][A-Z0-9#@$_-]{0,29})['"]?/gi)].map((m) => m[1]!.toUpperCase());
+  return [...new Set(names.filter((n) => n !== "OF" && n !== "IN" && n !== "SQLCA" && n !== "SQLDA"))];
+}
+
+/** One file for a direct read: a header, then every line with its number (so citations are exact). */
+export function numberedFile(path: string, text: string): string {
+  const lines = text.replace(/\r/g, "").replace(/\n$/, "").split("\n");
+  const w = String(lines.length).length;
+  return `=== ${path} (${lines.length} lines) ===\n${lines.map((l, i) => `${String(i + 1).padStart(w)}| ${l.trimEnd()}`).join("\n")}\n=== end of ${path} ===`;
 }
 
 /**

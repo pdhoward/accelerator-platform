@@ -77,6 +77,77 @@ export function refusal(tool: string, input: Record<string, unknown>): string | 
 
 export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string };
 
+// ── One structured read, not an agent loop (B20) ─────────────────────────────
+
+/** $ per million tokens, input / output (Anthropic list prices). An unknown model costs 0 here and the log says so. */
+const PRICES: Record<string, [number, number]> = {
+  "claude-haiku-5-5": [0.1, 0.5],
+  "claude-sonnet-5-5": [2, 10],
+  "claude-opus-5-5": [4, 20],
+};
+
+type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+
+/** What one call cost at list prices: cache reads at 0.1x, cache writes at 1.25x (5-minute TTL). */
+export function priceOf(model: string, u: Usage): { costUsd: number; fresh: number; cached: number; written: number; out: number; known: boolean } {
+  const p = PRICES[model];
+  const [pin, pout] = p ?? [0, 0];
+  const cached = u.cache_read_input_tokens ?? 0;
+  const written = u.cache_creation_input_tokens ?? 0;
+  return {
+    costUsd: (u.input_tokens * pin + cached * pin * 0.1 + written * pin * 1.25 + u.output_tokens * pout) / 1e6,
+    fresh: u.input_tokens, cached, written, out: u.output_tokens, known: !!p,
+  };
+}
+
+const NARRATION = /^\s*(extractor|clerk|gapfinder|surveyor)>/;
+
+/**
+ * One streamed call with a cached prefix: the instruction (system) and a
+ * shared block (the estate's copybooks) are identical across calls, so after
+ * the first they cost a tenth. Narration lines ("extractor> …") reach the live
+ * log as they arrive, like an agent's.
+ */
+export async function read(opts: {
+  model: string;
+  system: string;
+  shared: string;
+  user: string;
+  log: Log;
+  maxTokens?: number;
+  modelProxy?: { url: string; token: string } | null;
+}): Promise<AgentResult> {
+  // Through the model proxy the API holds the key (and the workspace); otherwise our own client.
+  const c = opts.modelProxy ? new Anthropic({ baseURL: opts.modelProxy.url, apiKey: opts.modelProxy.token }) : client();
+  const content: Anthropic.TextBlockParam[] = [
+    ...(opts.shared ? [{ type: "text" as const, text: opts.shared, cache_control: { type: "ephemeral" as const } }] : []),
+    { type: "text" as const, text: opts.user },
+  ];
+  const stream = c.messages.stream({
+    model: opts.model,
+    max_tokens: opts.maxTokens ?? 20000,
+    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content }],
+    output_config: { effort: "medium" },
+  });
+  let pending = "";
+  stream.on("text", (delta) => {
+    pending += delta;
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const l of lines) if (NARRATION.test(l)) opts.log.log(l.trim());
+  });
+  const message = await stream.finalMessage();
+  if (NARRATION.test(pending)) opts.log.log(pending.trim());
+  const price = priceOf(opts.model, message.usage);
+  const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  const ok = message.stop_reason === "end_turn";
+  opts.log.status(
+    `${ok ? "Finished" : `Stopped (${message.stop_reason})`} in one read · ${price.fresh.toLocaleString()} new + ${price.cached.toLocaleString()} cached + ${price.written.toLocaleString()} cache-written tokens in · ${price.out.toLocaleString()} out · $${price.costUsd.toFixed(3)}${price.known ? "" : " (no price on file for this model)"}`,
+  );
+  return { text, costUsd: price.costUsd, ok, reason: ok ? undefined : (message.stop_reason ?? "stopped") };
+}
+
 /**
  * The agent's environment (gen2-crew.md §1.2: agents never hold keys): the
  * operating system's essentials, the site's test values, and what the agent

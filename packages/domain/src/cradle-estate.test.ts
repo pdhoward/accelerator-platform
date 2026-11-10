@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ingestInstruction } from "./cradle";
-import { cobolSliceGuidance, estateOf, mergeReports, moduleOf, readReconcile, reconcileInstruction, roleOf } from "./cradle-estate";
+import { cobolDirectGuidance, cobolDirectSlice, cobolSliceGuidance, copyMembers, estateOf, numberedFile, mergeReports, moduleOf, readReconcile, reconcileInstruction, roleOf } from "./cradle-estate";
 import { PACKS } from "./cradle-packs";
 
 // The shape of AWS CardDemo: a core module under app/, and optional modules beside it.
@@ -103,5 +103,37 @@ describe("one book from many slices", () => {
       { keys: ["CC-INT-1", "Statement interest"], why: "two divisors", kind: "policy" },
     ]);
     expect(readReconcile("no json here")).toEqual([]);
+  });
+});
+
+describe("direct read (B20)", () => {
+  it("finds the members a program brings in", () => {
+    const src = [
+      "       01  WS-VARS.",
+      "       COPY CVACT01Y.",
+      "           COPY 'COCOM01Y'.",
+      "           EXEC SQL INCLUDE DCLTRTYP END-EXEC.",
+      "           EXEC SQL INCLUDE SQLCA END-EXEC.",
+      "       COPY CVACT01Y.",
+      "      * COPY OF the record is described above",
+    ].join("\n");
+    expect(copyMembers(src)).toEqual(["CVACT01Y", "COCOM01Y", "DCLTRTYP"]);
+  });
+  it("numbers every line so citations are exact", () => {
+    const f = numberedFile("app/cbl/X.cbl", "A  \r\nB\n");
+    expect(f).toBe("=== app/cbl/X.cbl (2 lines) ===\n1| A\n2| B\n=== end of app/cbl/X.cbl ===");
+  });
+  it("keeps the cached part the same for every slice", () => {
+    const e = estateOf([
+      { path: "app/cbl/CBACT01C.cbl", lines: 300 },
+      { path: "app/cbl/CBACT02C.cbl", lines: 300 },
+      { path: "app/cbl/COACT01C.cbl", lines: 9000 },
+      { path: "app/cpy/CVACT01Y.cpy", lines: 20 },
+    ]);
+    expect(e.slices.length).toBeGreaterThan(1);
+    const g = cobolDirectGuidance(e);
+    expect(g).not.toMatch(/extractor \d+ of/);
+    expect(g).toMatch(/can't open files/);
+    expect(cobolDirectSlice(e, e.slices[1]!, 1, "FILES")).toMatch(/^You are extractor 2 of \d+\. Your slice: .*\n\nFILES$/);
   });
 });
