@@ -22,8 +22,26 @@ export function ProofScorecard({ score, site }: { score: Score; site: string }) 
   const cases = [...score.cases].sort((a, b) => ORDER[a.verdict] - ORDER[b.verdict] || a.id.localeCompare(b.id, undefined, { numeric: true }));
   const policyHref = (key: string) => `/s/${site}/policy#policy-${encodeURIComponent(key)}`;
 
+  // Nothing has ever proved this book (no running app reads it yet, e.g. a legacy source like CardDemo): say so plainly.
+  const unproven = !score.runs && !score.cases.length;
+
   return (
     <div className="flex flex-col gap-5">
+      {unproven && (
+        <Card>
+          <CardBody className="flex flex-col gap-2 pt-5 text-[13.5px] text-fog">
+            <p className="font-medium text-ink">No app is proving these rules yet.</p>
+            <p>
+              A proof runs test scenarios against a running app that reads this policy book. This site&apos;s book has {cov.policies} {cov.policies === 1 ? "policy" : "policies"}, but no app runs on it
+              and no scenarios exist, so there is nothing to pass or fail. Every policy is listed below under <span className="text-ink">Not tested yet</span>.
+            </p>
+            <p>
+              Until then, use that list as a review queue. Start with the critical policies, click a key to read its wording and source citations in the book, and fix anything wrong or vague now.
+              Scenarios test whatever the book says. The scorecard fills in once scenarios are drafted and an app runs them.
+            </p>
+          </CardBody>
+        </Card>
+      )}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
           label="Newest rules"

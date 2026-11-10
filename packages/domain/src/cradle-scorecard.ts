@@ -109,7 +109,12 @@ export function proofScorecard(input: {
   const byConcept = concepts.map((concept) => ({ concept, ...tally(cases.filter((c) => (c.concepts.length ? c.concepts.includes(concept) : concept === "(no concept)"))) }));
 
   const covered = new Set(live.flatMap((s) => s.policies));
-  const uncovered = policies.filter((p) => !covered.has(p.key)).map((p) => ({ key: p.key, title: p.title, concept: p.concept, criticality: p.criticality }));
+  // Most critical first: the order an owner should review and test them in.
+  const rank = (c: string) => { const i = (CRITICALITIES as string[]).indexOf(c); return i < 0 ? CRITICALITIES.length : i; };
+  const uncovered = policies
+    .filter((p) => !covered.has(p.key))
+    .map((p) => ({ key: p.key, title: p.title, concept: p.concept, criticality: p.criticality }))
+    .sort((a, b) => rank(a.criticality) - rank(b.criticality));
   const rulings = input.book?.rulings ?? [];
   const uncoveredRulings = rulings.filter((r) => !r.keys.some((k) => covered.has(k)));
 
