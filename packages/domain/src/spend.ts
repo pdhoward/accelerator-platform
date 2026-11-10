@@ -9,11 +9,14 @@
 
 export type SpendArea = "crew" | "app" | "proofs";
 
-export type SpendJob = { id: string; kind: string; model: string; costUsd: number | null; at: string; status: string; workNumber: number | null; title: string | null };
+/** One model's share of a job (the runner reports it per model since B20; older jobs have none). */
+export type SpendMeter = { model: string; tokensIn: number; tokensOut: number; costUsd: number };
+export type SpendJob = { id: string; kind: string; model: string; costUsd: number | null; at: string; status: string; workNumber: number | null; title: string | null; meter?: SpendMeter[] | null };
 export type SpendUsage = { role: string; model: string; tokensIn: number; tokensOut: number; costUsd: number; at: string };
 export type SpendProof = { version: string; at: string; costUsd: number; status: string };
 
-export type SpendLine = { area: SpendArea; key: string; label: string; count: number; costUsd: number; perUnitUsd: number; tokensIn: number; tokensOut: number };
+/** latestUsd: the newest unit's cost, so a change (a cheaper way of reading code) shows at once instead of hiding in the average. */
+export type SpendLine = { area: SpendArea; key: string; label: string; count: number; costUsd: number; perUnitUsd: number; latestUsd: number; latestAt: string; tokensIn: number; tokensOut: number };
 
 export type SpendScorecard = {
   since: string;
@@ -76,15 +79,16 @@ export function spendScorecard(input: { jobs: SpendJob[]; usage: SpendUsage[]; p
 
   const lineMap = new Map<string, SpendLine>();
   for (const e of entries) {
-    const l = lineMap.get(e.key) ?? { area: e.area, key: e.key, label: e.label, count: 0, costUsd: 0, perUnitUsd: 0, tokensIn: 0, tokensOut: 0 };
+    const l = lineMap.get(e.key) ?? { area: e.area, key: e.key, label: e.label, count: 0, costUsd: 0, perUnitUsd: 0, latestUsd: 0, latestAt: "", tokensIn: 0, tokensOut: 0 };
     l.count++;
     l.costUsd += e.costUsd;
     l.tokensIn += e.tokensIn;
     l.tokensOut += e.tokensOut;
+    if (e.at >= l.latestAt) Object.assign(l, { latestAt: e.at, latestUsd: e.costUsd });
     lineMap.set(e.key, l);
   }
   const lines = [...lineMap.values()]
-    .map((l) => ({ ...l, costUsd: round(l.costUsd), perUnitUsd: l.count ? round(l.costUsd / l.count, 5) : 0 }))
+    .map((l) => ({ ...l, costUsd: round(l.costUsd), perUnitUsd: l.count ? round(l.costUsd / l.count, 5) : 0, latestUsd: round(l.latestUsd, 5) }))
     .sort((a, b) => b.costUsd - a.costUsd || a.label.localeCompare(b.label));
 
   const totalUsd = round(entries.reduce((s, e) => s + e.costUsd, 0));
@@ -94,8 +98,13 @@ export function spendScorecard(input: { jobs: SpendJob[]; usage: SpendUsage[]; p
     return { area, label: AREA_LABEL[area], costUsd, share: totalUsd ? Math.round((costUsd / totalUsd) * 100) : 0 };
   });
 
+  // By model: a metered job splits across the models it used (Sonnet reading, Opus reconciling); an older job counts whole under its own model.
+  const modelEntries = [
+    ...jobs.flatMap((j) => (j.meter?.length ? j.meter : [{ model: j.model, tokensIn: 0, tokensOut: 0, costUsd: j.costUsd ?? 0 }])),
+    ...entries.filter((x) => x.area === "app"),
+  ];
   const modelMap = new Map<string, { model: string; costUsd: number; tokensIn: number; tokensOut: number }>();
-  for (const e of entries.filter((x) => x.area !== "proofs")) {
+  for (const e of modelEntries) {
     const m = modelMap.get(e.model) ?? { model: e.model, costUsd: 0, tokensIn: 0, tokensOut: 0 };
     m.costUsd += e.costUsd;
     m.tokensIn += e.tokensIn;

@@ -31,7 +31,7 @@ export const claim = (runnerId: string, version: string) => post<{ context: JobC
 /** The site's development keys from the vault, for this running job. */
 export const secrets = (jobId: string) => post<{ env: Record<string, string> }>(`/jobs/${jobId}/secrets`, {});
 
-export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string; generation: number; sessionId?: string; costUsd?: number }) =>
+export const finish = (jobId: string, outcome: { status: "done" | "failed"; result?: unknown; error?: string; generation: number; sessionId?: string; costUsd?: number; meter?: { model: string; tokensIn: number; tokensOut: number; costUsd: number }[] }) =>
   post(`/jobs/${jobId}/finish`, outcome);
 
 /** Renews this job's claim (§14.1); false when the claim lapsed or was handed to another worker. */

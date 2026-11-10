@@ -7,6 +7,27 @@ const job = (id: string, kind: string, costUsd: number | null, at: string, statu
 const use = (role: string, costUsd: number, at: string, model = "claude-haiku-5-5"): SpendUsage => ({ role, model, tokensIn: 4000, tokensOut: 200, costUsd, at });
 
 describe("the spend scorecard", () => {
+  it("splits a metered job by the models it used, and shows the newest unit's cost beside the average", () => {
+    const card = spendScorecard({
+      now, days: 30,
+      jobs: [
+        { ...job("old", "ingest", 10.4, "2026-11-05T10:00:00Z"), model: "claude-opus-5-5" },
+        {
+          ...job("new", "ingest", 3.36, "2026-11-09T15:00:00Z"), model: "claude-opus-5-5",
+          meter: [{ model: "claude-sonnet-5-5", tokensIn: 900_000, tokensOut: 70_000, costUsd: 2.4 }, { model: "claude-opus-5-5", tokensIn: 120_000, tokensOut: 8_000, costUsd: 0.96 }],
+        },
+      ],
+      usage: [], proofs: [],
+    });
+    const ingest = card.lines.find((l) => l.key === "crew:ingest")!;
+    expect(ingest).toMatchObject({ count: 2, costUsd: 13.76, perUnitUsd: 6.88, latestUsd: 3.36, latestAt: "2026-11-09T15:00:00Z" });
+    expect(card.byModel).toEqual([
+      { model: "claude-opus-5-5", costUsd: 11.36, tokensIn: 120_000, tokensOut: 8_000 },
+      { model: "claude-sonnet-5-5", costUsd: 2.4, tokensIn: 900_000, tokensOut: 70_000 },
+    ]);
+    expect(card.totalUsd).toBe(13.76);
+  });
+
   it("shows which work costs the money, most expensive first, with a cost per unit", () => {
     const card = spendScorecard({
       now, days: 30,

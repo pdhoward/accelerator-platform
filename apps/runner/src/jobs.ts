@@ -27,7 +27,7 @@ import {
 
 import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
-import { agent, chat, read, type Turn } from "./models";
+import { agent, chat, read, type Meter, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
 import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
@@ -54,8 +54,22 @@ const modelProxy = (ctx: JobContext) => (process.env.RUNNER_MODEL_PROXY === "on"
 
 /** What each job's model runs cost, reported with its result (the mandate's budget reads it). */
 const costs = new WeakMap<JobContext, number>();
+const meters = new WeakMap<JobContext, Map<string, Meter>>();
 export const jobCost = (ctx: JobContext) => costs.get(ctx);
-const spent = (ctx: JobContext, usd: number) => costs.set(ctx, (costs.get(ctx) ?? 0) + (Number.isFinite(usd) ? usd : 0));
+/** The job's spend per model (B20): Sonnet reading slices and Opus reconciling show apart on the Spend page. */
+export const jobMeter = (ctx: JobContext): Meter[] | undefined => {
+  const m = meters.get(ctx);
+  return m?.size ? [...m.values()].map((x) => ({ ...x, costUsd: Math.round(x.costUsd * 1e6) / 1e6 })) : undefined;
+};
+const spent = (ctx: JobContext, r: { costUsd: number; meter?: Meter[] }) => {
+  costs.set(ctx, (costs.get(ctx) ?? 0) + (Number.isFinite(r.costUsd) ? r.costUsd : 0));
+  const m = meters.get(ctx) ?? new Map<string, Meter>();
+  for (const x of r.meter ?? []) {
+    const cur = m.get(x.model) ?? { model: x.model, tokensIn: 0, tokensOut: 0, costUsd: 0 };
+    m.set(x.model, { model: x.model, tokensIn: cur.tokensIn + x.tokensIn, tokensOut: cur.tokensOut + x.tokensOut, costUsd: cur.costUsd + (Number.isFinite(x.costUsd) ? x.costUsd : 0) });
+  }
+  meters.set(ctx, m);
+};
 
 /**
  * One function per job kind. Each returns the result the API applies to
@@ -89,7 +103,7 @@ async function think(ctx: JobContext, log: Log, system: string, instruction: str
       resume: w.agentSessionId, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
     });
     if (r.sessionId) sessions.set(ctx, r.sessionId);
-    spent(ctx, r.costUsd);
+    spent(ctx, r);
     if (!r.ok || !r.text.trim()) throw new Error(`The model stopped early (${r.reason ?? "no answer"}).`);
     return r.text.trim();
   }
@@ -156,7 +170,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
     resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
   });
   if (r.sessionId) sessions.set(ctx, r.sessionId);
-  spent(ctx, r.costUsd);
+  spent(ctx, r);
   if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
 
   // After: the runner's own checks decide the verdict, not the model's report.
@@ -501,7 +515,7 @@ async function readSource(ctx: JobContext, log: Log, repo: string, pack: Pack): 
     append: "You are a member of the Accelerator crew. You never change files.",
     prompt: ingestInstruction(pack),
   });
-  spent(ctx, r.costUsd);
+  spent(ctx, r);
   if (!r.ok || !r.text.trim()) throw new Error(`The extractor stopped early (${r.reason ?? "no answer"}).`);
   return readIngest(r.text);
 }
@@ -542,7 +556,7 @@ async function ingestEstate(ctx: JobContext, log: Log, repo: string, pack: Pack,
       append: "You are a member of the Accelerator crew. You never change files.",
       prompt: ingestInstruction(pack, cobolSliceGuidance(estate, slice, i)),
     });
-    spent(ctx, r.costUsd);
+    spent(ctx, r);
     try {
       if (!r.ok || !r.text.trim()) throw new Error(r.reason ?? "no answer");
       const report = readIngest(r.text);
@@ -614,7 +628,7 @@ async function readSliceDirect(ctx: JobContext, log: Log, pack: Pack, estate: Re
     shared: d.shared,
     user: cobolDirectSlice(estate, slice, i, body),
   });
-  spent(ctx, r.costUsd);
+  spent(ctx, r);
   if (!r.ok) throw new Error(`the read stopped early (${r.reason})`);
   return readIngest(r.text);
 }
@@ -627,7 +641,7 @@ async function reconcile(ctx: JobContext, log: Log, cwd: string, pack: Pack, mer
     append: "You are a member of the Accelerator crew. You never change files.",
     prompt: reconcileInstruction(pack, merged),
   });
-  spent(ctx, r.costUsd);
+  spent(ctx, r);
   const found = r.ok ? readReconcile(r.text) : [];
   const seen = new Set(merged.conflicts.map((x) => [...x.keys].sort().join("|")));
   const conflicts = [...merged.conflicts, ...found.filter((x) => !seen.has([...x.keys].sort().join("|")))];

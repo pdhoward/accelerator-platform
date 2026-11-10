@@ -75,7 +75,9 @@ export function refusal(tool: string, input: Record<string, unknown>): string | 
   return null;
 }
 
-export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string };
+/** One model's share of a run: the Spend page splits a job by the models it used (B20). */
+export type Meter = { model: string; tokensIn: number; tokensOut: number; costUsd: number };
+export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string; meter?: Meter[] };
 
 // ── One structured read, not an agent loop (B20) ─────────────────────────────
 
@@ -145,7 +147,8 @@ export async function read(opts: {
   opts.log.status(
     `${ok ? "Finished" : `Stopped (${message.stop_reason})`} in one read · ${price.fresh.toLocaleString()} new + ${price.cached.toLocaleString()} cached + ${price.written.toLocaleString()} cache-written tokens in · ${price.out.toLocaleString()} out · $${price.costUsd.toFixed(3)}${price.known ? "" : " (no price on file for this model)"}`,
   );
-  return { text, costUsd: price.costUsd, ok, reason: ok ? undefined : (message.stop_reason ?? "stopped") };
+  const meter = [{ model: opts.model, tokensIn: price.fresh + price.cached + price.written, tokensOut: price.out, costUsd: price.costUsd }];
+  return { text, costUsd: price.costUsd, ok, reason: ok ? undefined : (message.stop_reason ?? "stopped"), meter };
 }
 
 /**
@@ -251,7 +254,10 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
       const ok = m.subtype === "success" && !m.is_error;
       text = m.subtype === "success" ? m.result : "";
       opts.log.status(`${ok ? "Finished" : `Stopped (${m.subtype})`} after ${m.num_turns} turns · $${m.total_cost_usd.toFixed(2)}`);
-      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype, sessionId: m.session_id };
+      const meter = Object.entries(m.modelUsage ?? {}).map(([model, u]) => ({
+        model, tokensIn: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens, tokensOut: u.outputTokens, costUsd: u.costUSD,
+      }));
+      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype, sessionId: m.session_id, meter };
     }
   }
   return { text, costUsd: 0, ok: false, reason: "The agent ended without a result." };

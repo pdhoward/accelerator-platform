@@ -1,4 +1,4 @@
-import { spendScorecard, type Site, type SpendJob, type SpendProof, type SpendScorecard, type SpendUsage } from "@accelerator/domain";
+import { spendScorecard, type Site, type SpendJob, type SpendMeter, type SpendProof, type SpendScorecard, type SpendUsage } from "@accelerator/domain";
 
 import { db, rows } from "./supabase";
 
@@ -10,7 +10,7 @@ import { db, rows } from "./supabase";
 export async function siteSpend(site: Pick<Site, "id">, days: number): Promise<SpendScorecard> {
   const since = new Date(Date.now() - (days + 1) * 86_400_000).toISOString();
   const [jobRows, usageRows, proofRows] = await Promise.all([
-    rows(db().from("acc_jobs").select("id, kind, model, cost_usd, created_at, status, work_id").eq("site_id", site.id).gte("created_at", since).limit(5000)),
+    rows(db().from("acc_jobs").select("id, kind, model, cost_usd, created_at, status, work_id, meter:result->meter").eq("site_id", site.id).gte("created_at", since).limit(5000)),
     rows(db().from("acc_usage").select("role, model, tokens_in, tokens_out, cost_usd, at").eq("site_id", site.id).gte("at", since).limit(20000)),
     rows(db().from("acc_cradle_nodes").select("body").eq("site_id", site.id).eq("kind", "decision").like("key", "PROOF-%").gte("created_at", since)),
   ]);
@@ -25,6 +25,7 @@ export async function siteSpend(site: Pick<Site, "id">, days: number): Promise<S
       id: j.id as string, kind: j.kind as string, model: j.model as string, at: j.created_at as string, status: j.status as string,
       costUsd: j.cost_usd == null ? null : Number(j.cost_usd),
       workNumber: w ? Number(w.number) : null, title: w ? (w.title as string) : null,
+      meter: Array.isArray(j.meter) ? (j.meter as SpendMeter[]) : null,
     };
   });
   const usage: SpendUsage[] = usageRows.map((u) => ({

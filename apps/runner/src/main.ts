@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { hostname } from "node:os";
 
 import { claim, eventLog, finish, renew } from "./api";
-import { agentSession, buildStep, jobCost, checkout, design, discuss, ingest, locateCode, plan, prove, release } from "./jobs";
+import { agentSession, buildStep, jobCost, jobMeter, checkout, design, discuss, ingest, locateCode, plan, prove, release } from "./jobs";
 
 /**
  * The Accelerator runner (work/flywheel.md §7). A long-running process:
@@ -74,13 +74,13 @@ while (!stopping) {
     const result = await JOBS[job.kind](context, log);
     log.status(`Done in ${Math.round((Date.now() - started) / 1000)}s`);
     await log.close();
-    if (!superseded) await finish(job.id, { status: "done", result, generation: job.generation, sessionId: agentSession(context), costUsd: jobCost(context) });
+    if (!superseded) await finish(job.id, { status: "done", result, generation: job.generation, sessionId: agentSession(context), costUsd: jobCost(context), meter: jobMeter(context) });
   } catch (err) {
     const message = (err as Error).message ?? String(err);
     log.status(`Failed: ${message}`);
     await log.close();
     if (!superseded) {
-      await finish(job.id, { status: "failed", error: message, generation: job.generation, sessionId: agentSession(context), costUsd: jobCost(context) }).catch((e) => console.error(`[finish] ${(e as Error).message}`));
+      await finish(job.id, { status: "failed", error: message, generation: job.generation, sessionId: agentSession(context), costUsd: jobCost(context), meter: jobMeter(context) }).catch((e) => console.error(`[finish] ${(e as Error).message}`));
     }
   } finally {
     clearInterval(renewal);

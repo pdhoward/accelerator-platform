@@ -1128,7 +1128,9 @@ export type JobResult =
   | { kind: "release"; stageCommit: string | null; mainCommit: string | null; productionState: string; liveUrl: string; liveStatus: number | null; reasons?: string[] };
 
 /** The runner reports; the API decides what it means for the rail. */
-export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string; generation?: number; sessionId?: string; costUsd?: number }) {
+export type JobMeter = { model: string; tokensIn: number; tokensOut: number; costUsd: number }[];
+
+export async function finish(jobId: string, outcome: { status: "done" | "failed"; result?: JobResult; error?: string; generation?: number; sessionId?: string; costUsd?: number; meter?: JobMeter }) {
   const [job] = await rows(db().from("acc_jobs").select("*").eq("id", jobId).eq("status", "running"));
   if (!job) throw new CodeError("That job isn't running.");
   // A worker whose claim lapsed and was handed on can't commit a result (§14.1).
@@ -1140,7 +1142,9 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   const label = modelLabel(job.provider as string, job.model as string);
   const model = `${job.provider}/${job.model}`;
   // What the run cost (the mandate's budget reads it).
-  if (outcome.costUsd != null && Number.isFinite(outcome.costUsd)) await db().from("acc_jobs").update({ cost_usd: Math.round(outcome.costUsd * 10_000) / 10_000 }).eq("id", jobId);
+  // …and per model (B20), kept in the result: alone on a failed job, beside the report on a finished one.
+  const meter = outcome.meter?.length ? outcome.meter : null;
+  if (outcome.costUsd != null && Number.isFinite(outcome.costUsd)) await db().from("acc_jobs").update({ cost_usd: Math.round(outcome.costUsd * 10_000) / 10_000, ...(meter && { result: { meter } }) }).eq("id", jobId);
   const [w] = job.work_id ? await rows(db().from("acc_work").select("*").eq("id", job.work_id as string)) : [];
 
   if (outcome.status === "failed" || !outcome.result) {
@@ -1290,7 +1294,7 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
     await (await import("./proof")).nudgeApp({ id: job.site_id as string }, "ingest");
   }
 
-  await db().from("acc_jobs").update({ status: "done", result: r, finished_at: now() }).eq("id", jobId);
+  await db().from("acc_jobs").update({ status: "done", result: meter ? { ...r, meter } : r, finished_at: now() }).eq("id", jobId);
   if (w) {
     await restage(w.id as string);
     // The crew goes on by itself until the next decision the tier keeps for a person (gen2-crew.md §17).

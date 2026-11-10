@@ -66,7 +66,8 @@ function Spend({ s }: { s: SpendScorecard }) {
                 </span>
                 <span className="text-right tabular-nums">
                   <span className="text-ink">{usd(l.costUsd)}</span>
-                  <span className="text-mist"> · {l.count} × {usd(l.perUnitUsd)}</span>
+                  <span className="text-mist"> · {l.count} × {usd(l.perUnitUsd)} avg</span>
+                  {l.count > 1 && <span className={l.latestUsd < l.perUnitUsd * 0.8 ? "text-good" : l.latestUsd > l.perUnitUsd * 1.25 ? "text-warn" : "text-mist"}> · latest {usd(l.latestUsd)}</span>}
                 </span>
               </li>
             ))}
@@ -93,7 +94,7 @@ function Spend({ s }: { s: SpendScorecard }) {
           </CardBody>
         </Card>
         <Card>
-          <CardHead title="By model" hint="Crew and app calls. Proof runs mix models and are counted under Proofs." />
+          <CardHead title="By model" hint="Crew and app calls; a crew job is split by the models it used (older jobs, run before the per-model meter, count whole under their own model). Proof runs mix models and are counted under Proofs." />
           <CardBody>
             <table className="w-full text-left text-[13px]">
               <thead className="font-mono text-[10.5px] uppercase tracking-widest text-mist"><tr><th className="py-1">Model</th><th className="text-right">Tokens in / out</th><th className="text-right">Cost</th></tr></thead>
@@ -124,7 +125,7 @@ function Spend({ s }: { s: SpendScorecard }) {
                     <td className="py-1.5 pr-3 text-fog">{new Date(j.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</td>
                     <td className="pr-3">{j.label}{j.status === "failed" ? <span className="text-bad"> · failed</span> : null}</td>
                     <td className="max-w-[240px] truncate pr-3 text-fog">{j.workNumber != null ? `#${j.workNumber} ${j.title ?? ""}` : "—"}</td>
-                    <td className="pr-3 font-mono text-[12px]">{j.model}</td>
+                    <td className="pr-3 font-mono text-[12px]">{j.meter?.length ? j.meter.map((m) => `${m.model.replace(/^claude-/, "")} ${usd(m.costUsd)}`).join(" + ") : j.model}</td>
                     <td className="text-right tabular-nums">{usd(j.costUsd ?? 0)}</td>
                   </tr>
                 ))}
