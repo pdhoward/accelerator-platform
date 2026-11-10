@@ -667,7 +667,9 @@ export function aiReading(h: ModelHealth, r: Pick<CradleResponse, "pack">): Read
     headline: bad?.fault ? bad.fault.label : null,
     facts: bad?.fault
       ? [`${bad.label}: ${bad.fault.label} (${bad.fault.model}, ${bad.fault.role}).`, bad.fault.fix, `${bad.faults24h} failed ${bad.faults24h === 1 ? "call" : "calls"} in the last 24 hours.`]
-      : h.sources.map((s) => `${s.label}: ${s.status === "ok" ? (s.recoveredAt ? `working again since ${s.recoveredAt.slice(0, 16).replace("T", " ")} UTC` : "working") : "no model calls seen yet"}.`),
+      : !h.sources.length
+        ? [h.headline]
+        : h.sources.map((s) => `${s.label}: ${s.status === "ok" ? (s.recoveredAt ? `working again since ${s.recoveredAt.slice(0, 16).replace("T", " ")} UTC` : "working") : "no model calls seen yet"}.`),
   };
 }
 

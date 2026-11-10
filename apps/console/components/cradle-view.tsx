@@ -93,7 +93,11 @@ export function CradleView({ siteId, initial, canManage, siteUrl, defaultPack }:
   const [ai, setAi] = useState<ModelHealth | null>(null);
   useEffect(() => {
     if (r.sample || !r.cradle) return;
-    const load = () => void api.health.models(siteId).then(setAi).catch(() => {});
+    // A failed check shows on the dial too: the platform never hides that it couldn't look.
+    const load = () =>
+      void api.health.models(siteId).then(setAi).catch((err: unknown) =>
+        setAi({ status: "unknown", headline: `Couldn't check the AI: ${err instanceof Error ? err.message : String(err)}`, sources: [], checkedAt: new Date().toISOString() }),
+      );
     load();
     const t = setInterval(load, 30_000);
     return () => clearInterval(t);
