@@ -23,6 +23,8 @@ export type Site = {
   slug: string;
   name: string;
   url: string;
+  /** What the site is, in its owner's words (migration 0020). */
+  description?: string | null;
   repo: string;
   stack: string;
   status: "live" | "onboarding";
@@ -248,14 +250,22 @@ export type AdminAccountDetail = AdminAccountRow & {
   suspendedReason: string | null;
   people: { id: string; name: string; email: string | null; role: Role }[];
   invites: { id: string; email: string; role: Role; createdAt: string }[];
-  siteList: { id: string; slug: string; name: string; url: string; repo: string | null; repoPath: string | null; sources: SiteSource[] }[];
+  siteList: { id: string; slug: string; name: string; url: string; description: string | null; repo: string | null; repoPath: string | null; sources: SiteSource[] }[];
   audit: AuditEntry[];
 };
 
 /** What Platform Admin can change on an account after it is created. */
 export type AccountEdit = { name?: string; plan?: PlanId; billingMode?: BillingMode; installFeeQuoteUsd?: number | null; website?: string | null };
 /** …and on one of its sites: the live address, the primary repository, and any other code the system lives in. */
-export type SiteEdit = { name?: string; url?: string; repo?: string | null; repoPath?: string | null; sources?: SiteSource[] };
+export type SiteEdit = {
+  name?: string;
+  url?: string;
+  /** What the site is, in its owner's words: the running app introduces itself from it. */
+  description?: string | null;
+  repo?: string | null;
+  repoPath?: string | null;
+  sources?: SiteSource[];
+};
 
 export type PlatformStaff = { userId: string; email: string; role: PlatformRole; addedAt: string };
 
@@ -264,6 +274,8 @@ export type NewAccountInput = {
   /** The company's website, if it has one. */
   website?: string;
   siteName: string;
+  /** What the site is, in its owner's words (what it sells or does, for whom): the running app introduces itself from it. */
+  siteDescription?: string;
   /** Where the system runs, if it is live; without one, the code's address stands in. */
   siteUrl?: string;
   /** The system's primary code repository (GitHub), and the runner's local copy of it. */

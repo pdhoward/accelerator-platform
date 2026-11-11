@@ -52,10 +52,13 @@ async function inForceOf(siteId: string): Promise<RuntimeResponse["inForce"]> {
   return r ? { version: (r.body as Row).version as string, at: (r.body as Row).at as string, book: (r.body as Row).book as RuntimeBook } : null;
 }
 
+/** The site as the app sees it: its name, address and its owner's description (migration 0020). */
+const siteOf = (site: Site) => ({ id: site.id, name: site.name, description: site.description ?? null, url: site.url || null });
+
 export async function runtimeResponse(site: Site): Promise<RuntimeResponse | null> {
   const r = await readCradle(site);
   if (!r.cradle) return null;
-  const live = runtimeBook(r, { id: site.id, name: site.name });
+  const live = runtimeBook(r, siteOf(site));
   const [scenarios, inForce, proof] = await Promise.all([scenariosOf(site.id), inForceOf(site.id), proofOf(site.id, live.version)]);
   return { ...live, mark: CRADLE_MARK, scenarios: scenarios.filter((s) => s.status !== "retired"), inForce, proof };
 }
@@ -76,7 +79,7 @@ export async function compliance(site: Site) {
 export async function scorecard(site: Site): Promise<ProofScorecard | null> {
   const r = await readCradle(site);
   if (!r.cradle) return null;
-  const book = runtimeBook(r, { id: site.id, name: site.name });
+  const book = runtimeBook(r, siteOf(site));
   const all = await rows(db().from("acc_cradle_nodes").select("key, version, body").eq("site_id", site.id).eq("kind", "decision").like("key", "PROOF-%").order("version"));
   const runs = all.map((x) => x.body as ProofRun).filter((b) => b && (b.status === "passed" || b.status === "failed") && Array.isArray(b.results));
   const [scenarios, inForce] = await Promise.all([scenariosOf(site.id), inForceOf(site.id)]);

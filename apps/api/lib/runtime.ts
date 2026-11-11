@@ -34,6 +34,8 @@ export function verifyRuntimeToken(token: string | null | undefined): string | n
 export async function siteForToken(request: Request): Promise<Site | null> {
   const siteId = verifyRuntimeToken(request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]);
   if (!siteId) return null;
-  const [s] = await rows(db().from("acc_sites").select("id, org_id, name, slug").eq("id", siteId));
-  return s ? ({ id: s.id as string, orgId: s.org_id as string, name: s.name as string, slug: s.slug as string } as Site) : null;
+  const [s] = await rows(db().from("acc_sites").select("id, org_id, name, slug, url, description").eq("id", siteId));
+  return s
+    ? ({ id: s.id as string, orgId: s.org_id as string, name: s.name as string, slug: s.slug as string, url: s.url as string, description: (s.description as string) ?? null } as Site)
+    : null;
 }

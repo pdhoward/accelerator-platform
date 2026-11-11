@@ -34,6 +34,7 @@ export async function createAccount(_: FormState, f: FormData): Promise<FormStat
       name: text(f, "name"),
       website: text(f, "website") || undefined,
       siteName: text(f, "siteName"),
+      siteDescription: text(f, "siteDescription") || undefined,
       siteUrl: text(f, "siteUrl") || undefined,
       repo: text(f, "repo") || undefined,
       repoPath: text(f, "repoPath") || undefined,
@@ -105,6 +106,7 @@ export async function updateSite(_: FormState, f: FormData): Promise<FormState> 
     api.admin.updateSite(id, text(f, "siteId"), {
       name: text(f, "name"),
       url: text(f, "url"),
+      description: text(f, "description") || null,
       repo: text(f, "repo") || null,
       repoPath: text(f, "repoPath") || null,
       sources,

@@ -240,6 +240,11 @@ function SiteForm({ accountId, site }: { accountId: string; site: AdminAccountDe
           <Field label="Live address" hint="Where it runs. With no live app, use its code's address.">
             <input name="url" required defaultValue={site.url} className={inputClass} />
           </Field>
+          <div className="sm:col-span-2">
+            <Field label="What this site is" hint="In the owner's words: what it sells or does, and for whom. The AI app introduces itself with this.">
+              <textarea name="description" rows={2} maxLength={1000} defaultValue={site.description ?? ""} className={inputClass} placeholder="A home and workshop store with about 10,000 products: tools, lighting, decor and appliances." />
+            </Field>
+          </div>
           <Field label="Main code repository" hint="The one the crew changes.">
             <input name="repo" defaultValue={site.repo ? `github.com/${site.repo}` : ""} className={inputClass} placeholder="github.com/owner/name" />
           </Field>
