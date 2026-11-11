@@ -6,7 +6,7 @@
  * app can recompile its projections exactly when the rules change.
  */
 
-import type { CradleResponse } from "./cradle";
+import type { CradleResponse, GroundingUse } from "./cradle";
 
 export type RuntimePolicy = {
   key: string;
@@ -24,9 +24,22 @@ export type RuntimePolicy = {
 
 export type RuntimeRuling = { id: string; keys: string[]; ruling: string };
 
+/** The site as its owner registered it: the app introduces itself from this, never from code. */
+export type RuntimeSite = { id: string; name: string; description?: string | null; url?: string | null };
+
+/** The industry pack, as much as the app needs: what the industry is, its concepts, and what each use grounds on. */
+export type RuntimePack = {
+  id: string;
+  version: string;
+  label?: string;
+  summary?: string;
+  concepts?: { key: string; label: string }[];
+  grounding?: Partial<Record<GroundingUse, string[]>>;
+};
+
 export type RuntimeBook = {
-  site: { id: string; name: string };
-  pack: { id: string; version: string } | null;
+  site: RuntimeSite;
+  pack: RuntimePack | null;
   version: string;
   at: string;
   policies: RuntimePolicy[];
@@ -43,7 +56,7 @@ export function fingerprint(s: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-export function runtimeBook(r: CradleResponse, site: { id: string; name: string }, at = new Date().toISOString()): RuntimeBook {
+export function runtimeBook(r: CradleResponse, site: RuntimeSite, at = new Date().toISOString()): RuntimeBook {
   const policies: RuntimePolicy[] = r.book
     .filter((p) => p.status !== "retired")
     .map((p) => ({
@@ -60,8 +73,12 @@ export function runtimeBook(r: CradleResponse, site: { id: string; name: string 
     else byText.set(text, { id: c.id, keys: [...c.keys].sort(), ruling: text });
   }
   const rulings = [...byText.values()];
-  const pack = r.pack ? { id: r.pack.id, version: r.pack.version } : null;
-  return { site, pack, version: fingerprint(JSON.stringify({ pack, policies, rulings })), at, policies, rulings };
+  const id = r.pack ? { id: r.pack.id, version: r.pack.version } : null;
+  const pack: RuntimePack | null = r.pack
+    ? { ...id!, label: r.pack.label, summary: r.pack.summary, concepts: (r.pack.concepts ?? []).map((c) => ({ key: c.key, label: c.label })), ...(r.pack.grounding && { grounding: r.pack.grounding }) }
+    : null;
+  // The version follows the rules (the pack's id and version, the policies, the rulings), not the descriptive fields beside them.
+  return { site, pack, version: fingerprint(JSON.stringify({ pack: id, policies, rulings })), at, policies, rulings };
 }
 
 /** The mark a transformed app shows (the store's header, its home page): one line, the same on every Cradle site. */

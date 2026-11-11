@@ -77,6 +77,12 @@ const COMMERCE: Pack = {
     p({ key: "C-AST-1", concept: "assistant", event: "answer", title: "The assistant answers from the catalog", statement: "The assistant answers only from the catalog and the published policies. When it does not know, it says so.", criticality: "routine", form: "structural", parameters: {}, kernel: null,
       examples: [{ given: "A shopper asks about a warranty the catalog doesn't list", when: "the assistant answers", then: "it says it doesn't know and offers to pass the question on" }] }),
   ],
+  // A shopper's search and the assistant read what bears on finding and buying; tax, refunds and data rules stay out of their context.
+  grounding: {
+    search: ["product", "inventory", "price", "checkout", "shipping", "assistant", "order"],
+    assistant: ["product", "inventory", "price", "checkout", "shipping", "assistant", "order", "refund"],
+    scenarios: ["product", "inventory", "price", "checkout", "shipping", "assistant", "order"],
+  },
 };
 
 const HOSPITALITY: Pack = {

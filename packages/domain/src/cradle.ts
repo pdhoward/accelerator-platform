@@ -82,7 +82,17 @@ export type Pack = {
   kernels: Kernel[];
   components: Component[];
   policies: Policy[];
+  /**
+   * Which concepts each thing the app does reads its rules from (a shopper's
+   * search, the assistant, drafting scenarios). The running app grounds on
+   * these, so no app hard-codes what its industry is about. A use not listed
+   * grounds on every concept.
+   */
+  grounding?: Partial<Record<GroundingUse, string[]>>;
 };
+
+/** The things a running Cradle app does that read the rules. */
+export type GroundingUse = "search" | "assistant" | "scenarios";
 
 /** A policy as the site holds it: the pack's, overlaid with the site's layer. */
 export type BookPolicy = Policy & {
