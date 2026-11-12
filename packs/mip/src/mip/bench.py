@@ -69,9 +69,35 @@ def index_expected(x: dict) -> dict[str, set]:
     return want
 
 
+def score_p2(m: dict, x: dict) -> dict:
+    """P2: resolved values, interface findings with their severity, and what must not be a finding."""
+    p2 = x.get("p2") or {}
+    edges = [e for p in m["parts"] for e in p["edges"]]
+    findings = {(f["caller"], f["callee"], f["line"]): f for f in m.get("findings", [])}
+    interfaces = {(i["caller"], i["callee"], i["line"]): i for p in m["parts"] for i in p.get("interfaces", [])}
+    out = {"resolved": [], "interfaces": [], "not_findings": []}
+    for r in p2.get("resolved", []):
+        kind = {"run_async": lambda e: e.get("asynchronous"), "xctl": lambda e: e["kind"] == "transfers", "link": lambda e: e["kind"] == "links"}[r["kind"]]
+        e = next((e for e in edges if e["from"] == r["program"] and e["cite"]["line"] == r["line"] and kind(e)), None)
+        got = (e.get("dynamic") or {}).get("resolved", []) if e else None
+        out["resolved"].append({"program": r["program"], "line": r["line"], "ok": got == r["values"], "expected": r["values"], "got": got})
+    for want in p2.get("interfaces", []):
+        f = findings.get((want["caller"], want["callee"], want["line"]))
+        ok = bool(f) and f.get("verdict") == want["verdict"] and f.get("severity") == want["severity"] and f.get("caller_size") == want["caller_size"] and f.get("callee_size") == want["callee_size"]
+        out["interfaces"].append({**{k: want[k] for k in ("caller", "callee", "line", "severity")}, "ok": ok, "got": {k: f.get(k) for k in ("verdict", "severity", "caller_size", "callee_size")} if f else None})
+    for nf in p2.get("not_findings", []):
+        i = interfaces.get((nf["caller"], nf["callee"], nf["line"]))
+        out["not_findings"].append({"caller": nf["caller"], "callee": nf["callee"], "ok": (nf["caller"], nf["callee"], nf["line"]) not in findings and bool(i) and i["verdict"] == nf["verdict"], "got": i["verdict"] if i else None})
+    expected = {(w["caller"], w["callee"], w["line"]) for w in p2.get("interfaces", [])}
+    out["unexpected_findings"] = [{"caller": k[0], "callee": k[1], "line": k[2], "severity": v.get("severity")} for k, v in findings.items() if k not in expected]
+    programs = {u["id"] for p in m["parts"] for u in p["units"] if u["kind"] == "program"}
+    out["async_programs_asserted"] = [e["cite"] for e in edges if e.get("asynchronous") and any(v in programs for v in (e.get("dynamic") or {}).get("resolved", []))]
+    return out
+
+
 def score(m: dict, x: dict) -> dict:
-    subset = {p["id"] for p in x["subset"]}
-    got, want = index_map(m), index_expected(x)
+    subset = {p["id"] for p in x.get("subset", [])}
+    got, want = index_map(m), index_expected(x) if "expected" in x else {}
     report = {}
     for cat in sorted(want):
         w = want[cat]
@@ -88,9 +114,7 @@ def score(m: dict, x: dict) -> dict:
             "missed": sorted(w - g)[:20],
             "extra": sorted(g - w)[:20],
         }
-    # What MIP must not claim (mip.md §8): the asynchronous RUN's programs stay unresolved.
-    run_claims = [e for p in m["parts"] for e in p["edges"] if e.get("asynchronous") and e.get("dynamic") and e["dynamic"].get("resolved")]
-    report["_unresolved_respected"] = {"run_transid_programs_asserted": len(run_claims)}
+    report["_p2"] = score_p2(m, x)
     return report
 
 
@@ -102,7 +126,16 @@ def main(argv: list[str]) -> int:
         if cat.startswith("_"):
             continue
         print(f"{cat:18s} {v['expected']:8d} {v['found']:6d} {v['matched']:7d} {v['recall']:7.1%} {v['precision']:9.1%}")
-    print("unresolved respected:", r["_unresolved_respected"])
+    p2 = r["_p2"]
+    print("\nP2")
+    for row in p2["resolved"]:
+        print(f"  resolved {row['program']}:{row['line']:<5} {'ok ' if row['ok'] else 'MISS'} {row['got']}")
+    for row in p2["interfaces"]:
+        print(f"  finding  {row['caller']} -> {row['callee']}:{row['line']} ({row['severity']}) {'ok ' if row['ok'] else 'MISS'} {row['got']}")
+    for row in p2["not_findings"]:
+        print(f"  not a finding {row['caller']} -> {row['callee']} {'ok ' if row['ok'] else 'WRONG'} ({row['got']})")
+    print(f"  unexpected findings: {p2['unexpected_findings'] or 'none'}")
+    print(f"  asynchronous RUN naming a program: {p2['async_programs_asserted'] or 'none'}")
     for cat, v in r.items():
         if cat.startswith("_"):
             continue

@@ -103,6 +103,16 @@ def _without_comment_entries(lines: list[CodeLine]) -> list[CodeLine]:
     return out
 
 
+def _after_pic(tokens: list[Token]) -> bool:
+    """The next token is a PICTURE string: after PIC or PICTURE, optionally followed by IS."""
+    if not tokens:
+        return False
+    last = tokens[-1].upper
+    if last in ("PIC", "PICTURE"):
+        return True
+    return last == "IS" and len(tokens) > 1 and tokens[-2].upper in ("PIC", "PICTURE")
+
+
 def tokenize(text: str) -> list[Token]:
     """Tokens of the whole file, comments excluded, continuations joined (a literal continued
     on the next line is one token, cited at the line where it starts)."""
@@ -156,6 +166,17 @@ def tokenize(text: str) -> list[Token]:
                     tokens.append(Token(s[i + 2 : j].strip(), cl.line, cl.col0 + i, "pseudo"))
                     i = j + 2
                     continue
+            if _after_pic(tokens):
+                # A PICTURE string is one token, periods and parentheses included (`+9(10).99`); a final period ends the sentence.
+                m = re.match(r"\S+", s[i:])
+                chunk = m.group(0)
+                if chunk.endswith(".") and (i + len(chunk) >= len(s) or s[i + len(chunk)].isspace()):
+                    tokens.append(Token(chunk[:-1], cl.line, cl.col0 + i, "pic"))
+                    tokens.append(Token(".", cl.line, cl.col0 + i + len(chunk) - 1, "punct"))
+                else:
+                    tokens.append(Token(chunk, cl.line, cl.col0 + i, "pic"))
+                i += len(chunk)
+                continue
             m = _WORD.match(s, i)
             if m:
                 w = m.group(0)

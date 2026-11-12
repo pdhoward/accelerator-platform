@@ -17,12 +17,14 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .cobol import Program, analyze as analyze_cobol
+from .cobol import Program, analyze as analyze_cobol, string_values
 from .embedded import DLI_READS, DLI_WRITES, cics_facts, dli_call_facts, dli_exec_facts, sql_facts
+from .interfaces import check as check_interface
+from .layout import Layout, table_values
 from .jcl import analyze_bms, analyze_csd, analyze_jcl
 from .source import read_text
 
-LEVEL = 2
+LEVEL = 2  # P2 adds resolution (tables, constant evaluation) and interface checks on top of L2 structure
 ROLE = [
     ("program", r"\.(cbl|cob)$"),
     ("copybook", r"\.(cpy|copy)$"),
@@ -50,6 +52,38 @@ def list_files(root: Path, files_list: Path | None) -> list[str]:
 
 def cite(path: str, line: int) -> dict:
     return {"file": path, "line": line}
+
+
+class CopybookIndex:
+    """Copybooks by name, possibly several per name (Bank of Z has two XFRFUN.cpy). Like a compiler's library
+    search order, each program sees the one nearest its own folder; duplicates are reported."""
+
+    def __init__(self) -> None:
+        self.by_name: dict[str, list[Program]] = {}
+        self._views: dict[str, dict[str, Program]] = {}
+
+    def add(self, name: str, cp: Program) -> None:
+        self.by_name.setdefault(name, []).append(cp)
+
+    def all(self) -> list[Program]:
+        return [cp for cps in self.by_name.values() for cp in cps]
+
+    @staticmethod
+    def _near(a: str, b: str) -> int:
+        pa, pb = a.split("/")[:-1], b.split("/")[:-1]
+        n = 0
+        while n < min(len(pa), len(pb)) and pa[n] == pb[n]:
+            n += 1
+        return n
+
+    def view(self, path: str) -> dict[str, Program]:
+        folder = path.rsplit("/", 1)[0]
+        if folder not in self._views:
+            self._views[folder] = {name: max(cps, key=lambda cp: (self._near(cp.path, path), -len(cp.path))) for name, cps in self.by_name.items()}
+        return self._views[folder]
+
+    def duplicates(self) -> dict[str, list[str]]:
+        return {name: [cp.path for cp in cps] for name, cps in self.by_name.items() if len(cps) > 1}
 
 
 class Builder:
@@ -95,32 +129,48 @@ def analyze_repo(root: Path, files_list: Path | None = None) -> dict:
             by_role.setdefault(r, []).append(f)
 
     b = Builder()
-    copybooks: dict[str, Program] = {}
+    index = CopybookIndex()
     for path in by_role.get("copybook", []):
         try:
             cp = analyze_cobol(path, read_text(root / path), kind="copybook")
             stem = re.sub(r"\.[^.]+$", "", path.rsplit("/", 1)[-1]).upper()
             cp.name = stem
-            copybooks.setdefault(stem, cp)
-            b.unit("cobol", f"CPY:{stem}", "copybook", stem, path, 1)
+            index.add(stem, cp)
+            if len(index.by_name[stem]) == 1:
+                b.unit("cobol", f"CPY:{stem}", "copybook", stem, path, 1)
         except Exception as err:  # noqa: BLE001
             b.diagnostics.append({"file": path, "error": f"{type(err).__name__}: {err}"})
+    for name, paths in index.duplicates().items():
+        b.diagnostics.append({"warning": f"{len(paths)} copybooks named {name}: each program uses the one nearest its own folder", "files": paths})
 
     programs: dict[str, Program] = {}
     for path in by_role.get("program", []):
         try:
-            prog = analyze_cobol(path, read_text(root / path))
+            prog = analyze_cobol(path, read_text(root / path), copybooks=index.view(path))
         except Exception as err:  # noqa: BLE001
             b.diagnostics.append({"file": path, "error": f"{type(err).__name__}: {err}"})
             continue
         if prog.name in programs:
             b.diagnostics.append({"file": path, "warning": f"PROGRAM-ID {prog.name} also in {programs[prog.name].path}"})
         programs.setdefault(prog.name, prog)
-        _emit_program(b, prog, copybooks)
+        _emit_program(b, prog, index.view(path))
 
-    for cp in copybooks.values():
-        if cp.performs or cp.calls or cp.execs:
-            _emit_program(b, cp, copybooks, unit_id=f"CPY:{cp.name}")
+    for cp in index.all():
+        if (cp.performs or cp.calls or cp.execs) and cp is index.by_name[cp.name][0]:
+            _emit_program(b, cp, index.view(cp.path), unit_id=f"CPY:{cp.name}")
+
+    # Interfaces (P2): every LINK/XCTL with a COMMAREA to a program in the repository, byte for byte.
+    interfaces = []
+    for e in b.part("cics")["edges"] if "cics" in b.parts else []:
+        if e["kind"] not in ("links", "transfers") or not e.get("commarea") or e["from"] not in programs:
+            continue
+        targets = [e["to"]] if e["to"] in programs else [t for t in (e.get("dynamic") or {}).get("resolved", []) if t in programs]
+        for t in dict.fromkeys(targets):
+            r = check_interface(programs[e["from"]], {**e, "to": t}, programs, index.view)
+            if r:
+                interfaces.append(r)
+    if interfaces:
+        b.part("cics")["interfaces"] = interfaces
 
     jobs = []
     for path in by_role.get("jcl", []):
@@ -151,6 +201,9 @@ def analyze_repo(root: Path, files_list: Path | None = None) -> dict:
         "files": {k: len(v) for k, v in by_role.items()},
         "seconds": round(time.perf_counter() - t0, 2),
         "parts": b.result(),
+        "findings": [
+            {"kind": "interface_drift", **i} for i in (b.parts.get("cics", {}).get("interfaces") or []) if i.get("verdict") == "differs"
+        ],
         "diagnostics": b.diagnostics,
         "facts": {
             name: {
@@ -216,7 +269,7 @@ def _emit_program(b: Builder, prog: Program, copybooks: dict[str, Program], unit
         if blk.unterminated:
             b.diagnostics.append({"file": path, "line": blk.line, "warning": f"EXEC {blk.kind} without END-EXEC before the next EXEC (code past column 72?)"})
         if blk.kind == "CICS":
-            _emit_cics(b, pid, path, cics_facts(prog, blk, copied))
+            _emit_cics(b, pid, path, _resolve(prog, copybooks, copied, cics_facts(prog, blk, copied)))
         elif blk.kind == "SQL":
             f = sql_facts(blk)
             verb = f["verb"]
@@ -232,6 +285,18 @@ def _emit_program(b: Builder, prog: Program, copybooks: dict[str, Program], unit
             b.part("db2").setdefault("statements", []).append({"program": pid, **{k: v for k, v in f.items() if k != "end"}, "tables": tables})
         elif blk.kind == "DLI":
             _emit_dli(b, pid, path, dli_exec_facts(blk), None)
+
+
+def _resolve(prog: Program, copybooks: dict[str, Program], copied: list[Program], f: dict) -> dict:
+    """A data-held target with no literal: try a table read the way the program reads it, then a STRING built from known parts."""
+    for key in ("program", "transid", "file", "dataset", "queue"):
+        if f.get(f"{key}_dynamic") and not f.get(f"{key}_values"):
+            vals = table_values(Layout(prog, copybooks), f[key])
+            if not vals:
+                vals = [{**v, "file": prog.path} for v in string_values(prog, f[key], f["line"], copied)]
+            seen = set()
+            f[f"{key}_values"] = [v for v in vals if not (v["value"] in seen or seen.add(v["value"]))]
+    return f
 
 
 def _emit_dli(b: Builder, pid: str, path: str, f: dict, scope: str | None) -> None:
