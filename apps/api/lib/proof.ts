@@ -1,4 +1,7 @@
-import { CRADLE_MARK, proofOutcome, proofScorecard, runtimeBook, type CaseResult, type Proof, type ProofRun, type ProofScorecard, type RuntimeBook, type RuntimeResponse, type Scenario, type Site } from "@accelerator/domain";
+import {
+  CRADLE_MARK, proofOutcome, proofScorecard, runtimeBook,
+  type CaseResult, type Proof, type ProofRun, type ProofScorecard, type RuntimeBook, type RuntimeResponse, type Scenario, type Site, type StoredProjection,
+} from "@accelerator/domain";
 
 import { readCradle } from "./cradle";
 import { mintRuntimeToken } from "./runtime";
@@ -16,7 +19,8 @@ const now = () => new Date().toISOString();
 type Kind = "scenario" | "proof" | "inforce";
 
 async function current(siteId: string, type: Kind): Promise<Row[]> {
-  const all = await rows(db().from("acc_cradle_nodes").select("key, version, body, created_at").eq("site_id", siteId).eq("kind", "decision").order("version"));
+  // Compiled settings (PROJ-…) are read by version on their own; they never shadow a scenario, proof or the version in force.
+  const all = await rows(db().from("acc_cradle_nodes").select("key, version, body, created_at").eq("site_id", siteId).eq("kind", "decision").not("key", "like", "PROJ-%").order("version"));
   const latest = new Map<string, Row>();
   for (const r of all) if ((r.body as Row)?.type === type) latest.set(r.key as string, r);
   return [...latest.values()];
@@ -60,7 +64,33 @@ export async function runtimeResponse(site: Site): Promise<RuntimeResponse | nul
   if (!r.cradle) return null;
   const live = runtimeBook(r, siteOf(site));
   const [scenarios, inForce, proof] = await Promise.all([scenariosOf(site.id), inForceOf(site.id), proofOf(site.id, live.version)]);
-  return { ...live, mark: CRADLE_MARK, scenarios: scenarios.filter((s) => s.status !== "retired"), inForce, proof };
+  const projections = await projectionsFor(site.id, [...new Set([live.version, inForce?.version].filter((v): v is string => !!v))]);
+  return { ...live, mark: CRADLE_MARK, scenarios: scenarios.filter((s) => s.status !== "retired"), inForce, proof, projections };
+}
+
+/** The compiled settings stored for these book versions (B11): PROJ-<version>-<compiler fingerprint>. */
+async function projectionsFor(siteId: string, versions: string[]): Promise<StoredProjection[]> {
+  if (!versions.length) return [];
+  const found = await rows(
+    db().from("acc_cradle_nodes").select("key, body").eq("site_id", siteId).eq("kind", "decision").or(versions.map((v) => `key.like.PROJ-${v}-*`).join(",")),
+  );
+  return found.map((r) => r.body as StoredProjection).filter((b) => b && typeof b.version === "string" && b.projection && typeof b.projection === "object");
+}
+
+/**
+ * Keep a version's compiled settings (B11). The first server to compile a
+ * version stores it; the others read it instead of compiling. Only the live
+ * version or the one in force is accepted, and a stored one is never replaced:
+ * settings compiled from the same book by the same compiler are the same.
+ */
+export async function saveProjection(site: Site, p: Omit<StoredProjection, "at">): Promise<"stored" | "exists" | "unknown version"> {
+  const res = await runtimeResponse(site);
+  if (!res || (p.version !== res.version && p.version !== res.inForce?.version)) return "unknown version";
+  const key = `PROJ-${p.version}-${p.schema}`;
+  const [have] = await rows(db().from("acc_cradle_nodes").select("id").eq("site_id", site.id).eq("key", key).limit(1));
+  if (have) return "exists";
+  await write(site, key, { type: "projection", ...p, at: now() }, `compiled ${p.version} (${p.model})`);
+  return "stored";
 }
 
 /** The steward's view: what is in force, what is being proven, and every scenario. */

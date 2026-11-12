@@ -90,8 +90,19 @@ export const CRADLE_MARK = { title: "Running on AI", tagline: "Intelligence matt
  * proof), the scenarios that prove it, the newest proof of the live version,
  * and the mark.
  */
+/**
+ * A book version compiled into the app's runtime settings (B11), stored on the
+ * Accelerator so it is compiled once per version for every server the app
+ * runs on, not once per server. `schema` fingerprints the app's compiler (its
+ * settings shape and instructions): an app whose compiler changed ignores
+ * settings compiled by the old one.
+ */
+export type StoredProjection = { version: string; schema: string; projection: Record<string, unknown>; model: string; costUsd: number; at: string };
+
 export type RuntimeResponse = RuntimeBook & {
   mark: typeof CRADLE_MARK;
+  /** Compiled settings for the live version and the one in force, from any server of this app (B11). */
+  projections: StoredProjection[];
   scenarios: import("./cradle-proof").Scenario[];
   inForce: { version: string; at: string; book: RuntimeBook } | null;
   proof: import("./cradle-proof").Proof | null;
