@@ -1,0 +1,17 @@
+[project]
+name = "mip"
+version = "0.1.0"
+description = "MIP, the Mainframe Intelligence Pack: COBOL, JCL, CICS, DB2 and IMS read into the Accelerator's code map (accelerator/work/mip.md)"
+requires-python = ">=3.11"
+license = { text = "Proprietary (Strategic Machines)" }
+dependencies = ["sqlglot==30.31.0"]
+
+[project.scripts]
+mip = "mip.analyze:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
