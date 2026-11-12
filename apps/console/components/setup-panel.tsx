@@ -99,6 +99,65 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
       </div>
 
       <Card>
+        <CardHead title="About this site" hint="Yours to set: the AI app introduces itself with this, and the industry pack sets the best practices it is held to" />
+        <CardBody>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const f = new FormData(e.currentTarget);
+              const domain = f.get("domain");
+              void act(
+                () =>
+                  api.setup.settings(siteId, {
+                    name: String(f.get("name") ?? ""), url: String(f.get("url") ?? ""), description: String(f.get("description") ?? "") || null,
+                    domain: isDomain(domain) ? domain : null,
+                  }),
+                "Saved.",
+              );
+            }}
+            className="grid gap-3 md:grid-cols-2"
+          >
+            <Field label="Site name">
+              <input name="name" required minLength={2} maxLength={120} defaultValue={s.settings.name} disabled={!canManage} className={inputClass} />
+            </Field>
+            <Field label="Live address">
+              <input name="url" required defaultValue={s.settings.url} disabled={!canManage} placeholder="https://shop.example.com" className={inputClass} />
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="What this site is (what it sells or does, and for whom)">
+                <textarea
+                  name="description"
+                  rows={2}
+                  maxLength={1000}
+                  defaultValue={s.settings.description ?? ""}
+                  disabled={!canManage}
+                  placeholder="A home and workshop store with about 10,000 products: tools, lighting, decor and appliances."
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+            <Field label="Industry pack (the best practices it is held to)">
+              <select name="domain" defaultValue={s.settings.domain ?? ""} disabled={!canManage} className={inputClass} title={s.settings.domain ? DOMAIN_PACKS[s.settings.domain].summary : "Pick the industry this site is in."}>
+                <option value="">Not chosen yet</option>
+                {DOMAINS.map((d) => (
+                  <option key={d} value={d}>
+                    {DOMAIN_PACKS[d].label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {canManage && (
+              <div className="flex items-end">
+                <button type="submit" className={button("plain")} disabled={busy}>
+                  Save
+                </button>
+              </div>
+            )}
+          </form>
+        </CardBody>
+      </Card>
+
+      <Card>
         <CardHead title="Where the engine works" hint="Strategic Machines sets these at installation" />
         <CardBody>
           <form
@@ -106,17 +165,14 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               void act(
-                () => {
-                  const domain = f.get("domain");
-                  return api.setup.settings(siteId, {
+                () =>
+                  api.setup.settings(siteId, {
                     repo: String(f.get("repo") ?? ""), repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? ""),
-                    domain: isDomain(domain) ? domain : null,
-                  });
-                },
+                  }),
                 "Saved.",
               );
             }}
-            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1.6fr_0.7fr_1.4fr_1fr_auto] xl:items-end"
+            className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1.6fr_0.7fr_1.4fr_auto] xl:items-end"
           >
             <Field label="GitHub repository (owner/name)">
               <input name="repo" defaultValue={s.settings.repo ?? ""} disabled={!canManage} placeholder="pdhoward/machineshop" className={inputClass} />
@@ -129,16 +185,6 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
             </Field>
             <Field label="Staging URL">
               <input name="stageUrl" type="url" defaultValue={s.settings.stageUrl ?? ""} disabled={!canManage} placeholder="https://stage.example.com" className={inputClass} />
-            </Field>
-            <Field label="Business domain (the crew's expertise)">
-              <select name="domain" defaultValue={s.settings.domain ?? ""} disabled={!canManage} className={inputClass} title={s.settings.domain ? DOMAIN_PACKS[s.settings.domain].summary : "Pick the industry the crew should speak."}>
-                <option value="">Not chosen yet</option>
-                {DOMAINS.map((d) => (
-                  <option key={d} value={d}>
-                    {DOMAIN_PACKS[d].label}
-                  </option>
-                ))}
-              </select>
             </Field>
             {canManage && (
               <button type="submit" className={button("plain")} disabled={busy}>

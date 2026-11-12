@@ -348,6 +348,9 @@ export function createApiClient({
       settings: (
         siteId: string,
         input: {
+          name?: string;
+          url?: string;
+          description?: string | null;
           repo?: string | null;
           repoPath?: string | null;
           baseBranch?: string;

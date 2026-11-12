@@ -889,7 +889,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   const [items, [agreement], [s], online] = await Promise.all([
     rows(db().from("acc_setup_items").select("*").eq("site_id", site.id)),
     rows(db().from("acc_agreements").select("*").eq("site_id", site.id).order("version", { ascending: false }).limit(1)),
-    rows(db().from("acc_sites").select("repo, repo_path, base_branch, stage_url, baseline_tests, domain").eq("id", site.id)),
+    rows(db().from("acc_sites").select("name, url, description, repo, repo_path, base_branch, stage_url, baseline_tests, domain").eq("id", site.id)),
     runnerOnline(),
   ]);
   const order = (code: string) => SETUP_TEMPLATE.findIndex((t) => t.code === code);
@@ -904,6 +904,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
     items: list,
     agreement: agreement ? { version: agreement.version as number, body: agreement.body as string, signedAt: (agreement.signed_at as string) ?? null } : { version: 0, body: agreementText(site.name), signedAt: null },
     settings: {
+      name: (s?.name as string) ?? site.name, url: (s?.url as string) ?? "", description: (s?.description as string) ?? null,
       repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null,
       baselineTests: (s?.baseline_tests as number) ?? null, domain: isDomain(s?.domain) ? s.domain : null,
     },
@@ -922,10 +923,18 @@ export async function setSetupItem(site: Site, identity: Identity, code: string,
   if (!count) throw new CodeError("Unknown checklist item.");
 }
 
-export async function saveSiteSettings(site: Site, input: { repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null }) {
+export async function saveSiteSettings(
+  site: Site,
+  input: { name?: string; url?: string; description?: string | null; repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null },
+) {
+  const url = input.url?.trim().replace(/\/+$/, "");
+  if (input.url !== undefined && !url) throw new CodeError("The site needs an address: where it runs, or its code's.");
   const { error } = await db()
     .from("acc_sites")
     .update({
+      ...(input.name?.trim() && { name: input.name.trim() }),
+      ...(url && { url: /^https?:\/\//i.test(url) ? url : `https://${url}` }),
+      ...(input.description !== undefined && { description: input.description?.trim() || null }),
       ...(input.repo !== undefined && { repo: input.repo?.trim().replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "") ?? "" }),
       ...(input.repoPath !== undefined && { repo_path: input.repoPath?.trim() || null }),
       ...(input.baseBranch && { base_branch: input.baseBranch.trim() }),

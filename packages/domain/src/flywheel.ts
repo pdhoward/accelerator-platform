@@ -490,7 +490,18 @@ export type SetupItem = { code: string; phase: "install" | "checkout"; title: st
 export type SiteSetup = {
   items: SetupItem[];
   agreement: { version: number; body: string; signedAt: string | null } | null;
-  settings: { repo: string | null; repoPath: string | null; baseBranch: string; stageUrl: string | null; baselineTests: number | null; domain: Domain | null };
+  settings: {
+    /** The account owner's: the site's name, address, what it is (its own words) and its industry pack. */
+    name: string;
+    url: string;
+    description: string | null;
+    repo: string | null;
+    repoPath: string | null;
+    baseBranch: string;
+    stageUrl: string | null;
+    baselineTests: number | null;
+    domain: Domain | null;
+  };
   runnerOnline: boolean;
   ready: boolean;
 };

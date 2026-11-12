@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DOMAINS } from "@accelerator/domain";
+
 import { body, fail, json, workRoute } from "@/lib/http";
 import { latestCheckout, saveSiteSettings, siteSetup } from "@/lib/work";
 
@@ -7,12 +9,16 @@ import { latestCheckout, saveSiteSettings, siteSetup } from "@/lib/work";
 export const GET = workRoute(async ({ site }) => json({ ...(await siteSetup(site)), checkout: await latestCheckout(site.id) }));
 
 const schema = z.object({
+  /** The account owner's: what the site is called, where it runs, what it is, and its industry (the pack). */
+  name: z.string().trim().min(2).max(120).optional(),
+  url: z.string().trim().max(300).optional(),
+  description: z.string().trim().max(1000).nullable().optional(),
   repo: z.union([z.string().regex(/^(https:\/\/github\.com\/)?[\w.-]+\/[\w.-]+?(\.git)?$/, "Use owner/name, e.g. pdhoward/machineshop"), z.literal("")]).nullable().optional(),
   repoPath: z.string().max(400).nullable().optional(),
   baseBranch: z.string().trim().min(1).max(80).optional(),
   stageUrl: z.union([z.url(), z.literal("")]).nullable().optional(),
-  /** The domain pack the crew is configured for (gen2-crew.md §20). */
-  domain: z.enum(["commerce", "hospitality"]).nullable().optional(),
+  /** The industry pack the site runs on (gen2-crew.md §20, gen3-cradle.md §3). */
+  domain: z.enum(DOMAINS).nullable().optional(),
 });
 
 export const PATCH = workRoute(async ({ request, site }) => {
