@@ -119,7 +119,8 @@ class Builder:
         return out
 
 
-def analyze_repo(root: Path, files_list: Path | None = None) -> dict:
+def analyze_repo(root: Path, files_list: Path | None = None, keep: dict | None = None) -> dict:
+    """The code map. `keep`, when given, receives the analysis itself (programs, copybook index) for trace.py."""
     t0 = time.perf_counter()
     files = list_files(root, files_list)
     by_role: dict[str, list[str]] = {}
@@ -194,6 +195,8 @@ def analyze_repo(root: Path, files_list: Path | None = None) -> dict:
             if m["kind"] == "mapset":
                 b.unit("cics", f"MAP:{m['name']}", "screen", m["name"], path, m["line"])
 
+    if keep is not None:
+        keep.update(programs=programs, index=index)
     return {
         "mip": __version__,
         "level": LEVEL,

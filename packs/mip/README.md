@@ -2,7 +2,7 @@
 
 The Accelerator's technology pack for the mainframe family (COBOL, JCL, CICS, DB2, IMS, VSAM). It reads a repository's source, never runs anything from it, and writes the platform's code map (`packages/domain/src/code-map.ts`): units, entry points, data stores and edges, every one cited to a file and line. Design, decisions and the benchmark: `accelerator/work/mip.md`.
 
-Stage: **P2, resolution and interface checks** (2026-11-12), on top of P1's L2 structure.
+Stage: **P3, L3 semantics** (2026-11-12): control flow, conditions, data flow and cross-program traces, on top of P2 (resolution, interfaces) and P1 (L2 structure). Native: no third-party COBOL parser (SQLGlot reads embedded SQL).
 
 ## Run
 
@@ -12,6 +12,8 @@ python -m venv .venv
 .venv/Scripts/python -m pip install --only-binary :all: -r requirements.lock   # Windows; .venv/bin/python elsewhere
 PYTHONPATH=src .venv/Scripts/python -m mip analyze <repo> --out map.json
 PYTHONPATH=src .venv/Scripts/python -m mip.bench map.json <expected.json>
+PYTHONPATH=src .venv/Scripts/python -m mip.trace <repo> <PROGRAM> <line> [--json t.json]   # applies when / reached from / decided by
+PYTHONPATH=src .venv/Scripts/python -m mip.bench --p3 <expected.json> t1.json t2.json        # golden trace coverage
 PYTHONPATH=src .venv/Scripts/python -m unittest discover -s tests
 ```
 
@@ -28,7 +30,9 @@ PYTHONPATH=src .venv/Scripts/python -m unittest discover -s tests
 | `analyze.py` | Builds the code map: one part per technology (cobol, cics, db2, ims, jcl) plus diagnostics |
 | `layout.py` | Byte sizes and offsets from PICTURE and USAGE (Enterprise COBOL rules), groups, OCCURS, REDEFINES, COPY expanded in place (REPLACING applied); tables read the way the program reads them |
 | `interfaces.py` | Every CICS LINK/XCTL with a COMMAREA compared byte for byte with what the called program reads: same, compatible, not read, or differs (high/low by whether the called program uses the conflicting fields) |
-| `bench.py` | Scores a map against a golden expected-results manifest (P1 categories and P2 checks) |
+| `flow.py` | The PROCEDURE DIVISION as a statement tree (IF/ELSE, EVALUATE/WHEN, inline PERFORM, AT END and similar phrases, EXEC blocks), the guards each statement runs under (earlier exits included, nested ones too), sections and paragraphs, and what each statement sets and reads (SQL INTO column by column, CICS outputs) |
+| `trace.py` | One statement traced: applies when, reached from (PERFORM chains and calling programs), decided by (lineage across programs through the COMMAREA by byte offset, through 88-levels and groups), outcome (where the calling program reads it), and the review queue where static analysis stops |
+| `bench.py` | Scores a map against a golden expected-results manifest (P1 categories, P2 checks, P3 golden-trace coverage) |
 
 Dynamic targets are never guessed: a target held in data is marked `dynamic`, with the literal values the source assigns to it, and stays unresolved when there are none (a menu table, a CSD transaction).
 
@@ -42,3 +46,10 @@ Dynamic targets are never guessed: a target held in data is marked `dynamic`, wi
 - **Resolution:** CardDemo's menus resolve to the programs in their tables (COMEN01C: 11, COADM01C: 6, read from COMEN02Y/COADM02Y the way the program reads them); Bank of Z's asynchronous RUN resolves to OCR1–OCR5 by evaluating `STRING 'OCR' WS-CC-CNT` inside its `PERFORM VARYING` (the programs those transactions run stay unresolved: no CSD in the repository).
 - **Interfaces:** Bank of Z, 145 checked: the **BNK1CRA → DBCRFUN** drift found automatically (high: DBCRFUN uses COMM-DESCRIPTION, COMM-SUCCESS and COMM-FAIL-CODE at 90–131; BNK1CRA passes 92 bytes) and **DELCUS → DELACC** (low: a PCB pointer DELACC never uses). CardDemo, 68 checked: no drift (screens extend the shared COMMAREA with a bounded copy; the sign-on never reads its COMMAREA).
 - All P1 scores unchanged; 22 unit tests.
+
+## P3 results (2026-11-12)
+
+- **The golden trace, reproduced automatically:** `mip.trace` on DBCRFUN 347 (the refusal) and 392 (the success update) cites **21 of 21** lines of the 9-step golden trace in `accelerator/work/mip/bank-of-z.expected.json`: the teller's amount and sign in BNK1CRA, the facility type from CICS, the LINK and the COMMAREA, the DB2 read column by column, the MORTGAGE/LOAN and insufficient-funds guards, the update and PROCTRAN, and the message the teller sees.
+- **Honest stops:** the review queue names the facility type (set at run time by CICS INQUIRE) and the fail code BNK1CRA reads by intent but not by position (the P2 drift).
+- **CardDemo sign-on:** "only admins reach COADM01C" is derived from the source: `CDEMO-USRTYP-ADMIN` (88 VALUE 'A', COCOM01Y) ← `MOVE SEC-USR-TYPE` (COSGN00C 227, after a good read and a matching password) ← `READ DATASET(WS-USRSEC-FILE)` (211), reached from MAIN-PARA → PROCESS-ENTER-KEY when Enter is pressed. Nothing to review.
+- Both corpora parse whole: 18,298 statements, no errors, about 0.6 s each. 28 unit tests.

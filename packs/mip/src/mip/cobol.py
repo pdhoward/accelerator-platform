@@ -72,6 +72,7 @@ class Program:
     varying: list[dict] = field(default_factory=list)  # PERFORM VARYING loops with literal bounds (constant evaluation, P2)
     commarea_copy: list[dict] = field(default_factory=list)  # MOVE DFHCOMMAREA … TO record: where an untyped COMMAREA is read
     used: set = field(default_factory=set)  # every word the PROCEDURE DIVISION (and its EXEC blocks) mentions
+    proc_tokens: list = field(default_factory=list)  # the PROCEDURE DIVISION as written, EXEC blocks in place (flow.py)
     copies: list[dict] = field(default_factory=list)
     performs: list[dict] = field(default_factory=list)
     gotos: list[dict] = field(default_factory=list)
@@ -130,6 +131,7 @@ def analyze(path: str, text: str, kind: str = "program", copybooks: dict | None 
     can be continued by the fields that follow it, as the compiler would."""
     all_tokens = tokenize(text)
     tokens, execs = _cut_execs(all_tokens)
+    pd = next((k for k in range(len(all_tokens) - 1) if all_tokens[k].upper == "PROCEDURE" and all_tokens[k + 1].upper == "DIVISION"), None)
     name = re.sub(r"\.[^.]+$", "", path.rsplit("/", 1)[-1]).upper()
     pid = _find(tokens, "PROGRAM-ID")
     if pid != -1:
@@ -155,6 +157,7 @@ def analyze(path: str, text: str, kind: str = "program", copybooks: dict | None 
             body = tokens
     if body:
         _procedure(prog, body)
+        prog.proc_tokens = all_tokens[pd:] if pd is not None else all_tokens
         prog.used = {t.upper for t in body if t.kind == "word"}
         proc_line = body[0].line if body else 0
         for blk in execs:

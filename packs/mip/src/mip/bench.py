@@ -118,7 +118,39 @@ def score(m: dict, x: dict) -> dict:
     return report
 
 
+def spans(node, out=None) -> list[tuple[str, int, int]]:
+    """Every (file, first line, last line) a trace cites."""
+    out = [] if out is None else out
+    if isinstance(node, dict):
+        if "file" in node and isinstance(node.get("line"), int):
+            out.append((node["file"], node["line"], max(node.get("end") or node["line"], node["line"])))
+        for v in node.values():
+            spans(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            spans(v, out)
+    return out
+
+
+def score_p3(expected: dict, traces: list[dict]) -> dict:
+    """P3 exit: every line of the golden trace's steps cited by the traces (mip.md §6)."""
+    cited = [s for t in traces for s in spans(t)]
+    rows = []
+    for step in expected["golden_trace"]["steps"]:
+        for ev in step["evidence"]:
+            hit = any(f == ev["file"] and a <= ev["line"] <= b for f, a, b in cited)
+            rows.append({"step": step["step"], "file": ev["file"], "line": ev["line"], "covered": hit})
+    return {"covered": sum(r["covered"] for r in rows), "total": len(rows), "rows": rows}
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "--p3":
+        x = load(argv[1])
+        r = score_p3(x, [load(p) for p in argv[2:]])
+        print(f"golden trace lines cited: {r['covered']}/{r['total']}")
+        for row in r["rows"]:
+            print(f"  step {row['step']}  {'ok ' if row['covered'] else 'MISS'}  {row['file'].rsplit('/', 1)[-1]}:{row['line']}")
+        return 0 if r["covered"] == r["total"] else 1
     m, x = load(argv[0]), load(argv[1])
     r = score(m, x)
     print(f"{'category':18s} {'expected':>8s} {'found':>6s} {'matched':>7s} {'recall':>7s} {'precision':>9s}")
