@@ -40,11 +40,38 @@ class Model:
         self.edges = [e for p in self.map["parts"] for e in p["edges"]]
         self.interfaces = [i for p in self.map["parts"] for i in p.get("interfaces", [])]
         self._flows: dict[str, Flow] = {}
+        # Transaction id -> program, from the CSD or the CICS resource definitions.
+        self.transactions = {x["name"]: x["unit"] for p in self.map["parts"] for x in p.get("entries", []) if x.get("kind") == "transaction"}
 
     def flow(self, name: str) -> Flow:
         if name not in self._flows:
             self._flows[name] = build(self.programs[name])
         return self._flows[name]
+
+    def links_from(self, name: str) -> list[dict]:
+        """The LINKs a program makes with a COMMAREA, each with the programs it can reach."""
+        out = []
+        for e in self.edges:
+            if e["from"] == name and e["kind"] == "links" and e.get("commarea"):
+                targets = (e.get("dynamic") or {}).get("resolved") or [e["to"]]
+                out.append({**e, "targets": [t for t in targets if t in self.programs]})
+        return out
+
+    def children(self, name: str) -> list[tuple[dict, str]]:
+        """The programs a program starts asynchronously (EXEC CICS RUN TRANSID), through the transaction definitions."""
+        out = []
+        for e in self.edges:
+            if e["from"] == name and e.get("asynchronous"):
+                for tx in (e.get("dynamic") or {}).get("resolved") or [e["to"].replace("TX:", "")]:
+                    prog = self.transactions.get(tx)
+                    if prog in self.programs:
+                        out.append((e, prog))
+        return out
+
+    def agreed(self, caller: str, callee: str, line: int) -> bool:
+        """P2 checked this hand-off and found the two sides agree (same, compatible, or the extra bytes never read):
+        a field past the caller's area is the callee's own extension, not a question for a person."""
+        return any(i["caller"] == caller and i["callee"] == callee and i["line"] == line and i["verdict"] in ("same", "compatible", "not_read") for i in self.interfaces)
 
     def callers(self, name: str) -> list[dict]:
         out = []
@@ -58,6 +85,35 @@ class Model:
 
 def _fields_in(text: str) -> list[str]:
     return [w for w in dict.fromkeys(_NAME.findall(text.upper())) if w not in NOT_DATA and not w.isdigit()]
+
+
+# Fields that only say whether the last call worked: return codes, response codes, end-of-file switches.
+TECHNICAL = re.compile(
+    r"^(SQLCODE|SQLSTATE|EIBRESP2?|EIBCALEN|EIBAID|DFH[A-Z0-9]*|NORMAL|.*-RESP2?|.*RESP-CD|.*-RESP-CODE|DB2-.*|WS-STORM.*"
+    r"|.*-EOF|END-OF-.*|.*FILE-STATUS|.*ABEND.*|CEE[0-9A-Z]{3}|FC|.*-FEEDBACK.*)$"
+)
+_LITERAL = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+
+def business(condition: str, kind: str = "if") -> bool:
+    """A condition about the business, not only about whether the last call worked. Loop controls
+    (PERFORM UNTIL / VARYING) say how often, not whether, so they never make a rule."""
+    if kind == "loop":
+        return False
+    fields = _fields_in(_LITERAL.sub(" ", condition))
+    return bool(fields) and not all(TECHNICAL.match(f) for f in fields)
+
+
+def _container_gets(nodes: list[dict], depth: int = 0) -> list[str]:
+    """The groups a lineage shows filled by EXEC CICS GET CONTAINER INTO, nearest first."""
+    out = []
+    for n in nodes:
+        if any(str(x.get("external", "")).startswith("cics:GET.INTO") for x in n.get("from", [])) and n.get("sets"):
+            out.append(n["sets"])
+        if depth < 6:
+            for x in n.get("from", []):
+                out += _container_gets(x.get("set_by") or [], depth + 1)
+    return out
 
 
 def _cite(prog, line: int, text: str, **extra) -> dict:
@@ -121,13 +177,23 @@ class Tracer:
     def reaching(self, flow: Flow, field: str, before: int | None, para: str | None) -> list[Stmt]:
         """Definitions that can reach a use: in the use's own paragraph only those before it (sequential code);
         elsewhere any (another paragraph may run first). The nearest few, nearest first."""
+        use = flow.at(before) if before is not None else None
+        loops = {g.line for g in use.guards if g.kind == "loop"} if use else set()
         found = []
         for s in self.defs(flow, field):
             if before is not None and para is not None and s.para == para and s.line >= before:
-                continue
+                # Later in the text, but inside the same loop: it ran on the previous pass.
+                if not loops & {g.line for g in s.guards if g.kind == "loop"}:
+                    continue
             found.append(s)
-        same = sorted((s for s in found if s.para == para), key=lambda s: -s.line)
-        other = sorted((s for s in found if s.para != para), key=lambda s: -(s.line if before is None or s.line < before else 0))
+        # Error paths (only technical conditions: SQLCODE, RESP…) come after the main path: when the cap cuts, the
+        # definitions that make the business value survive.
+        def rank(s: Stmt) -> tuple:
+            branch = [g for g in s.guards if g.kind in ("if", "else", "when", "other")]
+            return (any(not business(g.text, g.kind) for g in branch), len(branch))
+
+        same = sorted((s for s in found if s.para == para), key=lambda s: (*rank(s), -s.line))
+        other = sorted((s for s in found if s.para != para), key=lambda s: (*rank(s), -(s.line if before is None or s.line < before else 0)))
         return (same + other)[: self.per_field]
 
     def lineage(self, prog_name: str, field: str, depth: int, before: int | None = None, visited: set | None = None, para: str | None = None) -> list[dict]:
@@ -148,6 +214,10 @@ class Tracer:
                 for src in st["from"]:
                     if src.startswith(("db2:", "cics:", "file:", "call:")) or src == "input":
                         sources.append({"external": src})
+                        if src.startswith("cics:GET.INTO") and depth > 0:
+                            replies = self.replies(prog_name, field, field, depth - 1, visited)
+                            if replies:
+                                sources.append({"field": field, "set_by": replies})
                         if src.split(".")[0] in ("cics:INQUIRE", "cics:ASSIGN"):
                             self.flag("runtime_value", f"{field} in {prog_name} is set at run time by EXEC CICS ({src[5:]}); which values it takes can't be read from source", [node])
                         if src.startswith("call:"):
@@ -161,6 +231,7 @@ class Tracer:
                 if sources:
                     node["from"] = sources
                 out.append(node)
+        out += self.returned(prog_name, field, depth, before, visited, para)
         if not out:
             out = self.through_parent(prog_name, prog, field, depth, before, visited, para)
         if not out:
@@ -184,11 +255,94 @@ class Tracer:
         while parent and len(chain) < 6:
             sub = self.lineage(prog_name, parent, depth, before, visited, para)
             if sub:
-                return [{"program": prog_name, "file": item.path, "line": item.line, "text": f"{field} is part of {parent}", "how": "group", "from": [{"field": parent, "set_by": sub}]}]
+                node = {"program": prog_name, "file": item.path, "line": item.line, "text": f"{field} is part of {parent}", "how": "group", "from": [{"field": parent, "set_by": sub}]}
+                # A group (at any level above) filled from a container: this field is the part at its offset in what
+                # the started programs PUT, so follow this field, not the whole record.
+                if depth > 0:
+                    for g in _container_gets(sub):
+                        replies = self.replies(prog_name, g, field, depth - 1, visited)
+                        if replies:
+                            node["from"].append({"field": field, "set_by": replies})
+                            break
+                return [node]
             p = lay.find(parent)
             chain.append(parent)
             parent = p.parent if p else None
         return []
+
+    def part_of(self, prog, group: str, field: str):
+        """(offset, size) of a field inside a group; for the group itself, 0 and its whole size."""
+        lay = Layout(prog, self.m.index.view(prog.path))
+        item = lay.find(group) if group else None
+        if not item:
+            return None
+        node = lay.node(item)
+        if field == group:
+            return 0, node.total
+        hit = next((x for x in relative(flatten(node), node.offset) if x["name"] == field), None)
+        return (hit["offset"], hit["size"]) if hit else None
+
+    def returned(self, prog_name: str, field: str, depth: int, before, visited: set, para) -> list[dict]:
+        """A field inside the COMMAREA a program LINKs with is set by the called program: the LINK is a definition,
+        and the value is whatever the callee puts at the same offset of its DFHCOMMAREA."""
+        prog = self.m.programs[prog_name]
+        flow = self.m.flow(prog_name)
+        out = []
+        for e in self.m.links_from(prog_name):
+            line = e["cite"]["line"]
+            at = flow.at(line)
+            if before is not None and at is not None and at.para == para and line >= before:
+                continue
+            name = e["commarea"].split(" OF ")[0].split(" IN ")[0].strip()
+            pos = self.part_of(prog, name, field)
+            if not pos:
+                continue
+            for callee in e["targets"]:
+                cp = self.m.programs[callee]
+                view = callee_view(cp, self.m.index.view(cp.path)) or {}
+                f = next((x for x in view.get("fields", []) if x["offset"] == pos[0]), None)
+                hop = {"program": prog_name, "file": prog.path, "line": line, "end": at.end if at else line,
+                       "text": f"LINK {callee} COMMAREA({e['commarea']})", "how": "returned by LINK", "callee": callee,
+                       "as": f["name"] if f else None, "when": _guards(prog, at.guards) if at else []}
+                if f and depth > 0:
+                    sub = self.lineage(callee, f["name"], depth - 1, None, visited, None)
+                    if sub:
+                        hop["set_by"] = sub
+                out.append(hop)
+        return out[: self.per_field]
+
+    def replies(self, prog_name: str, group: str, field: str, depth: int, visited: set) -> list[dict]:
+        """A container read back from programs this one started (EXEC CICS RUN TRANSID, then FETCH and GET
+        CONTAINER): the field is what each started program PUT at the same offset."""
+        prog = self.m.programs[prog_name]
+        pos = self.part_of(prog, group, field)
+        if not pos:
+            return []
+        out = []
+        for e, child in self.m.children(prog_name):
+            cp = self.m.programs[child]
+            lay = Layout(cp, self.m.index.view(cp.path))
+            for s in self.m.flow(child).statements():
+                words = [t.upper for t in s.tokens]
+                if s.kind != "EXEC" or words[2:3] != ["PUT"] or "FROM" not in words:
+                    continue
+                k = words.index("FROM")
+                src = words[k + 2] if k + 2 < len(words) else None
+                item = lay.find(src) if src else None
+                if not item:
+                    continue
+                node = lay.node(item)
+                hit = next((x for x in relative(flatten(node), node.offset) if x["offset"] == pos[0] and x["size"] == pos[1]), None)
+                name = hit["name"] if hit else (src if pos[0] == 0 else None)
+                hop = {"program": child, "file": cp.path, "line": s.line, "end": s.end, "text": s.text(), "how": "PUT CONTAINER (reply)", "as": name,
+                       "started_by": {"program": prog_name, "file": prog.path, "line": e["cite"]["line"],
+                                      "transid": next((t for t, p in self.m.transactions.items() if p == child), None)}}
+                if name:
+                    sub = self.lineage(child, name, depth, s.line, visited, s.para)
+                    if sub:
+                        hop["set_by"] = sub
+                out.append(hop)
+        return out[:6]
 
     def commarea_offset(self, prog_name: str, field: str):
         prog = self.m.programs[prog_name]
@@ -247,7 +401,8 @@ class Tracer:
                 where = f"at offset {f['offset']} {caller.name} has {by_pos['name'] + ' (offset ' + str(by_pos['offset']) + ')' if by_pos else 'nothing: its area is ' + str(size) + ' bytes'}"
                 if by_name:
                     where += f"; by name it would be {by_name['name']} at offset {by_name['offset']}"
-                self.flag("interface", f"{prog_name}.{field} does not line up with what {caller.name} passes: {where}", ev)
+                if not self.m.agreed(caller.name, prog_name, e["cite"]["line"]):
+                    self.flag("interface", f"{prog_name}.{field} does not line up with what {caller.name} passes: {where}", ev)
                 if by_name and depth > 0:
                     hop["intended_as"] = by_name["name"]
                     at = self.m.flow(caller.name).at(e["cite"]["line"])
@@ -286,6 +441,8 @@ class Tracer:
                 if f:
                     node["returned_to"] = []
                     for e in self.m.callers(prog_name):
+                        if e["kind"] != "links":
+                            continue  # an XCTL never comes back: nothing is returned to the program that transferred
                         caller = self.m.programs[e["from"]]
                         by_pos, by_name, size = self.caller_field(caller, e, f["offset"], st["field"])
                         aligned = by_pos and by_pos["offset"] == f["offset"] and by_pos["size"] == f["size"]
@@ -293,7 +450,7 @@ class Tracer:
                         intended = by_name["name"] if by_name else None
                         uses = self.uses_after(caller.name, intended or seen_as, e["cite"]["line"], st.get("literal")) if (intended or seen_as) else []
                         node["returned_to"].append({"program": caller.name, "line": e["cite"]["line"], "seen_as": seen_as, "intended_as": intended, "uses": uses})
-                        if not aligned:
+                        if not aligned and not self.m.agreed(caller.name, prog_name, e["cite"]["line"]):
                             self.flag("interface", f"{caller.name} reads {intended or 'nothing'} where {prog_name} returns {st['field']} (offset {f['offset']}): by position {caller.name} has {by_pos['name'] + ' at ' + str(by_pos['offset']) if by_pos else 'nothing (its area is ' + str(size) + ' bytes)'}", [{"program": caller.name, "file": caller.path, "line": e["cite"]["line"], "text": f"LINK {prog_name}"}])
                 out.append(node)
         return out

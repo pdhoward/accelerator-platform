@@ -110,6 +110,40 @@ const NARRATION = /^\s*(extractor|clerk|gapfinder|surveyor)>/;
  * the first they cost a tenth. Narration lines ("extractor> …") reach the live
  * log as they arrive, like an agent's.
  */
+/**
+ * One answer shaped by a JSON schema (structured outputs): the system prompt and the shared context are cached,
+ * so many calls over one pack pay for them once. Refusals fall back server-side; a refusal that survives throws.
+ */
+export async function structured<T>(opts: {
+  model: string;
+  system: string;
+  shared: string;
+  user: string;
+  schema: Record<string, unknown>;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  maxTokens?: number;
+}): Promise<{ value: T; costUsd: number; tokensIn: number; tokensOut: number }> {
+  const message = await client()
+    .beta.messages.stream({
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 32000,
+      system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+      messages: [{ role: "user", content: [
+        { type: "text", text: opts.shared, cache_control: { type: "ephemeral" } },
+        { type: "text", text: opts.user },
+      ] }],
+      output_config: { effort: opts.effort ?? "high", format: { type: "json_schema", schema: opts.schema } },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+    })
+    .finalMessage();
+  if (message.stop_reason === "refusal") throw new Error("The model declined this request.");
+  if (message.stop_reason === "max_tokens") throw new Error("The answer was cut off (max_tokens).");
+  const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  const price = priceOf(opts.model, message.usage);
+  return { value: JSON.parse(text) as T, costUsd: price.costUsd, tokensIn: price.fresh + price.cached + price.written, tokensOut: price.out };
+}
+
 export async function read(opts: {
   model: string;
   system: string;

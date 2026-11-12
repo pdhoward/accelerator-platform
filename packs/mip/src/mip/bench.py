@@ -143,7 +143,28 @@ def score_p3(expected: dict, traces: list[dict]) -> dict:
     return {"covered": sum(r["covered"] for r in rows), "total": len(rows), "rows": rows}
 
 
+def score_p4(expected: dict, packets: list[dict]) -> dict:
+    """P4 exit: each golden rule's decision lines are cited by one candidate's evidence (mip.md §5)."""
+    rows = []
+    for rule in expected["rules"]:
+        want = [(e["file"], e["line"]) for e in rule["decision"]]
+        best, hit = None, []
+        for p in packets:
+            cited = {(f, ln) for f, lines in p["source"].items() for ln in (x[0] if isinstance(x, list) else x for x in lines)}
+            got = [w for w in want if w in cited]
+            if len(got) > len(hit):
+                best, hit = p["id"], got
+        rows.append({"rule": rule["id"], "candidate": best, "cited": len(hit), "total": len(want), "missed": [w for w in want if w not in hit]})
+    return {"rules": rows, "found": sum(r["cited"] == r["total"] for r in rows), "total": len(rows)}
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "--p4":
+        r = score_p4(load(argv[1]), load(argv[2]))
+        print(f"golden rules found: {r['found']}/{r['total']}")
+        for row in r["rules"]:
+            print(f"  {row['rule']}  {row['candidate']}  {row['cited']}/{row['total']}  missed {row['missed']}")
+        return 0 if r["found"] == r["total"] else 1
     if argv and argv[0] == "--p3":
         x = load(argv[1])
         r = score_p3(x, [load(p) for p in argv[2:]])

@@ -143,7 +143,10 @@ def analyze_jcl(path: str, text: str) -> Job:
 
 
 def analyze_csd(path: str, text: str) -> list[dict]:
-    """DEFINE TRANSACTION(x) ... PROGRAM(y), DEFINE PROGRAM(y), DEFINE FILE(f) ... DSNAME(d)."""
+    """DEFINE TRANSACTION(x) ... PROGRAM(y), DEFINE PROGRAM(y), DEFINE FILE(f) ... DSNAME(d). The same
+    definitions written for the CICS resource builder (YAML, resourceDefinitions:) are read too."""
+    if re.search(r"^resourceDefinitions\s*:", text, re.M):
+        return _resource_yaml(text)
     out = []
     joined, starts = [], []
     for n, raw in enumerate(text.splitlines(), 1):
@@ -163,6 +166,21 @@ def analyze_csd(path: str, text: str) -> list[dict]:
                 rec[key.lower()] = m.group(1).upper().strip("'")
         out.append(rec)
     return out
+
+
+def _resource_yaml(text: str) -> list[dict]:
+    """Each list entry (- transaction:) with its keys one level down (name: OCR1, program: CRDTAGY1)."""
+    out, rec = [], None
+    for n, raw in enumerate(text.splitlines(), 1):
+        head = re.match(r"\s*-\s+([a-z]+)\s*:\s*$", raw)
+        if head:
+            rec = {"define": head.group(1).upper(), "line": n}
+            out.append(rec)
+            continue
+        kv = re.match(r"\s+([a-z]+)\s*:\s*\"?([^\"#]*?)\"?\s*(#.*)?$", raw)
+        if rec is not None and kv and kv.group(1) in ("name", "program", "dsname", "group", "transid"):
+            rec[kv.group(1) if kv.group(1) != "name" else "name"] = kv.group(2).strip().upper()
+    return [r for r in out if r.get("name")]
 
 
 def analyze_bms(path: str, text: str) -> list[dict]:

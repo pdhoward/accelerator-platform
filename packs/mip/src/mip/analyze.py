@@ -29,7 +29,7 @@ ROLE = [
     ("program", r"\.(cbl|cob)$"),
     ("copybook", r"\.(cpy|copy)$"),
     ("jcl", r"\.(jcl|prc|proc)$|\.jcl\.j2$|/jcl/.*\.j2$"),
-    ("csd", r"\.csd$"),
+    ("csd", r"\.csd$|definitions\.ya?ml$|resources?\.ya?ml$"),
     ("bms", r"\.bms$"),
 ]
 

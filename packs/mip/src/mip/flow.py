@@ -273,9 +273,17 @@ def _body(tokens: list[Token], names: set[str]) -> list[Stmt]:
 TRANSFER = {"GOBACK", "GO", "STOP"}
 
 
+# Paragraphs and sections that never come back: PERFORM GET-ME-OUT-OF-HERE (an EXEC CICS RETURN) ends the run
+# as surely as a GO TO. Set by build() for the program being built.
+_ENDING: set[str] = set()
+
+
 def transfers(s: Stmt) -> bool:
-    """An unconditional transfer of control: GO TO, GOBACK, STOP RUN, EXIT PROGRAM, EXEC CICS RETURN/XCTL/ABEND."""
+    """An unconditional transfer of control: GO TO, GOBACK, STOP RUN, EXIT PROGRAM, EXEC CICS RETURN/XCTL/ABEND,
+    or a PERFORM of a paragraph that always ends the run."""
     if s.kind in TRANSFER:
+        return True
+    if s.kind == "PERFORM" and len(s.tokens) == 2 and s.tokens[1].upper in _ENDING:
         return True
     if s.kind == "EXIT" and len(s.tokens) > 1 and s.tokens[1].upper == "PROGRAM":
         return True
@@ -302,8 +310,9 @@ def assign_guards(stmts: list[Stmt], guards: list[Guard], para: str) -> None:
         s.para = para
         if s.kind == "IF":
             cond = _cond_text(s.tokens)
-            assign_guards(s.then, current + [Guard("if", cond, s.line)], para)
-            assign_guards(s.els, current + [Guard("else", cond, s.line, negated=True)], para)
+            to = max((t.line for t in s.tokens), default=s.line)  # a condition written over several lines
+            assign_guards(s.then, current + [Guard("if", cond, s.line, end=to)], para)
+            assign_guards(s.els, current + [Guard("else", cond, s.line, negated=True, end=to)], para)
             # Earlier exits: every path through this IF that leaves the block (GO TO, GOBACK, CICS RETURN…), nested ones
             # included. What follows runs only when none of them was taken.
             paths = exit_paths([s], [])
@@ -323,7 +332,7 @@ def assign_guards(stmts: list[Stmt], guards: list[Guard], para: str) -> None:
                     g = Guard("when", text, cond[0].line if cond else s.line)
                 assign_guards(body, current + [g], para)
         elif s.kind == "LOOP":
-            assign_guards(s.then, current + [Guard("loop", "PERFORM " + _cond_text(s.tokens), s.line)], para)
+            assign_guards(s.then, current + [Guard("loop", "PERFORM " + _cond_text(s.tokens), s.line, end=max((t.line for t in s.tokens), default=s.line))], para)
         for cond, body, kind in s.branches if s.kind not in ("EVALUATE",) else []:
             assign_guards(body, current + [Guard("phrase", _cond_text(cond), cond[0].line if cond else s.line)], para)
 
@@ -590,8 +599,35 @@ class Flow:
         return out
 
 
+def ending(paras: list[Paragraph]) -> set[str]:
+    """The paragraphs and sections that, once performed, never return (to a fixpoint: one that performs
+    an ending one ends too). A section runs its paragraphs in order."""
+    names: set[str] = set()
+
+    def final(s: Stmt) -> bool:  # a GO TO jumps elsewhere in the program; only these leave it
+        return transfers(s) and s.kind != "GO"
+
+    def all_end(stmts: list[Stmt]) -> bool:
+        return bool(stmts) and (final(stmts[-1]) or (stmts[-1].kind == "IF" and all_end(stmts[-1].then) and all_end(stmts[-1].els)))
+
+    def ends(body: list[Stmt]) -> bool:
+        return any(final(s) or (s.kind == "IF" and all_end(s.then) and all_end(s.els)) for s in body)
+
+    global _ENDING
+    _ENDING = names
+    while True:
+        before = len(names)
+        for p in paras:
+            body = p.body if p.kind == "paragraph" else [x for q in paras if q.section == p.name or q is p for x in q.body]
+            if p.name not in names and ends(body):
+                names.add(p.name)
+        if len(names) == before:
+            return names
+
+
 def build(prog) -> Flow:
     paras = paragraphs_of(prog.proc_tokens)
+    ending(paras)
     for p in paras:
         assign_guards(p.body, [], p.name)
         for s in walk(p.body):
