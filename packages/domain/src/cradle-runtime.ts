@@ -35,6 +35,8 @@ export type RuntimePack = {
   summary?: string;
   concepts?: { key: string; label: string }[];
   grounding?: Partial<Record<GroundingUse, string[]>>;
+  /** The pack's kernels: the app runs a kernel only when its pack offers it. */
+  kernels?: { key: string; label: string; status: "available" | "planned" }[];
 };
 
 export type RuntimeBook = {
@@ -75,7 +77,7 @@ export function runtimeBook(r: CradleResponse, site: RuntimeSite, at = new Date(
   const rulings = [...byText.values()];
   const id = r.pack ? { id: r.pack.id, version: r.pack.version } : null;
   const pack: RuntimePack | null = r.pack
-    ? { ...id!, label: r.pack.label, summary: r.pack.summary, concepts: (r.pack.concepts ?? []).map((c) => ({ key: c.key, label: c.label })), ...(r.pack.grounding && { grounding: r.pack.grounding }) }
+    ? { ...id!, label: r.pack.label, summary: r.pack.summary, concepts: (r.pack.concepts ?? []).map((c) => ({ key: c.key, label: c.label })), kernels: (r.pack.kernels ?? []).map((k) => ({ key: k.key, label: k.label, status: k.status })), ...(r.pack.grounding && { grounding: r.pack.grounding }) }
     : null;
   // The version follows the rules (the pack's id and version, the policies, the rulings), not the descriptive fields beside them.
   return { site, pack, version: fingerprint(JSON.stringify({ pack: id, policies, rulings })), at, policies, rulings };

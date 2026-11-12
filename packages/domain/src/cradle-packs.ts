@@ -33,6 +33,10 @@ const COMMERCE: Pack = {
   ],
   kernels: [
     { key: "order-pricing", label: "Order pricing", kind: "kernel", status: "available" },
+    {
+      key: "catalog-relevance", label: "Catalog relevance", kind: "kernel", status: "available", concepts: ["product", "price"],
+      does: "Decides which candidates are the product the shopper named (not parts that fit it) and orders them exactly by relevance, price or rating; the model only reads the shopper's words.",
+    },
     { key: "shipping-quote", label: "Shipping quote", kind: "kernel", status: "available" },
     { key: "stripe-checkout", label: "Stripe Checkout", kind: "connector", status: "available" },
     { key: "order-ledger", label: "Order ledger", kind: "kernel", status: "planned" },

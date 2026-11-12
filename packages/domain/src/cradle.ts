@@ -44,12 +44,22 @@ export type Concept = {
   eventFloors?: Partial<Record<string, Criticality>>;
 };
 
+/**
+ * Static code a pack ships for the work that must be exact (gen3-cradle.md
+ * §1.6): prices, stock, what counts as the product, money movement. The model
+ * interprets people; kernels compute. A kernel is written once per pack and
+ * runs on every site of that industry; no site writes its own.
+ */
 export type Kernel = {
   key: string;
   label: string;
   kind: "kernel" | "connector";
   /** Available in the pack, or still to be built for this industry. */
   status: "available" | "planned";
+  /** The exact work it does, in one sentence. */
+  does?: string;
+  /** The concepts whose rules it carries out. */
+  concepts?: string[];
 };
 
 export type Component = { key: string; label: string; expresses: string[] };

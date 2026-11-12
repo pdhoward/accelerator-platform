@@ -39,7 +39,7 @@ describe("runtimeBook", () => {
     const plain = { ...cradle([policy("A", "confirmed")]), pack: { id: "commerce", version: "1.0" } } as unknown as CradleResponse;
     const b = runtimeBook(rich, { ...site, description: "A home and workshop store." }, "t");
     expect(b.site.description).toBe("A home and workshop store.");
-    expect(b.pack).toEqual({ id: "commerce", version: "1.0", label: "Commerce", summary: "Online stores.", concepts: [{ key: "price", label: "Price" }], grounding: { search: ["price"] } });
+    expect(b.pack).toEqual({ id: "commerce", version: "1.0", label: "Commerce", summary: "Online stores.", concepts: [{ key: "price", label: "Price" }], kernels: [], grounding: { search: ["price"] } });
     expect(b.version).toBe(runtimeBook(plain, site, "t").version); // describing the site or the pack never triggers a recompile and proof
   });
   it("fingerprints are short and stable", () => {
