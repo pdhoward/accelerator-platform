@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  detectTechnologies,
+  technologiesLine,
   census,
   cleanDocument,
   cobolDirectGuidance,
@@ -508,7 +510,14 @@ export async function ingest(ctx: JobContext, log: Log) {
 
 /** One repository, read the way its technology needs. */
 async function readSource(ctx: JobContext, log: Log, repo: string, pack: Pack): Promise<IngestReport> {
-  const estate = estateOf(await trackedFiles(repo));
+  const files = await trackedFiles(repo);
+  // Which technology packs this system needs, at what level (gen3-cradle.md §15.4); framework packs inside another language's files (CICS in COBOL) are found by content.
+  const tech = detectTechnologies(files, (path) => {
+    const full = join(repo, path);
+    return existsSync(full) && statSync(full).size <= 2_000_000 ? readFileSync(full, "latin1") : null;
+  });
+  log.status(`surveyor> technologies: ${technologiesLine(tech.detected, tech.unclaimed)}`);
+  const estate = estateOf(files);
   if (estate.kind === "cobol") return ingestEstate(ctx, log, repo, pack, estate);
   const r = await agent({
     cwd: repo, model: ctx.job.model, mode: "read", log, maxTurns: 60, toolbelt: toolbelt(ctx), modelProxy: modelProxy(ctx),
