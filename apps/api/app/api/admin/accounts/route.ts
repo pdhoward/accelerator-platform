@@ -9,6 +9,7 @@ const schema = z.object({
   name: z.string().trim().min(2).max(120),
   website: z.string().trim().max(300).optional(),
   siteName: z.string().trim().min(2).max(120),
+  siteDescription: z.string().trim().max(1000).optional(),
   siteUrl: z.string().trim().max(300).optional(),
   repo: z.string().trim().max(300).optional(),
   repoPath: z.string().trim().max(500).optional(),

@@ -132,7 +132,7 @@ export async function accountDetail(id: string): Promise<AdminAccountDetail | un
     rows(db().from("acc_orgs").select("suspended_at, suspended_reason, website").eq("id", id)),
     rows(db().from("acc_members").select("id, name, email, role").eq("org_id", id).order("created_at")),
     rows(db().from("acc_invites").select("id, email, role, created_at").eq("org_id", id).is("accepted_at", null).is("revoked_at", null)),
-    rows(db().from("acc_sites").select("id, slug, name, url, repo, repo_path, sources").eq("org_id", id).order("created_at")),
+    rows(db().from("acc_sites").select("id, slug, name, url, description, repo, repo_path, sources").eq("org_id", id).order("created_at")),
     auditList(id, 50),
   ]);
   return {
@@ -144,7 +144,7 @@ export async function accountDetail(id: string): Promise<AdminAccountDetail | un
     invites: invites.map((i) => ({ id: i.id as string, email: i.email as string, role: i.role as Role, createdAt: i.created_at as string })),
     siteList: siteList.map((s) => ({
       id: s.id as string, slug: s.slug as string, name: s.name as string, url: s.url as string,
-      repo: (s.repo as string) || null, repoPath: (s.repo_path as string) ?? null, sources: sourcesOf(s.sources),
+      description: (s.description as string) ?? null, repo: (s.repo as string) || null, repoPath: (s.repo_path as string) ?? null, sources: sourcesOf(s.sources),
     })),
     audit: auditTrail,
   };
@@ -188,7 +188,7 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
   const url = webAddress(input.siteUrl) ?? (repo ? `https://github.com/${repo}` : webAddress(input.website));
   if (!url) throw new CodeError("Give the system's live address, its code repository, or the company website.");
   const site = await db().from("acc_sites").insert({
-    org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, repo: repo ?? "", repo_path: input.repoPath?.trim() || null, status: "onboarding",
+    org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, description: input.siteDescription?.trim() || null, repo: repo ?? "", repo_path: input.repoPath?.trim() || null, status: "onboarding",
   });
   if (site.error) throw new Error(site.error.message);
 
@@ -251,6 +251,7 @@ export async function updateSite(identity: Identity, orgId: string, siteId: stri
     ...(url && { url }),
     ...(repo !== undefined && { repo: repo ?? "" }),
     ...(input.repoPath !== undefined && { repo_path: input.repoPath?.trim() || null }),
+    ...(input.description !== undefined && { description: input.description?.trim() || null }),
     ...(sources && { sources }),
   };
   const { error } = await db().from("acc_sites").update(patch).eq("id", siteId);

@@ -30,6 +30,9 @@ export default async function NewAccountPage() {
                 <Field label="System name" hint="The app or system the crew works on.">
                   <input name="siteName" required className={inputClass} placeholder="Booking site" />
                 </Field>
+                <Field label="What this site is" hint="In the owner's words: what it sells or does, and for whom. The AI app introduces itself with this.">
+                  <textarea name="siteDescription" rows={2} maxLength={1000} className={inputClass} placeholder="A resort's booking site: villas, stays and add-ons for guests." />
+                </Field>
                 <Field label="Live address" hint="Where the system runs, if it does. Leave blank for code with no live app (a COBOL estate).">
                   <input name="siteUrl" className={inputClass} placeholder="https://book.cypressresort.com" />
                 </Field>
