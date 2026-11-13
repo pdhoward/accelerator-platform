@@ -107,6 +107,12 @@ class Builder:
         st = self.part(tech)["stores"]
         if sid not in st:
             st[sid] = {"id": sid, "kind": kind, "name": name, **({"cite": cite(path, line)} if path else {}), **extra}
+        else:
+            # The same store seen again (a program's EXEC CICS READ, then the CSD's DEFINE FILE): keep what each adds.
+            for k, v in extra.items():
+                st[sid].setdefault(k, v)
+            if path and "cite" not in st[sid]:
+                st[sid]["cite"] = cite(path, line)
         return sid
 
     def edge(self, tech, frm, to, kind, path, line, **extra):

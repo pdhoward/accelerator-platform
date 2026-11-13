@@ -111,7 +111,10 @@ def analyze_jcl(path: str, text: str) -> Job:
     stmts, instream = statements(text)
     job = Job(path=path)
     step: dict | None = None
+    last_dd: str | None = None
     for s in stmts:
+        if s.op != "DD":
+            last_dd = None
         if s.op == "JOB":
             job.name, job.line = (s.name or "").upper(), s.line
         elif s.op == "PROC":
@@ -129,9 +132,17 @@ def analyze_jcl(path: str, text: str) -> Job:
         elif s.op == "DD":
             params = _parameters(s.operands)
             dsn = params.get("DSN") or params.get("DSNAME")
+            # An unnamed DD right after a named one is part of its concatenation (SORTIN: two datasets read as one).
+            dd = (s.name or "").upper() or None
+            concat = dd is None and last_dd is not None
+            dd = dd or last_dd
+            last_dd = dd
             if dsn:
                 disp = params.get("DISP", "").strip("()").split(",")[0].upper() or "NEW"
-                job.datasets.append({"step": step["step"] if step else None, "dd": (s.name or "").upper() or None, "dsn": dsn.upper(), "disp": disp, "line": s.line})
+                job.datasets.append({"step": step["step"] if step else None, "dd": dd, "dsn": dsn.upper(), "disp": disp, "line": s.line, **({"concatenated": True} if concat else {})})
+            if s.line in instream and step is not None and dd:
+                # Control statements read by the step's program (SORT, IDCAMS, SYMNAMES): kept for data lineage.
+                step.setdefault("instream", {})[dd] = instream[s.line]
             if s.line in instream and step is not None:
                 for ln, data in instream[s.line]:
                     m = re.search(r"\bRUN\s+PROGRAM\s*\(\s*([A-Z0-9#@$]+)\s*\)", data, re.I)

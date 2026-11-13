@@ -2,7 +2,7 @@
 
 The Accelerator's technology pack for the mainframe family (COBOL, JCL, CICS, DB2, IMS, VSAM). It reads a repository's source, never runs anything from it, and writes the platform's code map (`packages/domain/src/code-map.ts`): units, entry points, data stores and edges, every one cited to a file and line. Design, decisions and the benchmark: `accelerator/work/mip.md`.
 
-Stage: **P4, rules** (2026-11-12): candidate business rules with their evidence, reviewed by the model on the runner, on top of P3 (control flow, conditions, data flow, traces), P2 (resolution, interfaces) and P1 (L2 structure). Native: no third-party COBOL parser (SQLGlot reads embedded SQL).
+Stage: **P5, system-wide data lineage** (2026-11-13): a data element followed forward through programs, files, sorts, calls, DB2 and online screens by its bytes, with every definition change flagged; on top of P4 (rules), P3 (control flow, conditions, data flow, traces), P2 (resolution, interfaces) and P1 (L2 structure). Native: no third-party COBOL parser (SQLGlot reads embedded SQL).
 
 ## Run
 
@@ -16,6 +16,8 @@ PYTHONPATH=src .venv/Scripts/python -m mip.trace <repo> <PROGRAM> <line> [--json
 PYTHONPATH=src .venv/Scripts/python -m mip.bench --p3 <expected.json> t1.json t2.json        # golden trace coverage
 PYTHONPATH=src .venv/Scripts/python -m mip.rules <repo> [--programs A,B] --out candidates.json   # rule candidates with evidence
 PYTHONPATH=src .venv/Scripts/python -m mip.bench --p4 <expected.json> candidates.json        # golden rules found
+PYTHONPATH=src .venv/Scripts/python -m mip.lineage <repo> <PROGRAM> <FIELD> [--json l.json]   # where an element goes, system-wide
+PYTHONPATH=src .venv/Scripts/python -m mip.bench --p5 <expected.json> l.json                 # golden lineage coverage
 # the model's review (runner): pnpm exec dotenv -e <env file> -- tsx src/mip.ts candidates.json --pack <id> --out reviews.json
 PYTHONPATH=src .venv/Scripts/python -m unittest discover -s tests
 ```
@@ -36,6 +38,7 @@ PYTHONPATH=src .venv/Scripts/python -m unittest discover -s tests
 | `flow.py` | The PROCEDURE DIVISION as a statement tree (IF/ELSE, EVALUATE/WHEN, inline PERFORM, AT END and similar phrases, EXEC blocks), the guards each statement runs under (earlier exits included, nested ones too), sections and paragraphs, and what each statement sets and reads (SQL INTO column by column, CICS outputs) |
 | `trace.py` | One statement traced: applies when, reached from (PERFORM chains and calling programs), decided by (lineage across programs through the COMMAREA by byte offset, through 88-levels and groups), outcome (where the calling program reads it), and the review queue where static analysis stops |
 | `rules.py` | Rule candidates: blocks that set what the caller receives under a business condition (technical-only conditions and loop controls excluded), THEN and ELSE together, each with its trace, the lineage of its outcome's value, its review items and the cited source lines |
+| `lineage.py` | One element followed forward by its bytes (record, offset, size): MOVE (values and untyped group moves), arithmetic (derived values), WRITE → DD → dataset → the steps that read it (SORT with INREC/OUTREC reformat, IDCAMS REPRO, IEBGENER, GDG generations, programs and the programs they CALL), CALL USING both ways (a dispatcher's conditions decide which call gets a value back), CICS COMMAREAs, DB2 columns (UPDATE/INSERT → SELECT/FETCH), online CICS READs through the CSD; where each definition changes; the statements that test or change it; where it came from; and fields elsewhere with the same business name but no path, for the model to propose |
 | `bench.py` | Scores a map against a golden expected-results manifest (P1 categories, P2 checks, P3 golden-trace coverage) |
 
 Dynamic targets are never guessed: a target held in data is marked `dynamic`, with the literal values the source assigns to it, and stays unresolved when there are none (a menu table, a CSD transaction).
@@ -71,3 +74,17 @@ Dynamic targets are never guessed: a target held in data is marked `dynamic`, wi
   - an XCTL returns nothing;
   - interface review items appear only where P2 found drift.
 - 35 unit tests.
+
+## P5 results (2026-11-13)
+
+- **Golden lineage, CardDemo:** the interest rate (`DIS-INT-RATE`, CBACT04C) followed through the batch cycle, **24 of 24** steps cited, **3 of 3** definition changes flagged.
+  - It becomes monthly interest: a computed value, no ROUNDED.
+  - It becomes `TRAN-AMT` in SYSTRAN(+1).
+  - COMBTRAN sorts SYSTRAN(0) into TRANSACT.COMBINED, then copies it into the transaction file.
+  - CREASTMT's sort reformats the record, which moves the amount from byte 133 to byte 149.
+  - CBSTM03B reads it into its parameter, and it comes back to CBSTM03A through `CALL USING` as `TRNX-AMT`.
+  - It passes through a table and is printed as `ST-TRANAMT PIC Z(9).99-`.
+  - Its total lands in the account balance, which online screens read through the CSD file `ACCTDAT`.
+- **Precision:** CBSTM03A shares one 1,000-byte buffer for four files. A value comes back only to the calls that set CBSTM03B's dispatch (`LK-M03B-DD = 'ACCTFILE'`, with condition names such as `SET M03B-READ TO TRUE`), and only until the buffer is filled again.
+- **Bank of Z:** DB2 columns are nodes. `ACCOUNT.ACCOUNT_AVAILABLE_BALANCE` is written by DBCRFUN and XFRFUN, and read by DELACC, INQACC and UPDACC. Each move out of it flags COMP-3 → DISPLAY.
+- **Sweep:** 253 traces across both corpora, 0 errors, at most 0.3 s each. P1–P4 unchanged. 41 unit tests pass.

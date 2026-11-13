@@ -158,7 +158,42 @@ def score_p4(expected: dict, packets: list[dict]) -> dict:
     return {"rules": rows, "found": sum(r["cited"] == r["total"] for r in rows), "total": len(rows)}
 
 
+def score_p5(expected: dict, t: dict) -> dict:
+    """P5 exit: every step of the golden lineage cited by the lineage (a hop, an operation, the origin, or the JCL
+    line a hop passed through), and every expected definition change flagged at its line."""
+    cited: set = set()
+    for h in t.get("hops", []):
+        cited.add((h.get("file"), h.get("line")))
+        if h.get("job"):
+            for k in ("job_line", "read_at", "written_at"):
+                if isinstance(h.get(k), int):
+                    cited.add((h["job"], h[k]))
+    for o in t.get("operations", []):
+        cited.add((o.get("file"), o.get("line")))
+    for o in t.get("origin", []):
+        cited.add((o["file"], o["line"]))
+        for d in o.get("datasets", []):
+            cited.add((d["job"], d["line"]))
+            for w in d.get("made_by", []):
+                cited.add((w["job"], w["line"]))
+    rows = [{"file": s["file"], "line": s["line"], "kind": s["kind"], "covered": (s["file"], s["line"]) in cited} for s in expected["p5"]["steps"]]
+    changes = []
+    for c in expected["p5"]["definition_changes"]:
+        hit = [h for h in t.get("hops", []) if (h.get("file"), h.get("line")) == (c["file"], c["line"]) and any(c["change"].split()[0] in x for x in h.get("change", []))]
+        changes.append({**c, "flagged": bool(hit)})
+    return {"covered": sum(r["covered"] for r in rows), "total": len(rows), "rows": rows,
+            "changes_flagged": sum(c["flagged"] for c in changes), "changes_total": len(changes), "changes": changes}
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "--p5":
+        r = score_p5(load(argv[1]), load(argv[2]))
+        print(f"golden lineage steps cited: {r['covered']}/{r['total']} · definition changes flagged: {r['changes_flagged']}/{r['changes_total']}")
+        for row in r["rows"]:
+            print(f"  {'ok ' if row['covered'] else 'MISS'} {row['kind']:<11} {row['file'].rsplit('/', 1)[-1]}:{row['line']}")
+        for c in r["changes"]:
+            print(f"  {'ok ' if c['flagged'] else 'MISS'} change {c['change']:<16} {c['file'].rsplit('/', 1)[-1]}:{c['line']}")
+        return 0 if r["covered"] == r["total"] and r["changes_flagged"] == r["changes_total"] else 1
     if argv and argv[0] == "--p4":
         r = score_p4(load(argv[1]), load(argv[2]))
         print(f"golden rules found: {r['found']}/{r['total']}")
