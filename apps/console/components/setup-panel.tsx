@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleCheck, CircleDashed, Clock, Loader2, MessagesSquare, OctagonAlert, Play, Wifi, WifiOff } from "lucide-react";
-import { DOMAIN_PACKS, DOMAINS, isDomain, SETUP_OWNER_LABEL, type Job, type JobEvent, type SetupItem, type SetupStatus, type SiteSetup } from "@accelerator/domain";
+import { DOMAIN_PACKS, DOMAINS, isDomain, isSitePath, SETUP_OWNER_LABEL, SITE_PATH_LABEL, SITE_PATHS, type Job, type JobEvent, type SetupItem, type SetupStatus, type SiteSetup } from "@accelerator/domain";
 
 import { browserApi } from "@/lib/browser-api";
 
@@ -106,12 +106,18 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               const domain = f.get("domain");
+              const path = f.get("path");
+              const moved = isSitePath(path) && path !== s.settings.path;
               void act(
-                () =>
-                  api.setup.settings(siteId, {
+                async () => {
+                  await api.setup.settings(siteId, {
                     name: String(f.get("name") ?? ""), url: String(f.get("url") ?? ""), description: String(f.get("description") ?? "") || null,
                     domain: isDomain(domain) ? domain : null,
-                  }),
+                    ...(isSitePath(path) && { path }),
+                  });
+                  // The menu changes with the path (Policy and Graph are for Transform).
+                  if (moved) router.refresh();
+                },
                 "Saved.",
               );
             }}
@@ -136,7 +142,16 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
                 />
               </Field>
             </div>
-            <Field label="Industry pack (the best practices it is held to)">
+            <Field label="Path">
+              <select name="path" defaultValue={s.settings.path} disabled={!canManage} className={inputClass} title={SITE_PATH_LABEL[s.settings.path].summary}>
+                {SITE_PATHS.map((p) => (
+                  <option key={p} value={p}>
+                    {SITE_PATH_LABEL[p].label}: {SITE_PATH_LABEL[p].summary}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={s.settings.path === "modernize" ? "Industry pack (used on the Transform path)" : "Industry pack (the best practices it is held to)"}>
               <select name="domain" defaultValue={s.settings.domain ?? ""} disabled={!canManage} className={inputClass} title={s.settings.domain ? DOMAIN_PACKS[s.settings.domain].summary : "Pick the industry this site is in."}>
                 <option value="">Not chosen yet</option>
                 {DOMAINS.map((d) => (

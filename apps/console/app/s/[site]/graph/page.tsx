@@ -1,7 +1,8 @@
 import { CradleGraph } from "@/components/cradle-graph";
+import { ModernizeNotice } from "@/components/path-notice";
 import { Card, CardBody, Page, PageHeader } from "@/components/ui";
 import { siteAccess } from "@/lib/access";
-import { serverApi } from "@/lib/api";
+import { getBridge, serverApi } from "@/lib/api";
 import { load } from "@/lib/load";
 
 export const metadata = { title: "Graph" };
@@ -9,7 +10,17 @@ export const metadata = { title: "Graph" };
 /** The policy graph, drawn, at any moment in its history (gen3-cradle.md §2, §12). */
 export default async function GraphPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const [{ can }, api] = await Promise.all([siteAccess(site), serverApi()]);
+  const [{ can }, api, bridge] = await Promise.all([siteAccess(site), serverApi(), getBridge(site)]);
+  if (bridge.site.path === "modernize") {
+    return (
+      <>
+        <PageHeader title="Graph" sub="Your policy graph." />
+        <Page>
+          <ModernizeNotice siteId={site} screen="The policy graph" />
+        </Page>
+      </>
+    );
+  }
   const { data, note } = await load(() => api.cradle.history(site));
   const history = data?.history ?? null;
   return (

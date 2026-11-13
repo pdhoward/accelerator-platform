@@ -189,6 +189,7 @@ export async function createAccount(identity: Identity, input: NewAccountInput):
   if (!url) throw new CodeError("Give the system's live address, its code repository, or the company website.");
   const site = await db().from("acc_sites").insert({
     org_id: org.id, slug: await freeSlug(input.siteName), name: input.siteName, url, description: input.siteDescription?.trim() || null, repo: repo ?? "", repo_path: input.repoPath?.trim() || null, status: "onboarding",
+    ...(input.path && { path: input.path }),
   });
   if (site.error) throw new Error(site.error.message);
 

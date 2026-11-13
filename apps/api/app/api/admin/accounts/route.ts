@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { SITE_PATHS } from "@accelerator/domain";
+
 import { createAccount, listAccounts } from "@/lib/admin";
 import { body, fail, json, platformRoute } from "@/lib/http";
 
@@ -13,6 +15,7 @@ const schema = z.object({
   siteUrl: z.string().trim().max(300).optional(),
   repo: z.string().trim().max(300).optional(),
   repoPath: z.string().trim().max(500).optional(),
+  path: z.enum(SITE_PATHS).optional(),
   plan: z.enum(["commission", "operate", "managed"]),
   billingMode: z.enum(["stripe", "invoiced", "comped"]),
   installFeeQuoteUsd: z.number().min(0).max(1_000_000).optional(),

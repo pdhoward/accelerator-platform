@@ -1,5 +1,6 @@
 import {
   resolveSiteAccess,
+  sitePathOf,
   type Account,
   type AccountStatus,
   type EnvVarSpec,
@@ -74,6 +75,7 @@ function toSite(r: Row): Site {
     repo: r.repo as string,
     stack: (r.stack as string) ?? "",
     status: r.status as Site["status"],
+    path: sitePathOf(r.path),
     lastReleaseAt: r.created_at as string,
     demo: !!r.demo,
   };

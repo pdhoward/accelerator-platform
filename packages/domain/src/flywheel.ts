@@ -501,6 +501,7 @@ export type SiteSetup = {
     stageUrl: string | null;
     baselineTests: number | null;
     domain: Domain | null;
+    path: import("./types").SitePath;
   };
   runnerOnline: boolean;
   ready: boolean;
@@ -510,7 +511,7 @@ export type SiteSetup = {
 export type JobContext = {
   /** generation: this claim's number; the runner renews and finishes with it, and a lapsed claim's result is refused (§14.1). */
   job: Job & { role: ModelRole; input: Record<string, unknown>; generation: number };
-  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null; sources?: SiteSource[] };
+  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null; path?: import("./types").SitePath; sources?: SiteSource[] };
   /** agentSessionId: the Work item's agent session, resumed instead of cold-starting (§17 F4). */
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[]; agentSessionId: string | null }) | null;
   /** The job's Toolbelt token (§1.2): the agent reaches the API's /mcp with it; it holds no other key. */
@@ -542,7 +543,7 @@ export type SecretStatus = { environment: VaultEnv; name: string; last4: string;
 
 /** Keys the engine itself can use for a site, listed on Configuration even when the repo doesn't mention them. */
 export const ENGINE_KEYS = [
-  { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → only this repository, Contents: read" },
+  { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → Repository access: add this repository (a private one isn't covered by \"Public repositories\"), Contents: read" },
   { name: "VERCEL_TOKEN", purpose: "Read deployments and preview URLs", howToGet: "Vercel → Account Settings → Tokens (scope: this project)" },
   { name: "CRADLE_APP_URL", purpose: "Where the AI-run app is, so the Accelerator can ask it to prove new rules the moment they change (conformance gate)", howToGet: "The app's address, e.g. https://machineshop-git-cradle-strategicmachines.vercel.app" },
   { name: "VERCEL_PROTECTION_BYPASS", purpose: "Optional: only if that address sits behind Vercel's sign-in (Deployment Protection)", howToGet: "Vercel → the app's project → Settings → Deployment Protection → Protection Bypass for Automation" },

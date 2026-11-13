@@ -1,9 +1,10 @@
 import { isDomain } from "@accelerator/domain";
 
 import { CradleView } from "@/components/cradle-view";
+import { ModernizeNotice } from "@/components/path-notice";
 import { Card, CardBody, Page, PageHeader } from "@/components/ui";
 import { siteAccess } from "@/lib/access";
-import { serverApi } from "@/lib/api";
+import { getBridge, serverApi } from "@/lib/api";
 import { load } from "@/lib/load";
 
 export const metadata = { title: "Policy" };
@@ -11,7 +12,17 @@ export const metadata = { title: "Policy" };
 /** Gen 3, the Cradle (gen3-cradle.md): the site's app as a policy book, with the crew that reads, checks and tends it. */
 export default async function PolicyPage({ params }: { params: Promise<{ site: string }> }) {
   const { site } = await params;
-  const [{ can, membership }, api] = await Promise.all([siteAccess(site), serverApi()]);
+  const [{ can, membership }, api, bridge] = await Promise.all([siteAccess(site), serverApi(), getBridge(site)]);
+  if (bridge.site.path === "modernize") {
+    return (
+      <>
+        <PageHeader title="Policy" sub="Your app as the policies, practices and rules it carries out." />
+        <Page>
+          <ModernizeNotice siteId={site} screen="Policy" />
+        </Page>
+      </>
+    );
+  }
   const { data, note } = await load(() => api.cradle.get(site));
   const record = membership?.sites.find((s) => s.slug === site);
   // The sample mirrors the real Machine Shop, which the demo story is drawn from.

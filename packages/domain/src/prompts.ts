@@ -35,6 +35,8 @@ export function brief(ctx: JobContext): string {
   const w = ctx.work;
   const lines = [
     `Site: ${ctx.site.name} (${ctx.site.url})${ctx.site.stack ? `, stack: ${ctx.site.stack}` : ""}.`,
+    ctx.site.path === "modernize" &&
+      "Path: Modernize. The owner wants the code upgraded and extended as it is: keep the site's own architecture, and don't propose a policy book, the Cradle runtime or turning the site into an AI app unless the Navigator asks for it.",
     w && `Work item #${w.number}: "${w.title}". Stage: ${w.stage in RAIL_LABEL ? RAIL_LABEL[w.stage as keyof typeof RAIL_LABEL] : w.stage}. Risk: ${w.risk.length ? w.risk.join(", ") : "not classified"}.`,
     w && w.kind === "change" && `Complexity: ${COMPLEXITY_LABEL[w.complexity]} (${w.complexitySetBy === "person" ? "set by the Navigator" : "the platform's rating"}). ${COMPLEXITY_PROMISE[w.complexity]}`,
     w?.design && `Design: v${w.design.version}, ${w.design.approvedAt ? "approved" : "awaiting approval"}.`,

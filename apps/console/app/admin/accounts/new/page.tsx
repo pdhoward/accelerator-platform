@@ -1,3 +1,5 @@
+import { SITE_PATH_LABEL, SITE_PATHS } from "@accelerator/domain";
+
 import { ActionForm, Field, inputClass } from "@/components/action-form";
 import { Card, CardBody, CardHead, Page, PageHeader } from "@/components/ui";
 import { platformAccess } from "@/lib/access";
@@ -42,6 +44,17 @@ export default async function NewAccountPage() {
                 <Field label="Local copy (runner)" hint="Optional. Leave blank and the runner clones the repository from GitHub.">
                   <input name="repoPath" className={inputClass} placeholder="C:\code\name" />
                 </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Path" hint="Changeable later in the site's Setup. A Modernize site can move to Transform and keeps its history.">
+                    <select name="path" defaultValue="modernize" className={inputClass}>
+                      {SITE_PATHS.map((p) => (
+                        <option key={p} value={p}>
+                          {SITE_PATH_LABEL[p].label}: {SITE_PATH_LABEL[p].summary}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
                 <Field label="Plan">
                   <select name="plan" defaultValue="operate" className={inputClass}>
                     <option value="commission">Commission</option>

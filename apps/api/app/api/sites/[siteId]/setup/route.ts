@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { DOMAINS } from "@accelerator/domain";
+import { DOMAINS, SITE_PATHS } from "@accelerator/domain";
 
 import { body, fail, json, workRoute } from "@/lib/http";
 import { latestCheckout, saveSiteSettings, siteSetup } from "@/lib/work";
@@ -19,6 +19,8 @@ const schema = z.object({
   stageUrl: z.union([z.url(), z.literal("")]).nullable().optional(),
   /** The industry pack the site runs on (gen2-crew.md §20, gen3-cradle.md §3). */
   domain: z.enum(DOMAINS).nullable().optional(),
+  /** Modernize (Work items on the code) or Transform (the Cradle), B31. */
+  path: z.enum(SITE_PATHS).optional(),
 });
 
 export const PATCH = workRoute(async ({ request, site }) => {

@@ -63,6 +63,9 @@ import {
   type WorkItem,
   type WorkMessage,
   type WorkStep,
+  isSitePath,
+  sitePathOf,
+  type SitePath,
 } from "@accelerator/domain";
 
 import { CodeError } from "./codes";
@@ -532,7 +535,7 @@ export async function streamReply(site: Site, identity: Identity, who: Speaker, 
     job: { ...toJob(job), role: "consult", input: {}, generation: 1 },
     site: {
       id: site.id, slug: (s?.slug as string) ?? "", name: site.name, url: (s?.url as string) ?? "", repoPath: null, baseBranch: (s?.base_branch as string) ?? "stage",
-      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain,
+      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain, path: sitePathOf(s?.path),
     },
     work: { ...work, messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps, agentSessionId: null },
     toolbeltToken: null,
@@ -889,7 +892,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
   const [items, [agreement], [s], online] = await Promise.all([
     rows(db().from("acc_setup_items").select("*").eq("site_id", site.id)),
     rows(db().from("acc_agreements").select("*").eq("site_id", site.id).order("version", { ascending: false }).limit(1)),
-    rows(db().from("acc_sites").select("name, url, description, repo, repo_path, base_branch, stage_url, baseline_tests, domain").eq("id", site.id)),
+    rows(db().from("acc_sites").select("*").eq("id", site.id)),
     runnerOnline(),
   ]);
   const order = (code: string) => SETUP_TEMPLATE.findIndex((t) => t.code === code);
@@ -907,6 +910,7 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
       name: (s?.name as string) ?? site.name, url: (s?.url as string) ?? "", description: (s?.description as string) ?? null,
       repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null,
       baselineTests: (s?.baseline_tests as number) ?? null, domain: isDomain(s?.domain) ? s.domain : null,
+      path: sitePathOf(s?.path),
     },
     runnerOnline: online,
     ready: setupDone(list) && signed,
@@ -925,7 +929,7 @@ export async function setSetupItem(site: Site, identity: Identity, code: string,
 
 export async function saveSiteSettings(
   site: Site,
-  input: { name?: string; url?: string; description?: string | null; repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null },
+  input: { name?: string; url?: string; description?: string | null; repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null; path?: SitePath },
 ) {
   const url = input.url?.trim().replace(/\/+$/, "");
   if (input.url !== undefined && !url) throw new CodeError("The site needs an address: where it runs, or its code's.");
@@ -940,6 +944,7 @@ export async function saveSiteSettings(
       ...(input.baseBranch && { base_branch: input.baseBranch.trim() }),
       ...(input.stageUrl !== undefined && { stage_url: input.stageUrl?.trim() || null }),
       ...(input.domain !== undefined && { domain: input.domain }),
+      ...(isSitePath(input.path) && { path: input.path }),
     })
     .eq("id", site.id);
   if (error) throw new Error(error.message);
@@ -953,6 +958,8 @@ export async function runCheckout(site: Site, identity: Identity) {
 
 /** Gen 3: the crew reads the site's code, read-only, into its policy book (gen3-cradle.md §5). */
 export async function runIngest(site: Site, identity: Identity, pack: Domain) {
+  const [row] = await rows(db().from("acc_sites").select("*").eq("id", site.id));
+  if (sitePathOf(row?.path) === "modernize") throw new CodeError("This site is on the Modernize path: the crew upgrades and extends its code, without a policy book. To read it into one, change the path to Transform in Setup.");
   const busy = await rows(db().from("acc_jobs").select("id").eq("site_id", site.id).eq("kind", "ingest").in("status", ["queued", "running"]).limit(1));
   if (busy.length) throw new CodeError("The crew is already reading the site.");
   await enqueue(site, null, "ingest", "design", identity.userId, { pack });
@@ -1102,7 +1109,7 @@ async function context(job: Row): Promise<JobContext> {
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
-      repo: (s!.repo as string) || null, domain,
+      repo: (s!.repo as string) || null, domain, path: sitePathOf(s!.path),
       // The system's other code (migration 0016); the ingest reads every source.
       sources: Array.isArray(s!.sources) ? (s!.sources as SiteSource[]) : [],
     },

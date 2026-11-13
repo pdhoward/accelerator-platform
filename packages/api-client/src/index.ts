@@ -356,6 +356,7 @@ export function createApiClient({
           baseBranch?: string;
           stageUrl?: string | null;
           domain?: Domain | null;
+          path?: "modernize" | "transform";
         },
       ) => post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
       item: (

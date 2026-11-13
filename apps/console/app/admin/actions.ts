@@ -38,6 +38,7 @@ export async function createAccount(_: FormState, f: FormData): Promise<FormStat
       siteUrl: text(f, "siteUrl") || undefined,
       repo: text(f, "repo") || undefined,
       repoPath: text(f, "repoPath") || undefined,
+      path: text(f, "path") === "transform" ? "transform" : "modernize",
       plan: text(f, "plan") as PlanId,
       billingMode: text(f, "billingMode") as BillingMode,
       installFeeQuoteUsd: fee ? Number(fee) : undefined,

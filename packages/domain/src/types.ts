@@ -17,6 +17,21 @@ export type Member = { id: string; name: string; email: string; role: Role };
 
 export type Org = { id: string; name: string; plan: PlanId };
 
+/**
+ * What the platform does with a site (gen3-cradle.md B31, migration 0021). modernize: the crew upgrades the
+ * code and builds features as Work items, with no policy book. transform: the Cradle reads the code into a
+ * policy book the owner rules on and the AI app runs from. Chosen at registration, changeable in Setup.
+ */
+export const SITE_PATHS = ["modernize", "transform"] as const;
+export type SitePath = (typeof SITE_PATHS)[number];
+export const isSitePath = (v: unknown): v is SitePath => v === "modernize" || v === "transform";
+export const SITE_PATH_LABEL: Record<SitePath, { label: string; summary: string }> = {
+  modernize: { label: "Modernize", summary: "Upgrades, fixes and new features as Work items. The code stays the app; no policy book." },
+  transform: { label: "Transform", summary: "The Cradle: the code is read into a policy book you rule on, and the AI app runs from it." },
+};
+/** A site from before migration 0021 has no path; it was registered for the Cradle. */
+export const sitePathOf = (v: unknown): SitePath => (isSitePath(v) ? v : "transform");
+
 export type Site = {
   id: string;
   orgId: string;
@@ -28,6 +43,7 @@ export type Site = {
   repo: string;
   stack: string;
   status: "live" | "onboarding";
+  path?: SitePath;
   /** A seeded demo tenant: the only kind of site that shows sample data. */
   demo?: boolean;
   lastReleaseAt: string;
@@ -281,6 +297,8 @@ export type NewAccountInput = {
   /** The system's primary code repository (GitHub), and the runner's local copy of it. */
   repo?: string;
   repoPath?: string;
+  /** Modernize or Transform (B31); new sites default to modernize. */
+  path?: SitePath;
   plan: PlanId;
   billingMode: BillingMode;
   installFeeQuoteUsd?: number;
