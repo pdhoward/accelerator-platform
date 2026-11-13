@@ -31,7 +31,7 @@ import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, read, type Meter, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
-import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile } from "./repo";
+import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile, lastProof, saveProof } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
 /**
@@ -158,20 +158,26 @@ export async function buildStep(ctx: JobContext, log: Log) {
   const env = await devEnv(ctx, log);
   log.status(`Step ${step.position}: ${step.title}`);
 
-  // Before: the suite as it stands, so the step can't shrink it.
-  const before = await checks(dir, env);
-  const testsBefore = before.test ? parseTests(before.test.out)?.total ?? null : null;
-  log.check(`Before: ${testsBefore ?? "no"} tests`);
+  // Before: the suite as it stands, so the step can't shrink it. When the last step's proof ran on this exact
+  // commit, its count stands (B33): the suite isn't run twice on the same code.
+  const proven = await lastProof(dir);
+  const testsBefore = proven ? proven.tests : await (async () => {
+    const before = await checks(dir, env);
+    return before.test ? parseTests(before.test.out)?.total ?? null : null;
+  })();
+  log.check(`Before: ${testsBefore ?? "no"} tests${proven ? " (from the last step's proof on this commit)" : ""}`);
   const from = await headSha(dir);
 
   // A repair run: the crew re-runs a step the Protocol blocked, told exactly what failed (gen2-crew.md §17.4).
   const repair = Array.isArray(ctx.job.input.repairReasons) ? (ctx.job.input.repairReasons as unknown[]).map(String) : [];
   if (repair.length) log.status(`Repairing: ${repair.join(" ")}`);
+  // Each step starts a fresh session with a written handoff (B33). Resuming the Work item's session made every
+  // turn re-send all earlier steps: step 3 of the blog upgrade re-sent about 450k tokens a turn. The build
+  // session isn't kept as the Work item's session either, so the Team Lead's replies stay small.
   const r = await agent({
-    cwd: dir, model: ctx.job.model, append: [buildAppend(ctx), codeState(dir)].filter(Boolean).join("\n\n"), mode: "build", log, prompt: buildPrompt(w, step, repair),
-    resume: w.agentSessionId, toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
+    cwd: dir, model: ctx.job.model, append: [buildAppend(ctx), codeState(dir)].filter(Boolean).join("\n\n"), mode: "build", log, prompt: buildPrompt(w, step, repair, ctx.site.baseBranch),
+    toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
   });
-  if (r.sessionId) sessions.set(ctx, r.sessionId);
   spent(ctx, r);
   if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
 
@@ -184,6 +190,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
   log.check(tests ? `Tests: ${tests.passed}/${tests.total} passing` : "Tests: didn't run", after.test ? tail(after.test.out) : undefined);
 
   const commit = await commitAll(dir, `work #${w.number} step ${step.position}: ${step.title}`);
+  if (tests && typecheck && !tests.failed) await saveProof(dir, tests.total);
   const files = commit ? await changedFiles(dir, from) : [];
   if (commit) log.tool(`Committed ${commit.slice(0, 8)} on ${w.branch} (${files.length} files)`);
 

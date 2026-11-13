@@ -156,3 +156,25 @@ describe("syncPlan", () => {
     expect(syncPlan(9, 2)).toBe("merge");
   });
 });
+
+describe("the last proof is reused only on the same clean commit (B33)", () => {
+  it("records, reuses, and drops it when the tree moves", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { git, lastProof, saveProof } = await import("./repo");
+    const dir = mkdtempSync(join(tmpdir(), "proof-"));
+    await git("init -q", dir);
+    writeFileSync(join(dir, "a.txt"), "1");
+    await git("add -A", dir);
+    await git('-c user.name=t -c user.email=t@t commit -q -m one', dir);
+    expect(await lastProof(dir)).toBeNull();
+    await saveProof(dir, 35);
+    expect(await lastProof(dir)).toEqual({ tests: 35 });
+    writeFileSync(join(dir, "a.txt"), "2");
+    expect(await lastProof(dir)).toBeNull(); // uncommitted change
+    await git("add -A", dir);
+    await git('-c user.name=t -c user.email=t@t commit -q -m two', dir);
+    expect(await lastProof(dir)).toBeNull(); // a different commit
+  });
+});

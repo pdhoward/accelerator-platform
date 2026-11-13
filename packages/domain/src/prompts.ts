@@ -139,7 +139,8 @@ export const planSystem = (ctx: JobContext) => `You turn an approved design into
 ${brief(ctx)}
 
 Rules:
-- 2 to 8 small steps, in order. Each is independently testable and leaves the site working.
+- As few steps as the work allows, usually 2 to 5, in order. Each is independently testable and leaves the site working.
+- Every step pays for a full proof run (typecheck, the whole test suite, the build) and a fresh builder session. Merge mechanical changes (package upgrades, renames, config, formatting) into one step. Split only where the risk changes, or where the site must be proven working before the next change.
 - Each step says what changes and which tests it adds or updates.
 - No "set up" or "research" steps; the builder reads the code as part of each step.
 
@@ -153,9 +154,22 @@ ${brief(ctx)}${crewKnowledge(ctx)}
 
 ${PROTOCOL}
 
-Runner rules: don't commit, push, switch branches or touch .env files; the runner does git. When you finish, reply with a short summary for the Navigator: what changed, which tests you added, and the test result. If this step genuinely needs no new tests, end with a line "NO_TESTS_REASON: <why>".`;
+Runner rules: don't commit, push, switch branches or touch .env files; the runner does git.
+Keep your context small: send long command output to a file and read only the lines you need (tail, grep). Run the whole suite when you finish, not after every edit; run the tests your change touches while you work. When you finish, reply with a short summary for the Navigator: what changed, which tests you added, and the test result. If this step genuinely needs no new tests, end with a line "NO_TESTS_REASON: <why>".`;
 
-export function buildPrompt(w: Work, step: WorkStep, repair: string[] = []): string {
+/** What the earlier steps did, for a builder that starts a fresh session on each step (B33). */
+export function handoff(w: Work, step: WorkStep, base = "the base branch"): string {
+  const done = w.steps.filter((s) => s.status === "done" && s.position < step.position);
+  if (!done.length) return "";
+  const lines = done.map((s) => {
+    const e = s.evidence ?? {};
+    const what = (e.summary ?? "").trim().slice(0, 1500).replace(/\n/g, "\n   ");
+    return `${s.position}. ${s.title}${e.commit ? ` (commit ${e.commit.slice(0, 8)}, ${e.files?.length ?? 0} files)` : ""}${what ? `\n   ${what}` : ""}`;
+  });
+  return `\n\nWHAT THE EARLIER STEPS DID\nYou start a fresh session. This is the earlier builders' handoff; the code itself is the truth (git log, git diff ${base}...HEAD).\n${lines.join("\n")}`;
+}
+
+export function buildPrompt(w: Work, step: WorkStep, repair: string[] = [], base?: string): string {
   return `Build step ${step.position} of the approved plan for work item #${w.number}.
 
 THE STEP
@@ -165,7 +179,7 @@ ${step.detail}
 ${w.design ? `THE APPROVED ${w.complexity === "medium" ? "BRIEF" : "DESIGN"}\n${w.design.body}` : `THE CONVERSATION (a Low-complexity change: no design; build exactly what was agreed)\n${transcript(w)}`}
 
 THE WHOLE PLAN
-${planText(w.steps)}
+${planText(w.steps)}${handoff(w, step, base)}
 
 Do only this step. Add or update tests that prove it. Run the typecheck and the tests before you finish.${
   repair.length

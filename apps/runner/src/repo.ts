@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { githubRepo } from "@accelerator/domain";
@@ -160,6 +160,31 @@ export async function changedFiles(dir: string, from: string): Promise<string[]>
 }
 
 export const isTestFile = (f: string) => /(\.|\/)(test|spec)\.[cm]?[jt]sx?$/.test(f) || /(^|\/)(__tests__|tests?)\//.test(f);
+
+/**
+ * The last proof the runner ran on a worktree (B33): the commit it checked and the test count. A step that
+ * starts on that same commit, with nothing uncommitted, reuses it as its "before" instead of running the
+ * whole suite again. Kept in the worktree's own git folder, so it never reaches the site's repository.
+ */
+const proofFile = async (dir: string) => join((await git("rev-parse --absolute-git-dir", dir)).out.trim(), "accelerator-proof.json");
+
+export async function lastProof(dir: string): Promise<{ tests: number | null } | null> {
+  try {
+    if ((await git("status --porcelain", dir)).out.trim()) return null;
+    const p = JSON.parse(readFileSync(await proofFile(dir), "utf8")) as { sha?: string; tests?: number | null };
+    return p.sha && p.sha === (await headSha(dir)) ? { tests: p.tests ?? null } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveProof(dir: string, tests: number | null) {
+  try {
+    writeFileSync(await proofFile(dir), JSON.stringify({ sha: await headSha(dir), tests, at: new Date().toISOString() }));
+  } catch {
+    // Only an optimisation: without the record, the next step runs its own "before".
+  }
+}
 
 /** install · typecheck · test, as the site defines them. */
 export async function checks(dir: string, env: Record<string, string>) {
