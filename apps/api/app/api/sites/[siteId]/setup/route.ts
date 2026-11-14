@@ -21,6 +21,8 @@ const schema = z.object({
   domain: z.enum(DOMAINS).nullable().optional(),
   /** Modernize (Work items on the code) or Transform (the Cradle), B31. */
   path: z.enum(SITE_PATHS).optional(),
+  /** Who the runner commits as (a GitHub account on the site's Vercel team); null clears it (migration 0022). */
+  commitAuthor: z.object({ name: z.string().trim().min(1).max(80).regex(/^[^"`$\\\n\r]+$/, "No quotes or special characters"), email: z.email() }).nullable().optional(),
 });
 
 export const PATCH = workRoute(async ({ request, site }) => {

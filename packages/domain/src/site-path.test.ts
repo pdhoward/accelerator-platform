@@ -27,3 +27,13 @@ describe("site path (B31)", () => {
     expect(brief(ctx())).not.toMatch(/Path:/);
   });
 });
+
+describe("commit author (migration 0022)", () => {
+  it("accepts a plain name and email, never shell characters", async () => {
+    const { isCommitAuthor } = await import("./flywheel");
+    expect(isCommitAuthor({ name: "Site Owner", email: "owner@example.com" })).toBe(true);
+    expect(isCommitAuthor({ name: 'a" && rm', email: "owner@example.com" })).toBe(false);
+    expect(isCommitAuthor({ name: "Owner", email: "o$x@example.com" })).toBe(false);
+    expect(isCommitAuthor(null)).toBe(false);
+  });
+});

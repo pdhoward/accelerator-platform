@@ -194,3 +194,24 @@ describe("the runner's commits skip the site's git hooks (the Owner, 2026-11-14)
     expect(await commitAll(dir, "step")).toMatch(/^[0-9a-f]{40}$/);
   });
 });
+
+describe("the runner commits as the site's author when it has one (migration 0022)", () => {
+  it("uses the person's name and notes the crew; falls back to the engine", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { commitAll, commitAs, git } = await import("./repo");
+    const dir = mkdtempSync(join(tmpdir(), "author-"));
+    await git("init -q", dir);
+    commitAs({ name: "Site Owner", email: "owner@example.com" });
+    writeFileSync(join(dir, "a.txt"), "1");
+    await commitAll(dir, "step one");
+    expect((await git("log -1 --format=%an", dir)).out.trim()).toBe("Site Owner");
+    expect((await git("log -1 --format=%ae", dir)).out.trim()).toBe("owner@example.com");
+    expect((await git("log -1 --format=%B", dir)).out.trim()).toBe("step one\n\nMade by the Accelerator crew.");
+    commitAs(null);
+    writeFileSync(join(dir, "a.txt"), "2");
+    await commitAll(dir, "step two");
+    expect((await git("log -1 --format=%ae", dir)).out.trim()).toBe("engine@strategicmachines.ai");
+  });
+});

@@ -487,6 +487,17 @@ export type WorkDetail = {
 
 export type SetupItem = { code: string; phase: "install" | "checkout"; title: string; owner: SetupOwner; status: SetupStatus; note: string | null; evidence: Record<string, unknown>; updatedAt: string };
 
+/**
+ * A GitHub account on the site's Vercel team (migration 0022). For a private repository Vercel deploys only
+ * commits whose author is on the team, so the runner commits as this person; each message says the crew made it.
+ */
+export type CommitAuthor = { name: string; email: string };
+/** Safe to pass to git on a command line: no quotes, backticks, dollar signs, backslashes or newlines. */
+export const isCommitAuthor = (v: unknown): v is CommitAuthor => {
+  const a = v as CommitAuthor | null;
+  return !!a && typeof a.name === "string" && typeof a.email === "string" && /^[^"`$\\\n\r]{1,80}$/.test(a.name.trim()) && /^[^@\s"`$\\]+@[^@\s"`$\\]+$/.test(a.email.trim());
+};
+
 export type SiteSetup = {
   items: SetupItem[];
   agreement: { version: number; body: string; signedAt: string | null } | null;
@@ -502,6 +513,8 @@ export type SiteSetup = {
     baselineTests: number | null;
     domain: Domain | null;
     path: import("./types").SitePath;
+    /** Who the runner's commits are made as (migration 0022); null: the Accelerator Engine. */
+    commitAuthor: CommitAuthor | null;
   };
   runnerOnline: boolean;
   ready: boolean;
@@ -511,7 +524,7 @@ export type SiteSetup = {
 export type JobContext = {
   /** generation: this claim's number; the runner renews and finishes with it, and a lapsed claim's result is refused (§14.1). */
   job: Job & { role: ModelRole; input: Record<string, unknown>; generation: number };
-  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null; path?: import("./types").SitePath; sources?: SiteSource[] };
+  site: { id: string; slug: string; name: string; url: string; repoPath: string | null; baseBranch: string; stack: string | null; baselineTests: number | null; repo: string | null; domain: Domain | null; path?: import("./types").SitePath; commitAuthor?: CommitAuthor | null; sources?: SiteSource[] };
   /** agentSessionId: the Work item's agent session, resumed instead of cold-starting (§17 F4). */
   work: (WorkItem & { messages: WorkMessage[]; design: WorkDoc | null; steps: WorkStep[]; agentSessionId: string | null }) | null;
   /** The job's Toolbelt token (§1.2): the agent reaches the API's /mcp with it; it holds no other key. */

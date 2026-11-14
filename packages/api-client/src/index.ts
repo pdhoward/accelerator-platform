@@ -357,6 +357,7 @@ export function createApiClient({
           stageUrl?: string | null;
           domain?: Domain | null;
           path?: "modernize" | "transform";
+          commitAuthor?: { name: string; email: string } | null;
         },
       ) => post<{ ok: true }>(`${site(siteId)}/setup`, input, "PATCH"),
       item: (

@@ -31,7 +31,7 @@ import { modelProxyUrl, secrets, toolbeltUrl, type Log } from "./api";
 import { probe, waitForDeployment } from "./deploys";
 import { agent, chat, read, type Meter, type Turn } from "./models";
 import { buildAppend, buildPrompt, consultSystem, designSystem, planSystem, planText, transcript } from "./prompts";
-import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, ensureClone, ensureWorktree, git, gitRemote, headSha, isTestFile, lastProof, saveProof } from "./repo";
+import { baseRef, changedFiles, checks, codeHome, codeState, commitAll, commitAs, committerEmail, crewNote, ensureClone, ensureWorktree, git, gitIdentity, gitRemote, headSha, isTestFile, lastProof, saveProof } from "./repo";
 import { parseManifest, parseTests, scripts, sh, siteEnv, tail } from "./sh";
 
 /**
@@ -215,7 +215,7 @@ export async function buildStep(ctx: JobContext, log: Log) {
 
 // ── Prove · Release (flywheel.md F14) ─────────────────────────────────────────
 /** Git with this machine's credentials, never prompting (a prompt would hang the runner). */
-const gitAs = (args: string, cwd: string) => sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" ${args}`, cwd, {}, 120_000);
+const gitAs = (args: string, cwd: string) => sh(`git ${gitIdentity()} ${args}`, cwd, {}, 120_000);
 const githubToken = (env: Record<string, string>) => process.env.GITHUB_TOKEN || env.GITHUB_TOKEN || undefined;
 
 /**
@@ -226,6 +226,7 @@ const githubToken = (env: Record<string, string>) => process.env.GITHUB_TOKEN ||
  * logged; the job then reports the missing code in its own words.
  */
 export async function locateCode(ctx: JobContext, log: Log) {
+  commitAs(ctx.site.commitAuthor);
   let token: string | undefined;
   const tokenFor = async () => (token ??= githubToken(await devEnv(ctx)));
   const find = async (label: string, path: string | null, repo: string | null) => {
@@ -276,6 +277,12 @@ export async function prove(ctx: JobContext, log: Log) {
   if (ctx.record) await writeRecord(dir, w.number, ctx.record, log);
   log.status("Prove: typecheck, tests and the production build");
   const c = await fullChecks(dir, env, log);
+  // Vercel already refused a commit whose author isn't on its team, and pushing it again deploys nothing: when
+  // the branch ends on a commit by someone else, an empty commit in the site's author's name starts the preview.
+  if (c.ok && ctx.site.commitAuthor && (await git("log -1 --format=%ae", dir)).out.trim().toLowerCase() !== committerEmail().toLowerCase()) {
+    const made = await sh(`git ${gitIdentity()} commit -q --no-verify --allow-empty -m ${JSON.stringify(`work #${w.number}: prove`)}${crewNote()}`, dir);
+    if (made.code === 0) log.tool(`Committed an empty commit as ${committerEmail()} so the preview deploys`);
+  }
   const commit = await headSha(dir);
   const counted = await codeCensus(dir, log);
   const result = { kind: "prove" as const, branch, commit, previewUrl: null as string | null, previewStatus: null as number | null, ...(counted && { census: counted }) };

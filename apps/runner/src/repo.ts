@@ -111,7 +111,7 @@ export async function ensureWorktree(repoPath: string, slug: string, name: strin
       if (r.code !== 0) throw new Error(`The branch is ${behind} commit(s) behind ${base} and couldn't catch up: ${tail(r.out, 300)}`);
       log?.status(`code> ${branch} caught up with ${base} (+${behind} commits)`);
     } else if (plan === "merge") {
-      const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" merge --no-edit --no-verify --quiet ${b.ref}`, dir, {}, 120_000);
+      const r = await sh(`git ${gitIdentity()} merge --no-edit --no-verify --quiet ${b.ref}`, dir, {}, 120_000);
       if (r.code !== 0) {
         const files = (await git("diff --name-only --diff-filter=U", dir)).out.trim().split(/\r?\n/).filter(Boolean);
         await git("merge --abort", dir);
@@ -147,6 +147,25 @@ export const baseRef = async (repoPath: string, base: string) => (await baseStat
 export const headSha = async (dir: string) => (await git("rev-parse HEAD", dir)).out.trim();
 
 /**
+ * Who the runner commits as, set for each job (the runner runs one at a time): the site's commit author
+ * (migration 0022), or the Accelerator Engine. A person's name is used because Vercel deploys a private
+ * repository's commits only when their author is on the Vercel team.
+ */
+export type GitPerson = { name: string; email: string };
+const ENGINE: GitPerson = { name: "Accelerator Engine", email: "engine@strategicmachines.ai" };
+let committer: GitPerson | null = null;
+export function commitAs(p: GitPerson | null | undefined) {
+  committer = p ?? null;
+}
+export const gitIdentity = () => {
+  const p = committer ?? ENGINE;
+  return `-c user.name=${JSON.stringify(p.name)} -c user.email=${JSON.stringify(p.email)}`;
+};
+/** The second -m of every runner commit when it is made in a person's name. */
+export const crewNote = () => (committer ? ` -m ${JSON.stringify("Made by the Accelerator crew.")}` : "");
+export const committerEmail = () => (committer ?? ENGINE).email;
+
+/**
  * Commit whatever the step changed (the runner commits, not the model). The runner's own git writes skip the
  * site's git hooks (--no-verify; the Owner's decision, 2026-11-14): the runner has already run the site's checks
  * on this exact tree, and a hook could only block the commit (the blog's new Husky hook couldn't start on
@@ -155,7 +174,7 @@ export const headSha = async (dir: string) => (await git("rev-parse HEAD", dir))
 export async function commitAll(dir: string, message: string): Promise<string | null> {
   await git("add -A", dir);
   if ((await git("diff --cached --quiet", dir)).code === 0) return null;
-  const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" commit -q --no-verify -m ${JSON.stringify(message)}`, dir);
+  const r = await sh(`git ${gitIdentity()} commit -q --no-verify -m ${JSON.stringify(message)}${crewNote()}`, dir);
   if (r.code !== 0) throw new Error(`Commit failed: ${r.out.trim()}`);
   return headSha(dir);
 }

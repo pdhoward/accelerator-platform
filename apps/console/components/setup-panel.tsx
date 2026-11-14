@@ -183,6 +183,9 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
                 () =>
                   api.setup.settings(siteId, {
                     repo: String(f.get("repo") ?? ""), repoPath: String(f.get("repoPath") ?? ""), baseBranch: String(f.get("baseBranch") ?? "stage"), stageUrl: String(f.get("stageUrl") ?? ""),
+                    commitAuthor: String(f.get("authorEmail") ?? "").trim()
+                      ? { name: String(f.get("authorName") ?? "").trim(), email: String(f.get("authorEmail") ?? "").trim() }
+                      : null,
                   }),
                 "Saved.",
               );
@@ -201,6 +204,14 @@ export function SetupPanel({ siteId, initial, canManage }: { siteId: string; ini
             <Field label="Staging URL">
               <input name="stageUrl" type="url" defaultValue={s.settings.stageUrl ?? ""} disabled={!canManage} placeholder="https://stage.example.com" className={inputClass} />
             </Field>
+            <div className="grid gap-3 md:col-span-2 md:grid-cols-2 xl:order-last xl:col-span-5">
+              <Field label="Commits made as: name" hint="A GitHub account on the site's Vercel team. A private repository's previews deploy only for team members. Leave both blank to commit as the Accelerator Engine.">
+                <input name="authorName" defaultValue={s.settings.commitAuthor?.name ?? ""} disabled={!canManage} maxLength={80} placeholder="Your name" className={inputClass} />
+              </Field>
+              <Field label="Commits made as: email" hint="The email on that GitHub account. Each commit also says the Accelerator crew made it.">
+                <input name="authorEmail" type="email" defaultValue={s.settings.commitAuthor?.email ?? ""} disabled={!canManage} placeholder="you@example.com" className={inputClass} />
+              </Field>
+            </div>
             {canManage && (
               <button type="submit" className={button("plain")} disabled={busy}>
                 Save

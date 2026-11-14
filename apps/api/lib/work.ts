@@ -65,6 +65,8 @@ import {
   type WorkStep,
   isSitePath,
   sitePathOf,
+  isCommitAuthor,
+  type CommitAuthor,
   type SitePath,
 } from "@accelerator/domain";
 
@@ -535,7 +537,7 @@ export async function streamReply(site: Site, identity: Identity, who: Speaker, 
     job: { ...toJob(job), role: "consult", input: {}, generation: 1 },
     site: {
       id: site.id, slug: (s?.slug as string) ?? "", name: site.name, url: (s?.url as string) ?? "", repoPath: null, baseBranch: (s?.base_branch as string) ?? "stage",
-      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain, path: sitePathOf(s?.path),
+      stack: (s?.stack as string) ?? null, baselineTests: (s?.baseline_tests as number) ?? null, repo: (s?.repo as string) || null, domain, path: sitePathOf(s?.path), commitAuthor: authorOf(s),
     },
     work: { ...work, messages: p.messages, design: p.designs.at(-1) ?? null, steps: p.steps, agentSessionId: null },
     toolbeltToken: null,
@@ -911,10 +913,17 @@ export async function siteSetup(site: Site): Promise<SiteSetup> {
       repo: (s?.repo as string) || null, repoPath: (s?.repo_path as string) ?? null, baseBranch: (s?.base_branch as string) ?? "stage", stageUrl: (s?.stage_url as string) ?? null,
       baselineTests: (s?.baseline_tests as number) ?? null, domain: isDomain(s?.domain) ? s.domain : null,
       path: sitePathOf(s?.path),
+      commitAuthor: authorOf(s),
     },
     runnerOnline: online,
     ready: setupDone(list) && signed,
   };
+}
+
+/** A site's commit author (migration 0022), read leniently: null before the migration or when unset. */
+function authorOf(s: Row | undefined): CommitAuthor | null {
+  const a = { name: (s?.commit_author_name as string) ?? "", email: (s?.commit_author_email as string) ?? "" };
+  return isCommitAuthor(a) ? a : null;
 }
 
 export async function setSetupItem(site: Site, identity: Identity, code: string, status: SiteSetup["items"][number]["status"], note?: string) {
@@ -929,7 +938,7 @@ export async function setSetupItem(site: Site, identity: Identity, code: string,
 
 export async function saveSiteSettings(
   site: Site,
-  input: { name?: string; url?: string; description?: string | null; repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null; path?: SitePath },
+  input: { name?: string; url?: string; description?: string | null; repo?: string | null; repoPath?: string | null; baseBranch?: string; stageUrl?: string | null; domain?: Domain | null; path?: SitePath; commitAuthor?: CommitAuthor | null },
 ) {
   const url = input.url?.trim().replace(/\/+$/, "");
   if (input.url !== undefined && !url) throw new CodeError("The site needs an address: where it runs, or its code's.");
@@ -945,6 +954,10 @@ export async function saveSiteSettings(
       ...(input.stageUrl !== undefined && { stage_url: input.stageUrl?.trim() || null }),
       ...(input.domain !== undefined && { domain: input.domain }),
       ...(isSitePath(input.path) && { path: input.path }),
+      ...(input.commitAuthor !== undefined &&
+        (isCommitAuthor(input.commitAuthor)
+          ? { commit_author_name: input.commitAuthor.name.trim(), commit_author_email: input.commitAuthor.email.trim() }
+          : { commit_author_name: null, commit_author_email: null })),
     })
     .eq("id", site.id);
   if (error) throw new Error(error.message);
@@ -1114,7 +1127,7 @@ async function context(job: Row): Promise<JobContext> {
     site: {
       id: s!.id as string, slug: s!.slug as string, name: s!.name as string, url: s!.url as string, repoPath: (s!.repo_path as string) ?? null,
       baseBranch: (s!.base_branch as string) ?? "stage", stack: (s!.stack as string) ?? null, baselineTests: (s!.baseline_tests as number) ?? null,
-      repo: (s!.repo as string) || null, domain, path: sitePathOf(s!.path),
+      repo: (s!.repo as string) || null, domain, path: sitePathOf(s!.path), commitAuthor: authorOf(s!),
       // The system's other code (migration 0016); the ingest reads every source.
       sources: Array.isArray(s!.sources) ? (s!.sources as SiteSource[]) : [],
     },
