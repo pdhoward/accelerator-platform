@@ -1169,6 +1169,22 @@ function PlanPanel({
               <Sparkles className="size-3.5" /> Revise from the conversation
             </button>
           )}
+          {/* After approval: replan only what isn't built yet; done steps stay (B33). */}
+          {canAsk && a.draftPlan && d.work.planApproved && d.steps.some((s) => s.status !== "done") && (
+            <button
+              type="button"
+              className={button("plain", "text-xs")}
+              disabled={busy}
+              onClick={() =>
+                act(
+                  () => api.work.plan(siteId, n, { action: "draft" }),
+                  "Redrafting the steps not built yet. Done steps stay.",
+                )
+              }
+            >
+              <Sparkles className="size-3.5" /> Redraft the remaining steps
+            </button>
+          )}
           {canApprove && a.approvePlan && (
             <button
               type="button"

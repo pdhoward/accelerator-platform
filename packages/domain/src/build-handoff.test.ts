@@ -21,6 +21,14 @@ describe("a fresh builder session per step (B33)", () => {
     expect(buildPrompt(work, work.steps[2]!, [], "stage")).toContain("WHAT THE EARLIER STEPS DID");
   });
 
+  it("tells a retry why the last attempt stopped and that its changes are still there", () => {
+    const p = buildPrompt(work, work.steps[2]!, ["The builder stopped early (error_max_turns) after spending $3.20. Its last notes: the floating chat button appears at two heights."], "stage", 24);
+    expect(p).toMatch(/THIS IS A REPAIR/);
+    expect(p).toMatch(/floating chat button/);
+    expect(p).toMatch(/24 uncommitted change\(s\) from an earlier attempt/);
+    expect(buildPrompt(work, work.steps[2]!, [], "stage", 0)).not.toMatch(/uncommitted change/);
+  });
+
   it("has nothing to hand over on the first step", () => {
     expect(handoff(work, work.steps[0]!)).toBe("");
   });

@@ -169,7 +169,7 @@ export function handoff(w: Work, step: WorkStep, base = "the base branch"): stri
   return `\n\nWHAT THE EARLIER STEPS DID\nYou start a fresh session. This is the earlier builders' handoff; the code itself is the truth (git log, git diff ${base}...HEAD).\n${lines.join("\n")}`;
 }
 
-export function buildPrompt(w: Work, step: WorkStep, repair: string[] = [], base?: string): string {
+export function buildPrompt(w: Work, step: WorkStep, repair: string[] = [], base?: string, leftovers = 0): string {
   return `Build step ${step.position} of the approved plan for work item #${w.number}.
 
 THE STEP
@@ -185,9 +185,15 @@ Do only this step. Add or update tests that prove it. Run the typecheck and the 
   repair.length
     ? `
 
-THIS IS A REPAIR. The last run of this step failed the runner's checks:
+THIS IS A REPAIR. The last run of this step didn't finish, or failed the runner's checks:
 ${repair.map((r) => `- ${r}`).join("\n")}
 Find and fix the cause within this step's scope. Never weaken, skip or delete tests to make them pass, and never shrink the suite.`
+    : ""
+}${
+  leftovers
+    ? `
+
+THE WORKING COPY has ${leftovers} uncommitted change(s) from an earlier attempt of this step. Start by reviewing them (git status, git diff): keep what is right, fix or revert the rest. Don't start over.`
     : ""
 }`;
 }

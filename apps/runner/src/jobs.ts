@@ -160,6 +160,8 @@ export async function buildStep(ctx: JobContext, log: Log) {
 
   // Before: the suite as it stands, so the step can't shrink it. When the last step's proof ran on this exact
   // commit, its count stands (B33): the suite isn't run twice on the same code.
+  // Changes an earlier attempt of this step left uncommitted (it stopped early): the builder is told, not surprised.
+  const leftovers = (await git("status --porcelain", dir)).out.split(/\r?\n/).filter((l) => l.trim()).length;
   const proven = await lastProof(dir);
   const testsBefore = proven ? proven.tests : await (async () => {
     const before = await checks(dir, env);
@@ -175,11 +177,16 @@ export async function buildStep(ctx: JobContext, log: Log) {
   // turn re-send all earlier steps: step 3 of the blog upgrade re-sent about 450k tokens a turn. The build
   // session isn't kept as the Work item's session either, so the Team Lead's replies stay small.
   const r = await agent({
-    cwd: dir, model: ctx.job.model, append: [buildAppend(ctx), codeState(dir)].filter(Boolean).join("\n\n"), mode: "build", log, prompt: buildPrompt(w, step, repair, ctx.site.baseBranch),
+    cwd: dir, model: ctx.job.model, append: [buildAppend(ctx), codeState(dir)].filter(Boolean).join("\n\n"), mode: "build", log, prompt: buildPrompt(w, step, repair, ctx.site.baseBranch, leftovers),
     toolbelt: toolbelt(ctx), siteEnv: env, modelProxy: modelProxy(ctx),
   });
   spent(ctx, r);
-  if (!r.ok) throw new Error(`The builder stopped early (${r.reason}).`);
+  if (!r.ok) {
+    // Keep where it got to: the repair run starts from this (B33). The changes stay in the working copy, uncommitted.
+    const notes = (r.notes ?? []).slice(-3).join(" … ").replace(/\s+/g, " ").slice(0, 1800);
+    const left = (await git("status --porcelain", dir)).out.split(/\r?\n/).filter((l) => l.trim()).length;
+    throw new Error(`The builder stopped early (${r.reason}) after spending $${r.costUsd.toFixed(2)}.${left ? ` ${left} changed files are left uncommitted in the working copy.` : ""}${notes ? ` Its last notes: ${notes}` : ""}`);
+  }
 
   // After: the runner's own checks decide the verdict, not the model's report.
   log.status("Running the Protocol checks…");

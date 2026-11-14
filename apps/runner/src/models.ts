@@ -77,7 +77,8 @@ export function refusal(tool: string, input: Record<string, unknown>): string | 
 
 /** One model's share of a run: the Spend page splits a job by the models it used (B20). */
 export type Meter = { model: string; tokensIn: number; tokensOut: number; costUsd: number };
-export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string; meter?: Meter[] };
+/** notes: the agent's last few reports, kept so a run that stops early still says where it got to. */
+export type AgentResult = { text: string; costUsd: number; ok: boolean; reason?: string; sessionId?: string; meter?: Meter[]; notes?: string[] };
 
 // ── One structured read, not an agent loop (B20) ─────────────────────────────
 
@@ -266,7 +267,8 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
       ...(resume && { resume }),
       canUseTool: guard,
       hooks: { PreToolUse: [{ hooks: [guardHook] }] },
-      maxTurns: opts.maxTurns ?? (opts.mode === "read" ? 20 : 80),
+      // A build's real limit is its dollar budget; turns are only a backstop (B33).
+      maxTurns: opts.maxTurns ?? (opts.mode === "read" ? 20 : 250),
       maxBudgetUsd: opts.maxBudgetUsd ?? (opts.mode === "read" ? 2 : 8),
       effort: "high",
       env: {
@@ -278,10 +280,15 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
   });
 
   let text = "";
+  const notes: string[] = [];
   for await (const m of stream) {
     if (m.type === "assistant") {
       for (const b of m.message.content) {
-        if (b.type === "text" && b.text.trim()) opts.log.log(b.text.trim());
+        if (b.type === "text" && b.text.trim()) {
+          opts.log.log(b.text.trim());
+          notes.push(b.text.trim().slice(0, 600));
+          if (notes.length > 6) notes.shift();
+        }
         if (b.type === "tool_use") opts.log.tool(describeTool(b.name, b.input as Record<string, unknown>));
       }
     } else if (m.type === "result") {
@@ -291,10 +298,10 @@ async function runAgent(opts: Parameters<typeof agent>[0], resume: string | unde
       const meter = Object.entries(m.modelUsage ?? {}).map(([model, u]) => ({
         model, tokensIn: u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens, tokensOut: u.outputTokens, costUsd: u.costUSD,
       }));
-      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype, sessionId: m.session_id, meter };
+      return { text, costUsd: m.total_cost_usd, ok, reason: ok ? undefined : m.subtype, sessionId: m.session_id, meter, notes };
     }
   }
-  return { text, costUsd: 0, ok: false, reason: "The agent ended without a result." };
+  return { text, costUsd: 0, ok: false, reason: "The agent ended without a result.", notes };
 }
 
 function describeTool(name: string, input: Record<string, unknown>): string {

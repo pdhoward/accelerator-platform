@@ -995,8 +995,13 @@ export async function heartbeat(runnerId: string, version?: string) {
  */
 export async function claim(runnerId: string): Promise<JobContext | null> {
   await settleLapsed();
-  const queued = await rows(db().from("acc_jobs").select("id, kind, site_id, generation, attempts").eq("status", "queued").order("created_at").limit(10));
+  const queued = await rows(db().from("acc_jobs").select("id, kind, site_id, work_id, generation, attempts").eq("status", "queued").order("created_at").limit(10));
+  // Paused means nothing new starts, including a step the platform put back in the queue after its runner
+  // stopped (B33). The Team Lead still answers.
+  const workIds = [...new Set(queued.filter((q) => q.work_id && q.kind !== "discuss").map((q) => q.work_id as string))];
+  const paused = new Set(workIds.length ? (await rows(db().from("acc_work").select("id").in("id", workIds).not("paused_at", "is", null))).map((r) => r.id as string) : []);
   for (const q of queued) {
+    if (q.work_id && q.kind !== "discuss" && paused.has(q.work_id as string)) continue;
     if (q.kind === "release") {
       const landing = await rows(db().from("acc_jobs").select("id").eq("site_id", q.site_id as string).eq("kind", "release").eq("status", "running").limit(1));
       if (landing.length) continue; // one release per site at a time
@@ -1166,9 +1171,15 @@ export async function finish(jobId: string, outcome: { status: "done" | "failed"
   if (outcome.status === "failed" || !outcome.result) {
     await db().from("acc_jobs").update({ status: "failed", error: outcome.error ?? "Failed.", finished_at: now() }).eq("id", jobId);
     if (w) {
-      if (job.kind === "build_step") await countAttempt((job.input as Row).stepId as string, { status: "blocked" });
+      // A build step that stopped early keeps why, so its repair run is told (B33): the crew then repairs it
+      // on its own, within the repair budget, like a step the Protocol blocked.
+      if (job.kind === "build_step") await countAttempt((job.input as Row).stepId as string, { status: "blocked", evidence: { reasons: [(outcome.error ?? "The run failed.").slice(0, 3000)] } });
       await record(w, { kind: "failed", actor: { kind: "crew", label: CREW_ROLE[job.role as string] ?? "Crew" }, summary: `The ${String(job.kind).replace("_", " ")} run failed: ${(outcome.error ?? "unknown error").slice(0, 200)}`, refs: { job: jobId } });
       await say(w, { kind: "system", label: "Runner", body: `The ${String(job.kind).replace("_", " ")} run failed: ${outcome.error ?? "unknown error"}` });
+      if (job.kind === "build_step") {
+        await restage(w.id as string);
+        await drive({ id: job.site_id as string, orgId: job.org_id as string }, w.id as string, job.created_by as string);
+      }
     }
     return;
   }
