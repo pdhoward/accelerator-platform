@@ -111,7 +111,7 @@ export async function ensureWorktree(repoPath: string, slug: string, name: strin
       if (r.code !== 0) throw new Error(`The branch is ${behind} commit(s) behind ${base} and couldn't catch up: ${tail(r.out, 300)}`);
       log?.status(`code> ${branch} caught up with ${base} (+${behind} commits)`);
     } else if (plan === "merge") {
-      const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" merge --no-edit --quiet ${b.ref}`, dir, {}, 120_000);
+      const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" merge --no-edit --no-verify --quiet ${b.ref}`, dir, {}, 120_000);
       if (r.code !== 0) {
         const files = (await git("diff --name-only --diff-filter=U", dir)).out.trim().split(/\r?\n/).filter(Boolean);
         await git("merge --abort", dir);
@@ -146,11 +146,16 @@ export const baseRef = async (repoPath: string, base: string) => (await baseStat
 
 export const headSha = async (dir: string) => (await git("rev-parse HEAD", dir)).out.trim();
 
-/** Commit whatever the step changed (the runner commits, not the model). */
+/**
+ * Commit whatever the step changed (the runner commits, not the model). The runner's own git writes skip the
+ * site's git hooks (--no-verify; the Owner's decision, 2026-11-14): the runner has already run the site's checks
+ * on this exact tree, and a hook could only block the commit (the blog's new Husky hook couldn't start on
+ * Windows) or change files after they were proven. The hooks still run for people's own commits.
+ */
 export async function commitAll(dir: string, message: string): Promise<string | null> {
   await git("add -A", dir);
   if ((await git("diff --cached --quiet", dir)).code === 0) return null;
-  const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" commit -q -m ${JSON.stringify(message)}`, dir);
+  const r = await sh(`git -c user.name="Accelerator Engine" -c user.email="engine@strategicmachines.ai" commit -q --no-verify -m ${JSON.stringify(message)}`, dir);
   if (r.code !== 0) throw new Error(`Commit failed: ${r.out.trim()}`);
   return headSha(dir);
 }

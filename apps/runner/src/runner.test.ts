@@ -178,3 +178,19 @@ describe("the last proof is reused only on the same clean commit (B33)", () => {
     expect(await lastProof(dir)).toBeNull(); // a different commit
   });
 });
+
+describe("the runner's commits skip the site's git hooks (the Owner, 2026-11-14)", () => {
+  it("commits a proven tree even when the site's pre-commit hook can't run", async () => {
+    const { mkdirSync, mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { commitAll, git } = await import("./repo");
+    const dir = mkdtempSync(join(tmpdir(), "hooks-"));
+    await git("init -q", dir);
+    mkdirSync(join(dir, "hooks"));
+    writeFileSync(join(dir, "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    await git("config core.hooksPath hooks", dir);
+    writeFileSync(join(dir, "a.txt"), "1");
+    expect(await commitAll(dir, "step")).toMatch(/^[0-9a-f]{40}$/);
+  });
+});
