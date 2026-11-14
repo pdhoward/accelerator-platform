@@ -37,3 +37,12 @@ describe("commit author (migration 0022)", () => {
     expect(isCommitAuthor(null)).toBe(false);
   });
 });
+
+describe("prove names an unreadable deployment list", () => {
+  it("tells the owner to give the token Deployments: read", async () => {
+    const { proveVerdict } = await import("./flywheel");
+    const v = proveVerdict({ typecheck: true, build: true, tests: { total: 1, passed: 1, failed: 0 }, pushed: true, previewState: "unreadable", baseline: null } as never);
+    expect(v.ok).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/Deployments: read/);
+  });
+});

@@ -46,6 +46,11 @@ export async function waitForDeployment(
           return { state, url: latest.environment_url || latest.target_url || null, environment: d.environment };
         }
       }
+    } else if (r && r.status === 403 && !/rate limit/i.test(await r.clone().text().catch(() => ""))) {
+      // Not a rate limit: the token can't read this repository's deployments (a private repository needs
+      // "Deployments: read" on a fine-grained token). Waiting won't change that; say so at once.
+      log.check("GitHub refused to list this repository's deployments: the token needs Deployments: read.");
+      return { state: "unreadable", url: null, environment: seen };
     } else if (r && (r.status === 403 || r.status === 429)) {
       log.status("GitHub's rate limit; waiting…");
     }

@@ -307,7 +307,8 @@ export function proveVerdict(f: ProveFacts): { ok: boolean; reasons: string[] } 
   if (f.previewState === "skipped") {
     if (!reasons.length) reasons.push("The preview was skipped.");
   } else if (!f.pushed) reasons.push("The branch couldn't be pushed to GitHub.");
-  else if (f.previewState === "missing") reasons.push("No preview deployment appeared. Check the Vercel project is linked to the repository.");
+  else if (f.previewState === "unreadable") reasons.push("The GitHub token can't read this repository's deployments, so the preview can't be found. Give the token Deployments: read (GitHub → Settings → Developer settings → Fine-grained tokens), then prove again.");
+  else if (f.previewState === "missing") reasons.push("No preview deployment appeared. Check the Vercel project is linked to the repository, and, for a private repository, that Setup → Commits made as names a member of the Vercel team.");
   else if (f.previewState !== "success") reasons.push(`The preview deployment ended in "${f.previewState}". See the Vercel build log.`);
   return { ok: reasons.length === 0, reasons };
 }
@@ -556,7 +557,7 @@ export type SecretStatus = { environment: VaultEnv; name: string; last4: string;
 
 /** Keys the engine itself can use for a site, listed on Configuration even when the repo doesn't mention them. */
 export const ENGINE_KEYS = [
-  { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → Repository access: add this repository (a private one isn't covered by \"Public repositories\"), Contents: read" },
+  { name: "GITHUB_TOKEN", purpose: "Read the private repository (code browser) until the GitHub App is installed", howToGet: "GitHub → Settings → Developer settings → Fine-grained tokens → Repository access: add this repository (a private one isn't covered by \"Public repositories\"). Permissions: Contents read and write, Deployments read" },
   { name: "VERCEL_TOKEN", purpose: "Read deployments and preview URLs", howToGet: "Vercel → Account Settings → Tokens (scope: this project)" },
   { name: "CRADLE_APP_URL", purpose: "Where the AI-run app is, so the Accelerator can ask it to prove new rules the moment they change (conformance gate)", howToGet: "The app's address, e.g. https://machineshop-git-cradle-strategicmachines.vercel.app" },
   { name: "VERCEL_PROTECTION_BYPASS", purpose: "Optional: only if that address sits behind Vercel's sign-in (Deployment Protection)", howToGet: "Vercel → the app's project → Settings → Deployment Protection → Protection Bypass for Automation" },
